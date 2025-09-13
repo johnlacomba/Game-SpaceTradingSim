@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
-type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean }
+type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; tick?: number }
 
 type RoomState = {
   room: { id: string; name: string; started: boolean; tick: number; players: any[]; planets: string[] }
@@ -152,10 +152,10 @@ export function App() {
         <button onClick={createRoom}>Create Game</button>
         <h3 style={{ marginTop: 16 }}>Active Rooms</h3>
         <ul>
-          {lobby.rooms.map(r => (
+      {lobby.rooms.map(r => (
             <li key={r.id}>
               <button onClick={() => joinRoom(r.id)}>
-                {r.name} — {r.playerCount} players {r.started ? '(Started)' : ''}
+        {r.name} — {r.playerCount} players {r.started ? `(Started · Tick ${r.tick ?? 0})` : ''}
               </button>
             </li>
           ))}

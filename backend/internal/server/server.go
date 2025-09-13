@@ -107,6 +107,7 @@ func (gs *GameServer) HandleListRooms(w http.ResponseWriter, r *http.Request) {
 			"name":        room.Name,
 			"started":     room.Started,
 			"playerCount": len(room.Players),
+			"tick":        room.Tick,
 		})
 		room.mu.Unlock()
 	}
@@ -243,6 +244,7 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 			"name":        room.Name,
 			"started":     room.Started,
 			"playerCount": len(room.Players),
+			"tick":        room.Tick,
 		})
 		room.mu.Unlock()
 	}
