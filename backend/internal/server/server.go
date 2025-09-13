@@ -38,12 +38,13 @@ type Player struct {
 }
 
 type Room struct {
-	ID      string               `json:"id"`
-	Name    string               `json:"name"`
-	Started bool                 `json:"started"`
-	Players map[PlayerID]*Player `json:"players"`
-	Tick    int                  `json:"tick"`
-	Planets map[string]*Planet   `json:"planets"`
+	ID      string                        `json:"id"`
+	Name    string                        `json:"name"`
+	Started bool                          `json:"started"`
+	Players map[PlayerID]*Player          `json:"players"`
+	Tick    int                           `json:"tick"`
+	Planets map[string]*Planet            `json:"planets"`
+	Persist map[PlayerID]*PersistedPlayer `json:"-"`
 	mu      sync.Mutex
 }
 
@@ -53,6 +54,15 @@ type Planet struct {
 	Prices map[string]int `json:"prices"`
 	// Prod is per-tick production for goods at this location (server-only)
 	Prod map[string]int `json:"-"`
+}
+
+// PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
+type PersistedPlayer struct {
+	Money             int
+	CurrentPlanet     string
+	DestinationPlanet string
+	Inventory         map[string]int
+	InventoryAvgCost  map[string]int
 }
 
 type GameServer struct {
@@ -125,6 +135,14 @@ func (gs *GameServer) readLoop(p *Player) {
 			gs.roomsMu.RUnlock()
 			if room != nil {
 				room.mu.Lock()
+				// persist on disconnect
+				room.Persist[p.ID] = &PersistedPlayer{
+					Money:             p.Money,
+					CurrentPlanet:     p.CurrentPlanet,
+					DestinationPlanet: p.DestinationPlanet,
+					Inventory:         cloneIntMap(p.Inventory),
+					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
+				}
 				delete(room.Players, p.ID)
 				room.mu.Unlock()
 				gs.broadcastRoom(room)
@@ -198,6 +216,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			if room := gs.getRoom(p.roomID); room != nil {
 				gs.handleSell(room, p, data.Good, data.Amount)
 			}
+		case "exitRoom":
+			if p.roomID != "" {
+				gs.exitRoom(p)
+			}
 		}
 	}
 }
@@ -237,6 +259,7 @@ func (gs *GameServer) createRoom(name string) *Room {
 		Name:    name,
 		Players: map[PlayerID]*Player{},
 		Planets: defaultPlanets(),
+		Persist: map[PlayerID]*PersistedPlayer{},
 	}
 	gs.roomsMu.Lock()
 	gs.rooms[room.ID] = room
@@ -260,8 +283,22 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	}
 	room.mu.Lock()
 	p.roomID = room.ID
-	p.CurrentPlanet = "Earth"
-	p.DestinationPlanet = ""
+	// restore from persistence if available, else initialize defaults
+	if snap, ok := room.Persist[p.ID]; ok && snap != nil {
+		p.Money = snap.Money
+		p.CurrentPlanet = defaultStr(snap.CurrentPlanet, "Earth")
+		p.DestinationPlanet = snap.DestinationPlanet
+		if snap.Inventory != nil {
+			p.Inventory = cloneIntMap(snap.Inventory)
+		}
+		if snap.InventoryAvgCost != nil {
+			p.InventoryAvgCost = cloneIntMap(snap.InventoryAvgCost)
+		}
+		delete(room.Persist, p.ID)
+	} else {
+		p.CurrentPlanet = "Earth"
+		p.DestinationPlanet = ""
+	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
 	}
@@ -272,6 +309,30 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	room.mu.Unlock()
 	gs.sendRoomState(room, p)
 	gs.broadcastRoom(room)
+}
+
+// exitRoom removes the player from the room and returns them to the lobby, persisting their state
+func (gs *GameServer) exitRoom(p *Player) {
+	room := gs.getRoom(p.roomID)
+	if room == nil {
+		return
+	}
+	room.mu.Lock()
+	room.Persist[p.ID] = &PersistedPlayer{
+		Money:             p.Money,
+		CurrentPlanet:     p.CurrentPlanet,
+		DestinationPlanet: p.DestinationPlanet,
+		Inventory:         cloneIntMap(p.Inventory),
+		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
+	}
+	delete(room.Players, p.ID)
+	p.roomID = ""
+	room.mu.Unlock()
+	gs.broadcastRoom(room)
+	// send them back to the lobby
+	if p.conn != nil {
+		gs.sendLobbyState(p)
+	}
 }
 
 func (gs *GameServer) startGame(roomID string) {
@@ -645,4 +706,15 @@ func defaultStr(s, d string) string {
 		return d
 	}
 	return s
+}
+
+func cloneIntMap(m map[string]int) map[string]int {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }

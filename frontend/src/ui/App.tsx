@@ -84,6 +84,7 @@ export function App() {
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
+  const exitRoom = () => send('exitRoom')
 
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
   const buy = (good: string, amount: number) => send('buy', { good, amount })
@@ -181,7 +182,11 @@ export function App() {
             <>
               <button onClick={startGame}>Start Game</button>
               <button onClick={addBot}>Add Bot</button>
+              <button onClick={exitRoom}>Exit</button>
             </>
+          )}
+          {r.room.started && (
+            <button onClick={exitRoom}>Exit</button>
           )}
         </div>
       </div>
