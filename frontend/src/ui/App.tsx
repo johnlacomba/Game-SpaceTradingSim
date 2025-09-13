@@ -120,7 +120,18 @@ export function App() {
   const prices: Record<string, number> = visible.prices || {}
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16, fontFamily: 'system-ui' }}>
+    <div style={{ fontFamily: 'system-ui' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
+        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <strong>{r.room.name}</strong>
+          <span style={{ color:'#666' }}>Tick: {r.room.tick}</span>
+        </div>
+        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <span><strong>${r.you.money}</strong></span>
+          {!r.room.started && <button onClick={startGame}>Start Game</button>}
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16 }}>
       <div>
         <h3>Planets</h3>
         <ul>
@@ -141,10 +152,7 @@ export function App() {
           })}
         </ul>
       </div>
-      <div>
-        <h2>Room: {r.room.name} {r.room.started ? '(Started)' : ''}</h2>
-        {!r.room.started && <button onClick={startGame}>Start Game</button>}
-        <div>Tick: {r.room.tick}</div>
+  <div>
         <h3>Players</h3>
         <ul>
           {r.room.players.map((pl:any)=> (
@@ -154,7 +162,6 @@ export function App() {
       </div>
   <div>
         <h3>Market — {visible.name || r.you.currentPlanet}</h3>
-        <div>Your money: ${r.you.money}</div>
         <ul>
           {Object.keys(goods).map(g => {
             const price = prices[g]
@@ -198,6 +205,7 @@ export function App() {
             })}
           </ul>
         )}
+      </div>
       </div>
     </div>
   )
