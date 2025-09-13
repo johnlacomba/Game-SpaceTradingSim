@@ -165,7 +165,7 @@ export function App() {
                       setAmountsByGood(s => ({ ...s, [g]: isNaN(v) ? 0 : v }))
                     }} />
                   <button disabled={amt<=0} onClick={()=>buy(g, amt)}>Buy</button>
-                  <span>Owned: {owned}{available===0 && owned>0 ? ' (planet has none — you can still sell)' : ''}</span>
+                  <span>Owned: {owned}</span>
                   <button disabled={owned<=0} onClick={()=>sell(g, Math.min(owned, amt||owned))}>Sell</button>
                 </div>
               </li>
