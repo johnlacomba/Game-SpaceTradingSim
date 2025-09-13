@@ -1,0 +1,51 @@
+# macOS
+.DS_Store
+
+# Node/Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Coverage
+coverage/
+frontend/coverage/
+
+# Editor/IDE
+.idea/
+.fleet/
+.eslintcache
+.prettier-cache
+.history/
+*.swp
+*.swo
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# Go build artifacts
+backend/bin/
+backend/build/
+backend/out/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
