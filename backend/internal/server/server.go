@@ -384,7 +384,8 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 	p.Inventory[good] -= amount
 	planet.Goods[good] += amount
 	p.Money += amount * price
-	if p.Inventory[good] == 0 {
+	if p.Inventory[good] <= 0 {
+		delete(p.Inventory, good)
 		delete(p.InventoryAvgCost, good)
 	}
 }
