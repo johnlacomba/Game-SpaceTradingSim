@@ -31,6 +31,7 @@ type Player struct {
 	CurrentPlanet     string          `json:"currentPlanet"`
 	DestinationPlanet string          `json:"destinationPlanet"`
 	Inventory         map[string]int  `json:"inventory"`
+	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
 }
@@ -77,7 +78,7 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Create a transient player connection until they identify
-	p := &Player{ID: PlayerID(randID()), Name: "", Money: 1000, CurrentPlanet: "Earth", DestinationPlanet: "", Inventory: map[string]int{}}
+	p := &Player{ID: PlayerID(randID()), Name: "", Money: 1000, CurrentPlanet: "Earth", DestinationPlanet: "", Inventory: map[string]int{}, InventoryAvgCost: map[string]int{}}
 	p.conn = conn
 	go gs.readLoop(p)
 }
@@ -257,6 +258,9 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
 	}
+	if p.InventoryAvgCost == nil {
+		p.InventoryAvgCost = map[string]int{}
+	}
 	room.Players[p.ID] = p
 	room.mu.Unlock()
 	gs.sendRoomState(room, p)
@@ -332,7 +336,17 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	cost := amount * price
 	p.Money -= cost
 	planet.Goods[good] -= amount
-	p.Inventory[good] += amount
+	// update quantity and weighted average cost
+	oldQty := p.Inventory[good]
+	oldAvg := p.InventoryAvgCost[good]
+	newQty := oldQty + amount
+	p.Inventory[good] = newQty
+	if newQty > 0 {
+		newAvg := (oldQty*oldAvg + amount*price) / newQty
+		p.InventoryAvgCost[good] = newAvg
+	} else {
+		delete(p.InventoryAvgCost, good)
+	}
 }
 
 func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int) {
@@ -359,6 +373,9 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 	p.Inventory[good] -= amount
 	planet.Goods[good] += amount
 	p.Money += amount * price
+	if p.Inventory[good] == 0 {
+		delete(p.InventoryAvgCost, good)
+	}
 }
 
 func (gs *GameServer) sendRoomState(room *Room, only *Player) {
@@ -399,6 +416,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"name":              pp.Name,
 				"money":             pp.Money,
 				"inventory":         pp.Inventory,
+				"inventoryAvgCost":  pp.InventoryAvgCost,
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 			},

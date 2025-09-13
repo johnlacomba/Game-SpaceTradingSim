@@ -6,7 +6,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 
 type RoomState = {
   room: { id: string; name: string; started: boolean; tick: number; players: any[]; planets: string[] }
-  you: { id: string; name: string; money: number; inventory: Record<string, number>; currentPlanet: string; destinationPlanet: string }
+  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
 }
 
@@ -152,11 +152,12 @@ export function App() {
             const price = prices[g]
             const available = goods[g]
             const owned = r.you.inventory[g] || 0
+            const youPaid = r.you.inventoryAvgCost?.[g]
             const maxBuy = price > 0 ? Math.min(available, Math.floor(r.you.money / price)) : 0
             const amt = (amountsByGood[g] ?? maxBuy)
             return (
               <li key={g} style={{ marginBottom: 8 }}>
-                <b>{g}</b>: {available} @ ${price}
+                <b>{g}</b>: {available} @ ${price} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
                   <input style={{ width: 64 }} type="number" value={amt} min={0} max={999}
                     onChange={e=>{
