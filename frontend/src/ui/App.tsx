@@ -164,7 +164,7 @@ export function App() {
             const maxBuy = price > 0 ? Math.min(available, Math.floor(r.you.money / price)) : 0
             const amt = (amountsByGood[g] ?? maxBuy)
             return (
-              <li key={g} style={{ marginBottom: 8 }}>
+              <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
                 <b>{g}</b>: {available} @ ${price} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
                   <input style={{ width: 64 }} type="number" value={amt} min={0} max={999}
