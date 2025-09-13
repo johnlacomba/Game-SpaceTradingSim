@@ -68,6 +68,14 @@ export function App() {
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
+  // While in the lobby, periodically refresh the room list so new rooms show up
+  useEffect(() => {
+    if (!ready || stage !== 'lobby') return
+    send('listRooms')
+    const t = setInterval(() => send('listRooms'), 3000)
+    return () => clearInterval(t)
+  }, [ready, stage])
+
   const createRoom = () => send('createRoom')
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
   const startGame = () => send('startGame')
