@@ -48,6 +48,10 @@ export function App() {
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
+  const planetsContainerRef = useRef<HTMLDivElement | null>(null)
+  const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
+  const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
+  const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
 
   useEffect(() => {
     const last = messages[messages.length-1]
@@ -83,6 +87,50 @@ export function App() {
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
   const buy = (good: string, amount: number) => send('buy', { good, amount })
   const sell = (good: string, amount: number) => send('sell', { good, amount })
+
+  // Track positions of planet list items for drawing arrows
+  useEffect(() => {
+    if (!room) return
+    const container = planetsContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    setContainerSize({ width: rect.width, height: rect.height })
+    const next: Record<string, { x: number; y: number }> = {}
+    for (const p of room.room.planets) {
+      const el = planetRefs.current[p]
+      if (!el) continue
+      const r = el.getBoundingClientRect()
+      next[p] = { x: Math.min(rect.width - 60, 180), y: r.top + r.height / 2 - rect.top }
+    }
+    setPlanetPos(next)
+  }, [room?.room.planets, room?.room.players, stage])
+
+  // Recompute on resize
+  useEffect(() => {
+    const onResize = () => {
+      if (!room) return
+      const container = planetsContainerRef.current
+      if (!container) return
+      const rect = container.getBoundingClientRect()
+      setContainerSize({ width: rect.width, height: rect.height })
+      const next: Record<string, { x: number; y: number }> = {}
+      for (const p of room.room.planets) {
+        const el = planetRefs.current[p]
+        if (!el) continue
+        const r = el.getBoundingClientRect()
+        next[p] = { x: Math.min(rect.width - 60, 180), y: r.top + r.height / 2 - rect.top }
+      }
+      setPlanetPos(next)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [room?.room.planets, stage])
+
+  const colorFor = (id: string) => {
+    let h = 0
+    for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
+    return `hsl(${h},70%,45%)`
+  }
 
   // UI
   if (stage === 'title') {
@@ -132,17 +180,42 @@ export function App() {
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16 }}>
+      {/* Players column (now first) */}
       <div>
+        <h3>Players</h3>
+        <ul>
+          {r.room.players.map((pl:any)=> (
+            <li key={pl.id}>{pl.name} — ${pl.money} — on {pl.currentPlanet}</li>
+          ))}
+        </ul>
+      </div>
+      {/* Planets column (now second, wider to host arrows) */}
+      <div ref={planetsContainerRef} style={{ position: 'relative' }}>
         <h3>Planets</h3>
         <ul>
           {r.room.planets.map(p => {
             const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p)
             return (
-              <li key={p} style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ display:'flex', alignItems:'center', gap:8 }}>
                 <button disabled={p===r.you.currentPlanet} onClick={()=>selectPlanet(p)}>{p}</button>
                 <div style={{ display:'flex', gap:4 }}>
                   {onPlanet.map((pl:any) => (
-                    <span key={pl.id} title={pl.name} style={{ width:14, height:14, borderRadius:7, background:'#6cf', color:'#003', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:10 }}>
+                    <span
+                      key={pl.id}
+                      title={pl.name}
+                      style={{
+                        width:14,
+                        height:14,
+                        borderRadius:7,
+                        background: colorFor(String(pl.id)),
+                        color:'#fff',
+                        display:'inline-flex',
+                        alignItems:'center',
+                        justifyContent:'center',
+                        fontSize:10,
+                        boxShadow:'0 0 0 1px rgba(0,0,0,0.15)'
+                      }}
+                    >
                       {String(pl.name||'P').slice(0,1).toUpperCase()}
                     </span>
                   ))}
@@ -151,14 +224,38 @@ export function App() {
             )
           })}
         </ul>
-      </div>
-  <div>
-        <h3>Players</h3>
-        <ul>
-          {r.room.players.map((pl:any)=> (
-            <li key={pl.id}>{pl.name} — ${pl.money} — on {pl.currentPlanet}{pl.destinationPlanet?`→${pl.destinationPlanet}`:''}</li>
-          ))}
-        </ul>
+        {/* Destination arrows overlay */}
+        <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <defs>
+            {(r.room.players as any[]).map(pl => (
+              <marker key={pl.id} id={`arrow-head-${pl.id}`} markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill={colorFor(String(pl.id))} />
+              </marker>
+            ))}
+          </defs>
+          {(r.room.players as any[]).map(pl => {
+            const from = planetPos[pl.currentPlanet]
+            const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
+            if (!from || !to) return null
+            if (pl.destinationPlanet === pl.currentPlanet) return null
+            const x1 = from.x, y1 = from.y
+            const x2 = to.x, y2 = to.y
+            const dx = Math.max(80, Math.abs(y2 - y1) * 0.3 + 80)
+            const c1x = x1 + dx, c1y = y1
+            const c2x = x2 + dx, c2y = y2
+            const d = `M ${x1},${y1} C ${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}`
+            return (
+              <path key={pl.id}
+                d={d}
+                fill="none"
+                stroke={colorFor(String(pl.id))}
+                strokeWidth={2}
+                markerEnd={`url(#arrow-head-${pl.id})`}
+                opacity={0.9}
+              />
+            )
+          })}
+        </svg>
       </div>
   <div>
         <h3>Market — {visible.name || r.you.currentPlanet}</h3>
