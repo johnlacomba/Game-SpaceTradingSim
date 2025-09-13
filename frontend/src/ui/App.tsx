@@ -174,7 +174,7 @@ export function App() {
                     }} />
                   <button disabled={amt<=0} onClick={()=>buy(g, amt)}>Buy</button>
                   <span>Owned: {owned}</span>
-                  <button disabled={owned<=0} onClick={()=>sell(g, Math.min(owned, amt||owned))}>Sell</button>
+                  <button disabled={owned<=0} onClick={()=>sell(g, owned)}>Sell</button>
                 </div>
               </li>
             )
