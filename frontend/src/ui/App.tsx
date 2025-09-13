@@ -183,9 +183,14 @@ export function App() {
       {/* Players column (now first) */}
       <div>
         <h3>Players</h3>
-        <ul>
+        <ul style={{ listStyle:'none', padding:0, margin:0 }}>
           {r.room.players.map((pl:any)=> (
-            <li key={pl.id}>{pl.name} — ${pl.money} — on {pl.currentPlanet}</li>
+            <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, lineHeight:1.2, padding:'2px 0' }}>
+              <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
+              <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pl.name}</span>
+              <span style={{ color:'#111' }}>${pl.money}</span>
+              <span style={{ color:'#666' }}>@ {pl.currentPlanet}</span>
+            </li>
           ))}
         </ul>
       </div>
