@@ -112,7 +112,7 @@ export function App() {
   const prices: Record<string, number> = visible.prices || {}
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 280px', gap: 16, padding: 16, fontFamily: 'system-ui' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16, fontFamily: 'system-ui' }}>
       <div>
         <h3>Planets</h3>
         <ul>
@@ -144,7 +144,7 @@ export function App() {
           ))}
         </ul>
       </div>
-      <div>
+  <div>
         <h3>Market — {visible.name || r.you.currentPlanet}</h3>
         <div>Your money: ${r.you.money}</div>
         <ul>
@@ -172,6 +172,24 @@ export function App() {
             )
           })}
         </ul>
+      </div>
+      <div>
+        <h3>Ship Inventory</h3>
+        {Object.keys(r.you.inventory).length === 0 ? (
+          <div>Empty</div>
+        ) : (
+          <ul>
+            {Object.keys(r.you.inventory).sort().map(g => {
+              const qty = r.you.inventory[g]
+              const avg = r.you.inventoryAvgCost?.[g]
+              return (
+                <li key={g}>
+                  {g}: {qty}{typeof avg === 'number' ? ` (avg $${avg})` : ''}
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
     </div>
   )
