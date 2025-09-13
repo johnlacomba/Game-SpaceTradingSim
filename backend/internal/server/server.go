@@ -35,6 +35,7 @@ type Player struct {
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
+	writeMu           sync.Mutex      // guards conn writes
 }
 
 type Room struct {
@@ -127,7 +128,9 @@ func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 func (gs *GameServer) readLoop(p *Player) {
 	defer func() {
 		if p.conn != nil {
+			p.writeMu.Lock()
 			p.conn.Close()
+			p.writeMu.Unlock()
 		}
 		// remove from room if any
 		if p.roomID != "" {
@@ -249,7 +252,11 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 		room.mu.Unlock()
 	}
 	gs.roomsMu.RUnlock()
-	p.conn.WriteJSON(WSOut{Type: "lobbyState", Payload: map[string]interface{}{"rooms": resp}})
+	if p.conn != nil {
+		p.writeMu.Lock()
+		p.conn.WriteJSON(WSOut{Type: "lobbyState", Payload: map[string]interface{}{"rooms": resp}})
+		p.writeMu.Unlock()
+	}
 }
 
 func (gs *GameServer) createRoom(name string) *Room {
@@ -612,14 +619,18 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	room.mu.Unlock()
 
 	if only != nil && only.conn != nil {
+		only.writeMu.Lock()
 		only.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[only.ID]})
+		only.writeMu.Unlock()
 		return
 	}
 	for id, pp := range room.Players {
 		if pp.conn == nil {
 			continue
 		}
+		pp.writeMu.Lock()
 		pp.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[id]})
+		pp.writeMu.Unlock()
 	}
 }
 
