@@ -50,6 +50,8 @@ type Planet struct {
 	Name   string         `json:"name"`
 	Goods  map[string]int `json:"goods"`
 	Prices map[string]int `json:"prices"`
+	// Prod is per-tick production for goods at this location (server-only)
+	Prod map[string]int `json:"-"`
 }
 
 type GameServer struct {
@@ -301,6 +303,15 @@ func (gs *GameServer) runTicker(room *Room) {
 				p.DestinationPlanet = ""
 			}
 		}
+		// accumulate per-planet production
+		for _, pl := range room.Planets {
+			for g, amt := range pl.Prod {
+				if amt <= 0 {
+					continue
+				}
+				pl.Goods[g] = pl.Goods[g] + amt
+			}
+		}
 		room.mu.Unlock()
 		gs.broadcastRoom(room)
 		<-ticker.C
@@ -396,9 +407,19 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		planet := room.Planets[pp.CurrentPlanet]
 		visible := map[string]interface{}{}
 		if planet != nil {
+			// copy goods so we can add zero-stock for player's inventory
+			visGoods := map[string]int{}
+			for k, v := range planet.Goods {
+				visGoods[k] = v
+			}
+			for g := range pp.Inventory {
+				if _, ok := visGoods[g]; !ok {
+					visGoods[g] = 0
+				}
+			}
 			visible = map[string]interface{}{
 				"name":   planet.Name,
-				"goods":  planet.Goods,
+				"goods":  visGoods,
 				"prices": planet.Prices,
 			}
 		}
@@ -446,18 +467,62 @@ func planetNames(m map[string]*Planet) []string {
 }
 
 func defaultPlanets() map[string]*Planet {
-	goods := []string{"Food", "Ore", "Water", "Fuel"}
-	names := []string{"Earth", "Mars", "Jupiter", "Saturn", "Venus"}
-	m := map[string]*Planet{}
 	rand.Seed(time.Now().UnixNano())
-	for _, n := range names {
-		g := map[string]int{}
-		p := map[string]int{}
-		for _, item := range goods {
-			g[item] = 20 + rand.Intn(30)
-			p[item] = 5 + rand.Intn(20)
+	// All 8 planets + a few stations
+	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
+	// Standard goods produced broadly
+	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	// Unique per-location goods
+	uniqueByLoc := map[string][]string{
+		"Mercury":       {"Solar Panels"},
+		"Venus":         {"Acid Extract"},
+		"Earth":         {"Electronics"},
+		"Mars":          {"Iron Alloy"},
+		"Jupiter":       {"Helium-3"},
+		"Saturn":        {"Methane"},
+		"Uranus":        {"Ice Crystals"},
+		"Neptune":       {"Deep Blue Dye"},
+		"Pluto Station": {"Xenon Gas"},
+		"Titan Station": {"Titan Spice"},
+		"Ceres Station": {"Rare Metals"},
+	}
+	// Union of all goods for global pricing presence
+	allGoodsSet := map[string]struct{}{}
+	for _, g := range standard {
+		allGoodsSet[g] = struct{}{}
+	}
+	for _, arr := range uniqueByLoc {
+		for _, g := range arr {
+			allGoodsSet[g] = struct{}{}
 		}
-		m[n] = &Planet{Name: n, Goods: g, Prices: p}
+	}
+	allGoods := make([]string, 0, len(allGoodsSet))
+	for g := range allGoodsSet {
+		allGoods = append(allGoods, g)
+	}
+	sort.Strings(allGoods)
+
+	m := map[string]*Planet{}
+	for _, n := range names {
+		goods := map[string]int{}
+		prices := map[string]int{}
+		prod := map[string]int{}
+		for _, g := range standard {
+			goods[g] = 20 + rand.Intn(30)
+			prices[g] = 5 + rand.Intn(20)
+			prod[g] = 2 + rand.Intn(4) // 2-5 per tick
+		}
+		for _, g := range uniqueByLoc[n] {
+			goods[g] = 10 + rand.Intn(20)
+			prod[g] = 1 + rand.Intn(3) // 1-3 per tick
+		}
+		// ensure price exists for every good to allow selling anywhere
+		for _, g := range allGoods {
+			if _, ok := prices[g]; !ok {
+				prices[g] = 8 + rand.Intn(25)
+			}
+		}
+		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod}
 	}
 	return m
 }
