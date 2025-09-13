@@ -83,6 +83,7 @@ export function App() {
   const createRoom = () => send('createRoom')
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
   const startGame = () => send('startGame')
+  const addBot = () => send('addBot')
 
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
   const buy = (good: string, amount: number) => send('buy', { good, amount })
@@ -176,7 +177,12 @@ export function App() {
         </div>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <span><strong>${r.you.money}</strong></span>
-          {!r.room.started && <button onClick={startGame}>Start Game</button>}
+          {!r.room.started && (
+            <>
+              <button onClick={startGame}>Start Game</button>
+              <button onClick={addBot}>Add Bot</button>
+            </>
+          )}
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16 }}>

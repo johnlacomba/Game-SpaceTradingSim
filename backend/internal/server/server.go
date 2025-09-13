@@ -34,6 +34,7 @@ type Player struct {
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
+	IsBot             bool            `json:"-"`
 }
 
 type Room struct {
@@ -164,6 +165,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			if p.roomID != "" {
 				gs.startGame(p.roomID)
 			}
+		case "addBot":
+			if p.roomID != "" {
+				gs.addBot(p.roomID)
+			}
 		case "selectPlanet":
 			var data struct {
 				Planet string `json:"planet"`
@@ -284,6 +289,29 @@ func (gs *GameServer) startGame(roomID string) {
 	gs.broadcastRoom(room)
 }
 
+// addBot creates a server-controlled bot player and adds it to the room
+func (gs *GameServer) addBot(roomID string) {
+	room := gs.getRoom(roomID)
+	if room == nil {
+		return
+	}
+	b := &Player{
+		ID:                PlayerID(randID()),
+		Name:              "Bot " + randID()[0:3],
+		Money:             1000,
+		CurrentPlanet:     "Earth",
+		DestinationPlanet: "",
+		Inventory:         map[string]int{},
+		InventoryAvgCost:  map[string]int{},
+		IsBot:             true,
+	}
+	b.roomID = room.ID
+	room.mu.Lock()
+	room.Players[b.ID] = b
+	room.mu.Unlock()
+	gs.broadcastRoom(room)
+}
+
 func (gs *GameServer) runTicker(room *Room) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
@@ -312,6 +340,81 @@ func (gs *GameServer) runTicker(room *Room) {
 				pl.Goods[g] = pl.Goods[g] + amt
 			}
 		}
+		// simple bot AI: sell > $10, buy <= $10, pick a new random destination
+		for _, bp := range room.Players {
+			if !bp.IsBot {
+				continue
+			}
+			planet := room.Planets[bp.CurrentPlanet]
+			if planet == nil {
+				continue
+			}
+			// sell everything profitable (>10)
+			for g, qty := range bp.Inventory {
+				price := planet.Prices[g]
+				if qty > 0 && price > 10 {
+					// sell all
+					// inline sell logic (room.mu already locked)
+					bp.Inventory[g] -= qty
+					planet.Goods[g] += qty
+					bp.Money += qty * price
+					if bp.Inventory[g] <= 0 {
+						delete(bp.Inventory, g)
+						delete(bp.InventoryAvgCost, g)
+					}
+				}
+			}
+			// buy anything cheap (<=10)
+			// iterate deterministically for stability
+			keys := make([]string, 0, len(planet.Goods))
+			for k := range planet.Goods {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			for _, g := range keys {
+				price := planet.Prices[g]
+				if price <= 0 || price > 10 {
+					continue
+				}
+				avail := planet.Goods[g]
+				if avail <= 0 || bp.Money < price {
+					continue
+				}
+				amount := bp.Money / price
+				if amount > avail {
+					amount = avail
+				}
+				if amount <= 0 {
+					continue
+				}
+				// inline buy logic
+				cost := amount * price
+				bp.Money -= cost
+				planet.Goods[g] -= amount
+				oldQty := bp.Inventory[g]
+				oldAvg := bp.InventoryAvgCost[g]
+				newQty := oldQty + amount
+				bp.Inventory[g] = newQty
+				if newQty > 0 {
+					newAvg := (oldQty*oldAvg + amount*price) / newQty
+					bp.InventoryAvgCost[g] = newAvg
+				} else {
+					delete(bp.InventoryAvgCost, g)
+				}
+			}
+			// choose a new destination different from current
+			pn := planetNames(room.Planets)
+			if len(pn) > 1 {
+				// pick random different
+				for tries := 0; tries < 5; tries++ {
+					dest := pn[rand.Intn(len(pn))]
+					if dest != bp.CurrentPlanet {
+						bp.DestinationPlanet = dest
+						break
+					}
+				}
+			}
+		}
 		room.mu.Unlock()
 		gs.broadcastRoom(room)
 		<-ticker.C
@@ -333,7 +436,6 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	if price <= 0 {
 		return
 	}
-	// max you can buy
 	maxByMoney := p.Money / price
 	if amount > maxByMoney {
 		amount = maxByMoney
@@ -347,7 +449,6 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	cost := amount * price
 	p.Money -= cost
 	planet.Goods[good] -= amount
-	// update quantity and weighted average cost
 	oldQty := p.Inventory[good]
 	oldAvg := p.InventoryAvgCost[good]
 	newQty := oldQty + amount
@@ -447,11 +548,14 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	}
 	room.mu.Unlock()
 
-	if only != nil {
+	if only != nil && only.conn != nil {
 		only.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[only.ID]})
 		return
 	}
 	for id, pp := range room.Players {
+		if pp.conn == nil {
+			continue
+		}
 		pp.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[id]})
 	}
 }
@@ -468,7 +572,6 @@ func planetNames(m map[string]*Planet) []string {
 }
 
 func defaultPlanets() map[string]*Planet {
-	rand.Seed(time.Now().UnixNano())
 	// All 8 planets + a few stations
 	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
 	// Standard goods produced broadly
