@@ -48,6 +48,7 @@ type Room struct {
 	Planets map[string]*Planet            `json:"planets"`
 	Persist map[PlayerID]*PersistedPlayer `json:"-"`
 	mu      sync.Mutex
+	readyCh chan struct{} // signal to end turn early when all humans are ready
 }
 
 type Planet struct {
@@ -232,6 +233,25 @@ func (gs *GameServer) readLoop(p *Player) {
 			if room := gs.getRoom(p.roomID); room != nil {
 				room.mu.Lock()
 				p.Ready = data.Ready
+				// if game started and now all humans are ready, signal early turn end
+				allReady := room.Started
+				if allReady {
+					for _, pl := range room.Players {
+						if pl.IsBot {
+							continue
+						}
+						if !pl.Ready {
+							allReady = false
+							break
+						}
+					}
+				}
+				if allReady {
+					select {
+					case room.readyCh <- struct{}{}:
+					default:
+					}
+				}
 				room.mu.Unlock()
 				gs.broadcastRoom(room)
 			}
@@ -284,6 +304,7 @@ func (gs *GameServer) createRoom(name string) *Room {
 		Players: map[PlayerID]*Player{},
 		Planets: defaultPlanets(),
 		Persist: map[PlayerID]*PersistedPlayer{},
+		readyCh: make(chan struct{}, 1),
 	}
 	gs.roomsMu.Lock()
 	gs.rooms[room.ID] = room
@@ -381,6 +402,12 @@ func (gs *GameServer) startGame(roomID string) {
 			}
 		}
 		if canStart {
+			// reset human ready flags at game start
+			for _, pl := range room.Players {
+				if !pl.IsBot {
+					pl.Ready = false
+				}
+			}
 			room.Started = true
 			room.Turn = 0
 			go gs.runTicker(room)
@@ -415,15 +442,25 @@ func (gs *GameServer) addBot(roomID string) {
 }
 
 func (gs *GameServer) runTicker(room *Room) {
-	ticker := time.NewTicker(10 * time.Second)
-	defer ticker.Stop()
+	base := 10 * time.Second
 	for {
+		// Wait for either timer or early ready signal
+		timer := time.NewTimer(base)
+		select {
+		case <-timer.C:
+			// time-based turn end
+		case <-room.readyCh:
+			// early turn end due to all humans ready
+			if !timer.Stop() {
+				<-timer.C
+			}
+		}
+		// Process end-of-turn effects and start the next turn
 		room.mu.Lock()
 		if !room.Started {
 			room.mu.Unlock()
 			return
 		}
-		room.Turn++
 		room.Turn++
 		// resolve travel
 		for _, p := range room.Players {
@@ -456,8 +493,6 @@ func (gs *GameServer) runTicker(room *Room) {
 			for g, qty := range bp.Inventory {
 				price := planet.Prices[g]
 				if qty > 0 && price > 10 {
-					// sell all
-					// inline sell logic (room.mu already locked)
 					bp.Inventory[g] -= qty
 					planet.Goods[g] += qty
 					bp.Money += qty * price
@@ -468,7 +503,6 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 			// buy anything cheap (<=10)
-			// iterate deterministically for stability
 			keys := make([]string, 0, len(planet.Goods))
 			for k := range planet.Goods {
 				keys = append(keys, k)
@@ -490,7 +524,6 @@ func (gs *GameServer) runTicker(room *Room) {
 				if amount <= 0 {
 					continue
 				}
-				// inline buy logic
 				cost := amount * price
 				bp.Money -= cost
 				planet.Goods[g] -= amount
@@ -508,7 +541,6 @@ func (gs *GameServer) runTicker(room *Room) {
 			// choose a new destination different from current
 			pn := planetNames(room.Planets)
 			if len(pn) > 1 {
-				// pick random different
 				for tries := 0; tries < 5; tries++ {
 					dest := pn[rand.Intn(len(pn))]
 					if dest != bp.CurrentPlanet {
@@ -518,9 +550,14 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 		}
+		// reset human players' ready flags for the new turn
+		for _, pl := range room.Players {
+			if !pl.IsBot {
+				pl.Ready = false
+			}
+		}
 		room.mu.Unlock()
 		gs.broadcastRoom(room)
-		<-ticker.C
 	}
 }
 
