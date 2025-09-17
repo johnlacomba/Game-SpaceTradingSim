@@ -6,7 +6,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean }
+  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
 }
@@ -54,6 +54,13 @@ export function App() {
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [playersOpen, setPlayersOpen] = useState(false)
+  const [now, setNow] = useState<number>(() => Date.now())
+
+  // Tick local time for countdown
+  useEffect(() => {
+    const i = setInterval(() => setNow(Date.now()), 250)
+    return () => clearInterval(i)
+  }, [])
 
   useEffect(() => {
     const last = messages[messages.length-1]
@@ -178,6 +185,11 @@ export function App() {
   <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
           <strong>{r.room.name}</strong>
           <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
+          {typeof r.room.turnEndsAt === 'number' && (
+            <span style={{ color:'#666' }}>
+              · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
+            </span>
+          )}
           <div
             onMouseEnter={() => setPlayersOpen(true)}
             onMouseLeave={() => setPlayersOpen(false)}

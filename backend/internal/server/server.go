@@ -22,6 +22,8 @@ type WSOut struct {
 	Payload interface{} `json:"payload,omitempty"`
 }
 
+const turnDuration = 60 * time.Second
+
 type PlayerID string
 
 type Player struct {
@@ -40,15 +42,16 @@ type Player struct {
 }
 
 type Room struct {
-	ID      string                        `json:"id"`
-	Name    string                        `json:"name"`
-	Started bool                          `json:"started"`
-	Players map[PlayerID]*Player          `json:"players"`
-	Turn    int                           `json:"turn"`
-	Planets map[string]*Planet            `json:"planets"`
-	Persist map[PlayerID]*PersistedPlayer `json:"-"`
-	mu      sync.Mutex
-	readyCh chan struct{} // signal to end turn early when all humans are ready
+	ID         string                        `json:"id"`
+	Name       string                        `json:"name"`
+	Started    bool                          `json:"started"`
+	Players    map[PlayerID]*Player          `json:"players"`
+	Turn       int                           `json:"turn"`
+	Planets    map[string]*Planet            `json:"planets"`
+	Persist    map[PlayerID]*PersistedPlayer `json:"-"`
+	mu         sync.Mutex
+	readyCh    chan struct{} // signal to end turn early when all humans are ready
+	TurnEndsAt time.Time     `json:"-"`
 }
 
 type Planet struct {
@@ -410,6 +413,7 @@ func (gs *GameServer) startGame(roomID string) {
 			}
 			room.Started = true
 			room.Turn = 0
+			room.TurnEndsAt = time.Now().Add(turnDuration)
 			go gs.runTicker(room)
 		}
 	}
@@ -442,7 +446,7 @@ func (gs *GameServer) addBot(roomID string) {
 }
 
 func (gs *GameServer) runTicker(room *Room) {
-	base := 10 * time.Second
+	base := turnDuration
 	for {
 		// Wait for either timer or early ready signal
 		timer := time.NewTimer(base)
@@ -462,6 +466,8 @@ func (gs *GameServer) runTicker(room *Room) {
 			return
 		}
 		room.Turn++
+		// new turn begins; set the next deadline and reset human ready
+		room.TurnEndsAt = time.Now().Add(base)
 		// resolve travel
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
@@ -679,13 +685,14 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		}
 		payloadByPlayer[id] = map[string]interface{}{
 			"room": map[string]interface{}{
-				"id":       room.ID,
-				"name":     room.Name,
-				"started":  room.Started,
-				"turn":     room.Turn,
-				"players":  players,
-				"allReady": allReady,
-				"planets":  planetNames(room.Planets),
+				"id":         room.ID,
+				"name":       room.Name,
+				"started":    room.Started,
+				"turn":       room.Turn,
+				"players":    players,
+				"turnEndsAt": room.TurnEndsAt.UnixMilli(),
+				"allReady":   allReady,
+				"planets":    planetNames(room.Planets),
 			},
 			"you": map[string]interface{}{
 				"id":                pp.ID,
