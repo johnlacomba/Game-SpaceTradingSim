@@ -369,10 +369,22 @@ func (gs *GameServer) startGame(roomID string) {
 	}
 	room.mu.Lock()
 	if !room.Started {
-		room.Started = true
-		room.Turn = 0
-		room.Turn = 0
-		go gs.runTicker(room)
+		// Only start if all non-bot players are ready
+		canStart := true
+		for _, pl := range room.Players {
+			if pl.IsBot {
+				continue
+			}
+			if !pl.Ready {
+				canStart = false
+				break
+			}
+		}
+		if canStart {
+			room.Started = true
+			room.Turn = 0
+			go gs.runTicker(room)
+		}
 	}
 	room.mu.Unlock()
 	gs.broadcastRoom(room)
@@ -392,6 +404,7 @@ func (gs *GameServer) addBot(roomID string) {
 		DestinationPlanet: "",
 		Inventory:         map[string]int{},
 		InventoryAvgCost:  map[string]int{},
+		Ready:             true, // bots are always ready
 		IsBot:             true,
 	}
 	b.roomID = room.ID
@@ -584,6 +597,17 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	// prepare minimal view per-player (fog of goods for current planet only)
 	room.mu.Lock()
+	// compute whether all non-bot players are ready
+	allReady := true
+	for _, pp := range room.Players {
+		if pp.IsBot {
+			continue
+		}
+		if !pp.Ready {
+			allReady = false
+			break
+		}
+	}
 	players := []map[string]interface{}{}
 	for _, pp := range room.Players {
 		players = append(players, map[string]interface{}{
@@ -618,12 +642,13 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		}
 		payloadByPlayer[id] = map[string]interface{}{
 			"room": map[string]interface{}{
-				"id":      room.ID,
-				"name":    room.Name,
-				"started": room.Started,
-				"turn":    room.Turn,
-				"players": players,
-				"planets": planetNames(room.Planets),
+				"id":       room.ID,
+				"name":     room.Name,
+				"started":  room.Started,
+				"turn":     room.Turn,
+				"players":  players,
+				"allReady": allReady,
+				"planets":  planetNames(room.Planets),
 			},
 			"you": map[string]interface{}{
 				"id":                pp.ID,

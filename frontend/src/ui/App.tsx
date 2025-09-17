@@ -6,7 +6,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[] }
+  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
 }
@@ -212,7 +212,7 @@ export function App() {
           <span><strong>${r.you.money}</strong></span>
           {!r.room.started && (
             <>
-              <button onClick={startGame}>Start Game</button>
+              <button onClick={startGame} disabled={!r.room.allReady} title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}>Start Game</button>
               <button onClick={addBot}>Add Bot</button>
               <button onClick={exitRoom}>Exit</button>
             </>
