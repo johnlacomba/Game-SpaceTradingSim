@@ -68,7 +68,8 @@ export function App() {
 
   // Actions
   const onConnect = () => {
-    setUrl(`ws://localhost:8080/ws`)
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+  setUrl(`ws://${host}:8080/ws`)
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
