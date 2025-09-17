@@ -32,6 +32,7 @@ type Player struct {
 	DestinationPlanet string          `json:"destinationPlanet"`
 	Inventory         map[string]int  `json:"inventory"`
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
+	Ready             bool            `json:"ready"`
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
@@ -65,6 +66,7 @@ type PersistedPlayer struct {
 	DestinationPlanet string
 	Inventory         map[string]int
 	InventoryAvgCost  map[string]int
+	Ready             bool
 }
 
 type GameServer struct {
@@ -147,6 +149,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					DestinationPlanet: p.DestinationPlanet,
 					Inventory:         cloneIntMap(p.Inventory),
 					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
+					Ready:             p.Ready,
 				}
 				delete(room.Players, p.ID)
 				room.mu.Unlock()
@@ -220,6 +223,17 @@ func (gs *GameServer) readLoop(p *Player) {
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
 				gs.handleSell(room, p, data.Good, data.Amount)
+			}
+		case "setReady":
+			var data struct {
+				Ready bool `json:"ready"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				room.mu.Lock()
+				p.Ready = data.Ready
+				room.mu.Unlock()
+				gs.broadcastRoom(room)
 			}
 		case "exitRoom":
 			if p.roomID != "" {
@@ -304,10 +318,12 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		if snap.InventoryAvgCost != nil {
 			p.InventoryAvgCost = cloneIntMap(snap.InventoryAvgCost)
 		}
+		p.Ready = snap.Ready
 		delete(room.Persist, p.ID)
 	} else {
 		p.CurrentPlanet = "Earth"
 		p.DestinationPlanet = ""
+		p.Ready = false
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -334,6 +350,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		DestinationPlanet: p.DestinationPlanet,
 		Inventory:         cloneIntMap(p.Inventory),
 		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
+		Ready:             p.Ready,
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -575,6 +592,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			"money":             pp.Money,
 			"currentPlanet":     pp.CurrentPlanet,
 			"destinationPlanet": pp.DestinationPlanet,
+			"ready":             pp.Ready,
 		})
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
@@ -615,6 +633,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"inventoryAvgCost":  pp.InventoryAvgCost,
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
+				"ready":             pp.Ready,
 			},
 			"visiblePlanet": visible,
 		}

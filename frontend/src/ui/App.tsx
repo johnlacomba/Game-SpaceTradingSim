@@ -4,9 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
 
+type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: any[]; planets: string[] }
-  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string }
+  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[] }
+  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
 }
 
@@ -174,7 +175,7 @@ export function App() {
   return (
     <div style={{ fontFamily: 'system-ui' }}>
       <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
-        <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
+  <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
           <strong>{r.room.name}</strong>
           <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
           <div
@@ -186,8 +187,9 @@ export function App() {
             {playersOpen && (
               <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:8, zIndex:1000, minWidth:280 }}>
                 <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-                  {r.room.players.map((pl:any)=> (
+                  {r.room.players.map((pl)=> (
                     <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, lineHeight:1.2, padding:'6px 8px', borderRadius:6 }}>
+                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ width:8, height:8, borderRadius:4, background: pl.ready ? '#10b981' : '#ef4444' }} />
                       <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
                       <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pl.name}</span>
                       <span style={{ color:'#111' }}>${pl.money}</span>
@@ -200,6 +202,13 @@ export function App() {
           </div>
         </div>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+          <button
+            onClick={() => send('setReady', { ready: !Boolean(r.you.ready) })}
+            style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #e5e7eb', background: r.you.ready ? '#10b98122' : '#ef444422', color: r.you.ready ? '#065f46' : '#7f1d1d' }}
+            title={r.you.ready ? 'Ready' : 'Not Ready'}
+          >
+            Ready
+          </button>
           <span><strong>${r.you.money}</strong></span>
           {!r.room.started && (
             <>
