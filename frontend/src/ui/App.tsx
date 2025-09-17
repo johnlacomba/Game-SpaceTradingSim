@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
-type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; tick?: number }
+type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
 
 type RoomState = {
-  room: { id: string; name: string; started: boolean; tick: number; players: any[]; planets: string[] }
+  room: { id: string; name: string; started: boolean; turn: number; players: any[]; planets: string[] }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
 }
@@ -156,7 +156,7 @@ export function App() {
       {lobby.rooms.map(r => (
             <li key={r.id}>
               <button onClick={() => joinRoom(r.id)}>
-        {r.name} — {r.playerCount} players {r.started ? `(Started · Tick ${r.tick ?? 0})` : ''}
+                {r.name} — {r.playerCount} players {r.started ? `(Started · Turn ${r.turn ?? 0})` : ''}
               </button>
             </li>
           ))}
@@ -175,7 +175,7 @@ export function App() {
       <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <strong>{r.room.name}</strong>
-          <span style={{ color:'#666' }}>Tick: {r.room.tick}</span>
+          <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
         </div>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <span><strong>${r.you.money}</strong></span>

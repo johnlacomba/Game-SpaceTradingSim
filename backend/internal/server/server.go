@@ -43,7 +43,7 @@ type Room struct {
 	Name    string                        `json:"name"`
 	Started bool                          `json:"started"`
 	Players map[PlayerID]*Player          `json:"players"`
-	Tick    int                           `json:"tick"`
+	Turn    int                           `json:"turn"`
 	Planets map[string]*Planet            `json:"planets"`
 	Persist map[PlayerID]*PersistedPlayer `json:"-"`
 	mu      sync.Mutex
@@ -53,7 +53,8 @@ type Planet struct {
 	Name   string         `json:"name"`
 	Goods  map[string]int `json:"goods"`
 	Prices map[string]int `json:"prices"`
-	// Prod is per-tick production for goods at this location (server-only)
+	// Prod is per-turn production for goods at this location (server-only)
+// Prod is per-turn production for goods at this location (server-only)
 	Prod map[string]int `json:"-"`
 }
 
@@ -108,7 +109,7 @@ func (gs *GameServer) HandleListRooms(w http.ResponseWriter, r *http.Request) {
 			"name":        room.Name,
 			"started":     room.Started,
 			"playerCount": len(room.Players),
-			"tick":        room.Tick,
+			"turn":        room.Turn,
 		})
 		room.mu.Unlock()
 	}
@@ -247,7 +248,7 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 			"name":        room.Name,
 			"started":     room.Started,
 			"playerCount": len(room.Players),
-			"tick":        room.Tick,
+			"turn":        room.Turn,
 		})
 		room.mu.Unlock()
 	}
@@ -352,7 +353,8 @@ func (gs *GameServer) startGame(roomID string) {
 	room.mu.Lock()
 	if !room.Started {
 		room.Started = true
-		room.Tick = 0
+	room.Turn = 0
+	room.Turn = 0
 		go gs.runTicker(room)
 	}
 	room.mu.Unlock()
@@ -391,7 +393,8 @@ func (gs *GameServer) runTicker(room *Room) {
 			room.mu.Unlock()
 			return
 		}
-		room.Tick++
+	room.Turn++
+	room.Turn++
 		// resolve travel
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
@@ -600,7 +603,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"id":      room.ID,
 				"name":    room.Name,
 				"started": room.Started,
-				"tick":    room.Tick,
+				"turn":    room.Turn,
 				"players": players,
 				"planets": planetNames(room.Planets),
 			},
@@ -688,11 +691,11 @@ func defaultPlanets() map[string]*Planet {
 		for _, g := range standard {
 			goods[g] = 20 + rand.Intn(30)
 			prices[g] = 5 + rand.Intn(20)
-			prod[g] = 2 + rand.Intn(4) // 2-5 per tick
+			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
 		}
 		for _, g := range uniqueByLoc[n] {
 			goods[g] = 10 + rand.Intn(20)
-			prod[g] = 1 + rand.Intn(3) // 1-3 per tick
+			prod[g] = 1 + rand.Intn(3) // 1-3 per turn
 		}
 		// ensure price exists for every good to allow selling anywhere
 		for _, g := range allGoods {
