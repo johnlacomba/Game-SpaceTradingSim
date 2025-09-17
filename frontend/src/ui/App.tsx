@@ -52,6 +52,7 @@ export function App() {
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
+  const [playersOpen, setPlayersOpen] = useState(false)
 
   useEffect(() => {
     const last = messages[messages.length-1]
@@ -173,9 +174,30 @@ export function App() {
   return (
     <div style={{ fontFamily: 'system-ui' }}>
       <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
-        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+        <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
           <strong>{r.room.name}</strong>
           <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
+          <div
+            onMouseEnter={() => setPlayersOpen(true)}
+            onMouseLeave={() => setPlayersOpen(false)}
+            style={{ position:'relative' }}
+          >
+            <button onClick={() => setPlayersOpen(v=>!v)}>Players ▾</button>
+            {playersOpen && (
+              <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:8, zIndex:1000, minWidth:280 }}>
+                <ul style={{ listStyle:'none', padding:0, margin:0 }}>
+                  {r.room.players.map((pl:any)=> (
+                    <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, lineHeight:1.2, padding:'6px 8px', borderRadius:6 }}>
+                      <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
+                      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pl.name}</span>
+                      <span style={{ color:'#111' }}>${pl.money}</span>
+                      <span style={{ color:'#666' }}>@ {pl.currentPlanet}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
         </div>
         <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <span><strong>${r.you.money}</strong></span>
@@ -191,22 +213,8 @@ export function App() {
           )}
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '220px 1fr 320px 240px', gap: 16, padding: 16 }}>
-      {/* Players column (now first) */}
-      <div>
-        <h3>Players</h3>
-        <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-          {r.room.players.map((pl:any)=> (
-            <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, lineHeight:1.2, padding:'2px 0' }}>
-              <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
-              <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pl.name}</span>
-              <span style={{ color:'#111' }}>${pl.money}</span>
-              <span style={{ color:'#666' }}>@ {pl.currentPlanet}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-      {/* Planets column (now second, wider to host arrows) */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
+      {/* Planets column (first, wide to host arrows) */}
       <div ref={planetsContainerRef} style={{ position: 'relative' }}>
         <h3>Planets</h3>
         <ul>
@@ -273,9 +281,9 @@ export function App() {
             )
           })}
         </svg>
-      </div>
+  </div>
   <div>
-        <h3>Market — {visible.name || r.you.currentPlanet}</h3>
+    <h3>Market — {visible.name || r.you.currentPlanet}</h3>
         <ul>
           {Object.keys(goods).map(g => {
             const price = prices[g]

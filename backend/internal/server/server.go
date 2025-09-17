@@ -54,7 +54,7 @@ type Planet struct {
 	Goods  map[string]int `json:"goods"`
 	Prices map[string]int `json:"prices"`
 	// Prod is per-turn production for goods at this location (server-only)
-// Prod is per-turn production for goods at this location (server-only)
+	// Prod is per-turn production for goods at this location (server-only)
 	Prod map[string]int `json:"-"`
 }
 
@@ -353,8 +353,8 @@ func (gs *GameServer) startGame(roomID string) {
 	room.mu.Lock()
 	if !room.Started {
 		room.Started = true
-	room.Turn = 0
-	room.Turn = 0
+		room.Turn = 0
+		room.Turn = 0
 		go gs.runTicker(room)
 	}
 	room.mu.Unlock()
@@ -393,8 +393,8 @@ func (gs *GameServer) runTicker(room *Room) {
 			room.mu.Unlock()
 			return
 		}
-	room.Turn++
-	room.Turn++
+		room.Turn++
+		room.Turn++
 		// resolve travel
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
