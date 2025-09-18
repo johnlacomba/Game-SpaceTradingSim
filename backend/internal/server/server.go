@@ -549,6 +549,8 @@ func (gs *GameServer) runTicker(room *Room) {
 		// Decrement news and apply active deltas, clamping to static ranges
 		nextNews := make([]NewsItem, 0, len(room.News))
 		ranges := defaultPriceRanges()
+		// Track per-planet per-good bias from price-affecting headlines (sign only)
+		newsBias := map[string]map[string]int{}
 		for _, ni := range room.News {
 			if ni.TurnsRemaining <= 0 {
 				continue
@@ -564,6 +566,15 @@ func (gs *GameServer) runTicker(room *Room) {
 						p = 0
 					}
 					planet.Prices[g] = p
+					// accumulate bias by the sign of the delta
+					if _, ok := newsBias[ni.Planet]; !ok {
+						newsBias[ni.Planet] = map[string]int{}
+					}
+					if d > 0 {
+						newsBias[ni.Planet][g] += 1
+					} else if d < 0 {
+						newsBias[ni.Planet][g] -= 1
+					}
 				}
 				for g, d := range ni.ProdDelta {
 					planet.Prod[g] = maxInt(0, planet.Prod[g]+d)
@@ -575,16 +586,37 @@ func (gs *GameServer) runTicker(room *Room) {
 			}
 		}
 		room.News = nextNews
-		// Apply small per-good price drift based on persistent trend
-		for _, pl := range room.Planets {
+		// Apply small per-good price drift based on persistent trend, biased by active news
+		for pname, pl := range room.Planets {
 			if pl.PriceTrend == nil {
 				pl.PriceTrend = map[string]int{}
 			}
 			for g := range pl.Prices {
-				// step trend by +/-1
+				// step trend by +/-1 with bias from news: tilt towards the sign of recent price headlines
+				b := 0
+				if m, ok := newsBias[pname]; ok {
+					b = m[g]
+				}
+				// probability weighting: if bias>0 prefer +1 (75%), if bias<0 prefer -1 (75%), else 50/50
 				step := 1
-				if rand.Intn(2) == 0 {
-					step = -1
+				if b > 0 {
+					if rand.Intn(4) == 0 { // 25% chance to go opposite
+						step = -1
+					} else {
+						step = 1
+					}
+				} else if b < 0 {
+					if rand.Intn(4) == 0 {
+						step = 1
+					} else {
+						step = -1
+					}
+				} else {
+					if rand.Intn(2) == 0 {
+						step = -1
+					} else {
+						step = 1
+					}
 				}
 				pl.PriceTrend[g] += step
 				base := pl.BasePrices[g]
