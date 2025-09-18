@@ -7,7 +7,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
+  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
 }
 
@@ -99,6 +99,7 @@ export function App() {
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
   const buy = (good: string, amount: number) => send('buy', { good, amount })
   const sell = (good: string, amount: number) => send('sell', { good, amount })
+  const ackModal = (id?: string) => send('ackModal', { id })
 
   // Track positions of planet list items for drawing arrows
   useEffect(() => {
@@ -185,6 +186,17 @@ export function App() {
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
+      {r.you.modal && r.you.modal.id && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
+          <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
+            <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
+            <div style={{ whiteSpace:'pre-wrap', marginBottom:12 }}>{r.you.modal.body}</div>
+            <div style={{ display:'flex', justifyContent:'flex-end' }}>
+              <button onClick={()=>ackModal(r.you.modal?.id)}>OK</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
   <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
           <strong>{r.room.name}</strong>

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"strconv"
 
 	"github.com/gorilla/websocket"
 )
@@ -37,6 +38,7 @@ type Player struct {
 	Inventory         map[string]int  `json:"inventory"`
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	Ready             bool            `json:"ready"`
+	Modals            []ModalItem     `json:"-"`
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
@@ -55,6 +57,13 @@ type Room struct {
 	readyCh    chan struct{} // signal to end turn early when all humans are ready
 	TurnEndsAt time.Time     `json:"-"`
 	News       []NewsItem    `json:"-"`
+}
+
+// ModalItem represents a queued modal to show to a specific player
+type ModalItem struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 // NewsItem represents a temporary room-wide event affecting a planet's prices/production
@@ -87,6 +96,7 @@ type PersistedPlayer struct {
 	Inventory         map[string]int
 	InventoryAvgCost  map[string]int
 	Ready             bool
+	Modals            []ModalItem
 }
 
 type GameServer struct {
@@ -170,6 +180,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					Inventory:         cloneIntMap(p.Inventory),
 					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 					Ready:             p.Ready,
+					Modals:            cloneModals(p.Modals),
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -222,6 +233,21 @@ func (gs *GameServer) readLoop(p *Player) {
 			json.Unmarshal(msg.Payload, &data)
 			if data.RoomID != "" {
 				gs.joinRoom(p, data.RoomID)
+			}
+		case "ackModal":
+			// payload: { id }
+			var data struct {
+				ID string `json:"id"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				room.mu.Lock()
+				if len(p.Modals) > 0 && (data.ID == "" || p.Modals[0].ID == data.ID) {
+					// pop first
+					p.Modals = append([]ModalItem(nil), p.Modals[1:]...)
+				}
+				room.mu.Unlock()
+				gs.sendRoomState(room, p)
 			}
 		case "startGame":
 			if p.roomID != "" {
@@ -375,6 +401,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 			p.InventoryAvgCost = cloneIntMap(snap.InventoryAvgCost)
 		}
 		p.Ready = snap.Ready
+		p.Modals = append([]ModalItem(nil), snap.Modals...)
 		delete(room.Persist, p.ID)
 	} else {
 		p.CurrentPlanet = "Earth"
@@ -386,6 +413,9 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	}
 	if p.InventoryAvgCost == nil {
 		p.InventoryAvgCost = map[string]int{}
+	}
+	if p.Modals == nil {
+		p.Modals = []ModalItem{}
 	}
 	room.Players[p.ID] = p
 	room.mu.Unlock()
@@ -747,6 +777,41 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 		}
+		// Rare per-player events (humans only): tax, lottery, asteroid
+		for _, hp := range room.Players {
+			if hp.IsBot {
+				continue
+			}
+			// Income tax: ~1% chance per turn
+			if rand.Intn(100) == 0 {
+				// total wealth = money + value paid for current cargo
+				totalWealth := hp.Money
+				for g, qty := range hp.Inventory {
+					avg := hp.InventoryAvgCost[g]
+					totalWealth += qty * avg
+				}
+				if totalWealth < 0 {
+					totalWealth = 0
+				}
+				tax := (totalWealth * 8) / 100 // 8%
+				// Deduct tax (can go negative to reflect debt)
+				hp.Money -= tax
+				gs.enqueueModal(hp, "Federation Tax", "Federation income tax is due. "+strconv.Itoa(tax)+" credits due.")
+			}
+			// Lottery win: ~1% chance per turn
+			if rand.Intn(100) == 0 {
+				amt := 500 + rand.Intn(10000-500+1)
+				hp.Money += amt
+				gs.enqueueModal(hp, "Lottery Winner!", "You won the lottery and collect "+strconv.Itoa(amt)+" credits!")
+			}
+			// Asteroid collision: ~1% chance per turn
+			if rand.Intn(100) == 0 {
+				// Lose all cargo
+				hp.Inventory = map[string]int{}
+				hp.InventoryAvgCost = map[string]int{}
+				gs.enqueueModal(hp, "Asteroid Collision", "Your ship collided with an asteroid and you lost all cargo.")
+			}
+		}
 		// reset human players' ready flags for the new turn
 		for _, pl := range room.Players {
 			if !pl.IsBot {
@@ -990,6 +1055,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"priceRanges": visRanges,
 			}
 		}
+		nextModal := map[string]string{}
+		if len(pp.Modals) > 0 {
+			nextModal = map[string]string{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
+		}
 		payloadByPlayer[id] = map[string]interface{}{
 			"room": map[string]interface{}{
 				"id":         room.ID,
@@ -1021,6 +1090,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
+				"modal":             nextModal,
 			},
 			"visiblePlanet": visible,
 		}
@@ -1180,6 +1250,20 @@ func cloneIntMap(m map[string]int) map[string]int {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneModals(in []ModalItem) []ModalItem {
+	if in == nil {
+		return nil
+	}
+	out := make([]ModalItem, len(in))
+	copy(out, in)
+	return out
+}
+
+func (gs *GameServer) enqueueModal(p *Player, title, body string) {
+	mi := ModalItem{ID: randID(), Title: title, Body: body}
+	p.Modals = append(p.Modals, mi)
 }
 
 // inventoryTotal returns the sum of all units across goods
