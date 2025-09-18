@@ -75,6 +75,8 @@ type Planet struct {
 	// Baselines for recalculating each turn with news effects
 	BasePrices map[string]int `json:"-"`
 	BaseProd   map[string]int `json:"-"`
+	// Persistent per-good price trend (small drift applied each turn)
+	PriceTrend map[string]int `json:"-"`
 }
 
 // PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
@@ -573,6 +575,46 @@ func (gs *GameServer) runTicker(room *Room) {
 			}
 		}
 		room.News = nextNews
+		// Apply small per-good price drift based on persistent trend
+		for _, pl := range room.Planets {
+			if pl.PriceTrend == nil {
+				pl.PriceTrend = map[string]int{}
+			}
+			for g := range pl.Prices {
+				// step trend by +/-1
+				step := 1
+				if rand.Intn(2) == 0 {
+					step = -1
+				}
+				pl.PriceTrend[g] += step
+				base := pl.BasePrices[g]
+				if r, ok := ranges[g]; ok {
+					// keep base + trend within bounds
+					if base+pl.PriceTrend[g] < r[0] {
+						pl.PriceTrend[g] = r[0] - base
+					}
+					if base+pl.PriceTrend[g] > r[1] {
+						pl.PriceTrend[g] = r[1] - base
+					}
+					// apply trend on top of (base + news deltas)
+					p := pl.Prices[g] + pl.PriceTrend[g]
+					pl.Prices[g] = clampInt(p, r[0], r[1])
+				} else {
+					// No explicit range; ensure non-negative
+					p := pl.Prices[g] + pl.PriceTrend[g]
+					if p < 0 {
+						p = 0
+						// adjust trend to reflect clamp vs base
+						if base < 0 {
+							pl.PriceTrend[g] = 0
+						} else {
+							pl.PriceTrend[g] = -base
+						}
+					}
+					pl.Prices[g] = p
+				}
+			}
+		}
 		// Randomly generate 0-2 news items per turn
 		gs.generateNews(room)
 		// resolve travel
@@ -1023,6 +1065,7 @@ func defaultPlanets() map[string]*Planet {
 		goods := map[string]int{}
 		prices := map[string]int{}
 		prod := map[string]int{}
+		trend := map[string]int{}
 		for _, g := range standard {
 			goods[g] = 20 + rand.Intn(30)
 			if r, ok := ranges[g]; ok {
@@ -1031,10 +1074,12 @@ func defaultPlanets() map[string]*Planet {
 				prices[g] = 10 + rand.Intn(15)
 			}
 			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
+			trend[g] = 0
 		}
 		for _, g := range uniqueByLoc[n] {
 			goods[g] = 10 + rand.Intn(20)
 			prod[g] = 1 + rand.Intn(3) // 1-3 per turn
+			trend[g] = 0
 		}
 		// ensure price exists for every good to allow selling anywhere
 		for _, g := range allGoods {
@@ -1043,6 +1088,9 @@ func defaultPlanets() map[string]*Planet {
 					prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
 				} else {
 					prices[g] = 8 + rand.Intn(25)
+				}
+				if _, ok := trend[g]; !ok {
+					trend[g] = 0
 				}
 			}
 		}
@@ -1055,7 +1103,7 @@ func defaultPlanets() map[string]*Planet {
 		for k, v := range prod {
 			baseProd[k] = v
 		}
-		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd}
+		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend}
 	}
 	return m
 }
