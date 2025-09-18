@@ -6,7 +6,6 @@ import (
 	"math/rand"
 	"net/http"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -709,7 +708,7 @@ func (gs *GameServer) generateNews(room *Room) {
 		if headline == "" {
 			headline = "Market turbulence on " + planet
 		}
-		ni.Headline = headline + " (" + strconv.Itoa(turns) + " turns)"
+		ni.Headline = headline
 		room.News = append(room.News, ni)
 	}
 }
