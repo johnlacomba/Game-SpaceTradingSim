@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 
@@ -52,8 +53,17 @@ type Room struct {
 	mu         sync.Mutex
 	readyCh    chan struct{} // signal to end turn early when all humans are ready
 	TurnEndsAt time.Time     `json:"-"`
+	News       []NewsItem    `json:"-"`
 }
 
+// NewsItem represents a temporary room-wide event affecting a planet's prices/production
+type NewsItem struct {
+	Headline       string         `json:"headline"`
+	Planet         string         `json:"planet"`
+	PriceDelta     map[string]int `json:"priceDelta,omitempty"`
+	ProdDelta      map[string]int `json:"prodDelta,omitempty"`
+	TurnsRemaining int            `json:"turnsRemaining"`
+}
 type Planet struct {
 	Name   string         `json:"name"`
 	Goods  map[string]int `json:"goods"`
@@ -61,6 +71,9 @@ type Planet struct {
 	// Prod is per-turn production for goods at this location (server-only)
 	// Prod is per-turn production for goods at this location (server-only)
 	Prod map[string]int `json:"-"`
+	// Baselines for recalculating each turn with news effects
+	BasePrices map[string]int `json:"-"`
+	BaseProd   map[string]int `json:"-"`
 }
 
 // PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
@@ -468,6 +481,47 @@ func (gs *GameServer) runTicker(room *Room) {
 		room.Turn++
 		// new turn begins; set the next deadline and reset human ready
 		room.TurnEndsAt = time.Now().Add(base)
+		// Apply news effects to prices and production based on baselines
+		// First, recompute from baselines
+		for _, pl := range room.Planets {
+			for g, v := range pl.BasePrices {
+				pl.Prices[g] = v
+			}
+			for g, v := range pl.BaseProd {
+				pl.Prod[g] = v
+			}
+		}
+		// Decrement news and apply active deltas, clamping to static ranges
+		nextNews := make([]NewsItem, 0, len(room.News))
+		ranges := defaultPriceRanges()
+		for _, ni := range room.News {
+			if ni.TurnsRemaining <= 0 {
+				continue
+			}
+			// apply
+			planet := room.Planets[ni.Planet]
+			if planet != nil {
+				for g, d := range ni.PriceDelta {
+					p := planet.Prices[g] + d
+					if r, ok := ranges[g]; ok {
+						p = clampInt(p, r[0], r[1])
+					} else if p < 0 {
+						p = 0
+					}
+					planet.Prices[g] = p
+				}
+				for g, d := range ni.ProdDelta {
+					planet.Prod[g] = maxInt(0, planet.Prod[g]+d)
+				}
+			}
+			ni.TurnsRemaining--
+			if ni.TurnsRemaining > 0 {
+				nextNews = append(nextNews, ni)
+			}
+		}
+		room.News = nextNews
+		// Randomly generate 0-2 news items per turn
+		gs.generateNews(room)
 		// resolve travel
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
@@ -564,6 +618,78 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		room.mu.Unlock()
 		gs.broadcastRoom(room)
+	}
+}
+
+func (gs *GameServer) generateNews(room *Room) {
+	// 50% chance to generate one item, 25% chance to generate two
+	count := 0
+	if rand.Intn(2) == 0 {
+		count = 1
+	}
+	if rand.Intn(4) == 0 {
+		count = 2
+	}
+	if count == 0 {
+		return
+	}
+	planets := planetNames(room.Planets)
+	if len(planets) == 0 {
+		return
+	}
+	goodsSet := map[string]struct{}{}
+	for _, pl := range room.Planets {
+		for g := range pl.Prices {
+			goodsSet[g] = struct{}{}
+		}
+	}
+	goods := make([]string, 0, len(goodsSet))
+	for g := range goodsSet {
+		goods = append(goods, g)
+	}
+	sort.Strings(goods)
+	ranges := defaultPriceRanges()
+	for i := 0; i < count; i++ {
+		planet := planets[rand.Intn(len(planets))]
+		g := goods[rand.Intn(len(goods))]
+		turns := 2 + rand.Intn(3) // 2-4 turns
+		// random effect type: price up/down or prod up/down
+		var headline string
+		ni := NewsItem{Planet: planet, TurnsRemaining: turns}
+		if rand.Intn(2) == 0 {
+			// price delta within a fraction of range width
+			rng := ranges[g]
+			width := maxInt(1, rng[1]-rng[0])
+			delta := (width / 5) * (1 + rand.Intn(2)) // ~20-40% of range
+			if rand.Intn(2) == 0 {
+				delta = -delta
+			}
+			ni.PriceDelta = map[string]int{g: delta}
+			if delta > 0 {
+				headline = g + " prices surge on " + planet
+			}
+			if delta < 0 {
+				headline = g + " prices slump on " + planet
+			}
+		} else {
+			// production delta: +/- 1-3 units
+			delta := 1 + rand.Intn(3)
+			if rand.Intn(2) == 0 {
+				delta = -delta
+			}
+			ni.ProdDelta = map[string]int{g: delta}
+			if delta > 0 {
+				headline = planet + " boosts " + g + " output"
+			}
+			if delta < 0 {
+				headline = planet + " suffers " + g + " shortages"
+			}
+		}
+		if headline == "" {
+			headline = "Market turbulence on " + planet
+		}
+		ni.Headline = headline + " (" + strconv.Itoa(turns) + " turns)"
+		room.News = append(room.News, ni)
 	}
 }
 
@@ -702,6 +828,17 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"turnEndsAt": room.TurnEndsAt.UnixMilli(),
 				"allReady":   allReady,
 				"planets":    planetNames(room.Planets),
+				"news": func() []map[string]interface{} {
+					arr := make([]map[string]interface{}, 0, len(room.News))
+					for _, n := range room.News {
+						arr = append(arr, map[string]interface{}{
+							"headline":       n.Headline,
+							"planet":         n.Planet,
+							"turnsRemaining": n.TurnsRemaining,
+						})
+					}
+					return arr
+				}(),
 			},
 			"you": map[string]interface{}{
 				"id":                pp.ID,
@@ -811,7 +948,16 @@ func defaultPlanets() map[string]*Planet {
 				}
 			}
 		}
-		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod}
+		// Keep baselines for dynamic news effects
+		basePrices := make(map[string]int, len(prices))
+		for k, v := range prices {
+			basePrices[k] = v
+		}
+		baseProd := make(map[string]int, len(prod))
+		for k, v := range prod {
+			baseProd[k] = v
+		}
+		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd}
 	}
 	return m
 }
@@ -857,3 +1003,17 @@ func cloneIntMap(m map[string]int) map[string]int {
 	}
 	return out
 }
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func clampInt(v, lo, hi int) int { return maxInt(lo, minInt(v, hi)) }

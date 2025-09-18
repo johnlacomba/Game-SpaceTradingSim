@@ -6,7 +6,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number }
+  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
 }
@@ -306,7 +306,18 @@ export function App() {
   </div>
   <div>
     <h3>News</h3>
-    <div style={{ color:'#666' }}>No news yet.</div>
+    {r.room.news && r.room.news.length > 0 ? (
+      <ul style={{ padding: 0, listStyle: 'none', margin: 0 }}>
+        {r.room.news.map((n, i) => (
+          <li key={i} style={{ marginBottom: 8 }}>
+            <div style={{ fontWeight: 600 }}>{n.headline}</div>
+            <div style={{ color: '#666', fontSize: 12 }}>@ {n.planet} · {n.turnsRemaining} turn{n.turnsRemaining===1?'':'s'} left</div>
+          </li>
+        ))}
+      </ul>
+    ) : (
+      <div style={{ color:'#666' }}>No news yet.</div>
+    )}
   </div>
   <div>
     <h3>Market — {visible.name || r.you.currentPlanet}</h3>
