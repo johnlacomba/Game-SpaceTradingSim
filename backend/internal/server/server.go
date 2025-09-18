@@ -841,7 +841,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			visible = map[string]interface{}{
 				"name":        planet.Name,
 				"goods":       visGoods,
-				"prices": visPrices,
+				"prices":      visPrices,
 				"priceRanges": visRanges,
 			}
 		}
