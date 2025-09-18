@@ -6,7 +6,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
+  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
 }
@@ -101,7 +101,7 @@ export function App() {
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
 
-  // Track positions of planet list items for drawing arrows
+  // Compute planet center positions from server data, with a stable fallback
   useEffect(() => {
     if (!room) return
     const container = planetsContainerRef.current
@@ -109,11 +109,31 @@ export function App() {
     const rect = container.getBoundingClientRect()
     setContainerSize({ width: rect.width, height: rect.height })
     const next: Record<string, { x: number; y: number }> = {}
-    for (const p of room.room.planets) {
-      const el = planetRefs.current[p]
-      if (!el) continue
-      const r = el.getBoundingClientRect()
-      next[p] = { x: Math.min(rect.width - 60, 180), y: r.top + r.height / 2 - rect.top }
+    const serverPos = (room.room as any).planetPositions as Record<string, { x: number; y: number }> | undefined
+    // Fallback: place planets around a circle with small deterministic jitter
+    const names = room.room.planets
+    const N = Math.max(1, names.length)
+    const fallback: Record<string, { x: number; y: number }> = {}
+    names.forEach((name, i) => {
+      const angle = (i / N) * Math.PI * 2
+      let h = 0
+      for (let k = 0; k < name.length; k++) h = (h * 31 + name.charCodeAt(k)) >>> 0
+      const jitter = ((h % 1000) / 1000 - 0.5) * 0.08 // +-0.04
+      const radius = 0.42 + (((h >> 4) % 1000) / 1000 - 0.5) * 0.06
+      const x = 0.5 + (radius + jitter) * Math.cos(angle)
+      const y = 0.5 + (radius - jitter) * Math.sin(angle)
+      // clamp away from edges
+      const cx = Math.min(0.92, Math.max(0.08, x)) * rect.width
+      const cy = Math.min(0.92, Math.max(0.08, y)) * rect.height
+      fallback[name] = { x: cx, y: cy }
+    })
+    for (const p of names) {
+      const pos = serverPos?.[p]
+      if (pos) {
+        next[p] = { x: pos.x * rect.width, y: pos.y * rect.height }
+      } else {
+        next[p] = fallback[p]
+      }
     }
     setPlanetPos(next)
   }, [room?.room.planets, room?.room.players, stage])
@@ -126,12 +146,25 @@ export function App() {
       if (!container) return
       const rect = container.getBoundingClientRect()
       setContainerSize({ width: rect.width, height: rect.height })
+      const positions = (room.room as any).planetPositions as Record<string, { x: number; y: number }> | undefined
       const next: Record<string, { x: number; y: number }> = {}
-      for (const p of room.room.planets) {
-        const el = planetRefs.current[p]
-        if (!el) continue
-        const r = el.getBoundingClientRect()
-        next[p] = { x: Math.min(rect.width - 60, 180), y: r.top + r.height / 2 - rect.top }
+      const names = room.room.planets
+      const N = Math.max(1, names.length)
+      const fallback: Record<string, { x: number; y: number }> = {}
+      names.forEach((name, i) => {
+        const angle = (i / N) * Math.PI * 2
+        let h = 0
+        for (let k = 0; k < name.length; k++) h = (h * 31 + name.charCodeAt(k)) >>> 0
+        const jitter = ((h % 1000) / 1000 - 0.5) * 0.08
+        const radius = 0.42 + (((h >> 4) % 1000) / 1000 - 0.5) * 0.06
+        const x = 0.5 + (radius + jitter) * Math.cos(angle)
+        const y = 0.5 + (radius - jitter) * Math.sin(angle)
+        fallback[name] = { x: Math.min(0.92, Math.max(0.08, x)) * rect.width, y: Math.min(0.92, Math.max(0.08, y)) * rect.height }
+      })
+      for (const p of names) {
+        const pos = positions?.[p]
+        if (pos) next[p] = { x: pos.x * rect.width, y: pos.y * rect.height }
+        else next[p] = fallback[p]
       }
       setPlanetPos(next)
     }
@@ -251,15 +284,19 @@ export function App() {
         </div>
       </div>
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 240px 320px 240px', gap: 16, padding: 16 }}>
-      {/* Planets column (first, wide to host arrows) */}
-      <div ref={planetsContainerRef} style={{ position: 'relative' }}>
+      {/* Planets column (first) */}
+      <div>
         <h3>Planets</h3>
-        <ul>
+        <div ref={planetsContainerRef} style={{ position:'relative', height: 380 }}>
+        <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
             const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p)
+            const center = planetPos[p]
+            const left = center ? center.x : 0
+            const top = center ? center.y : 0
             return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <button disabled={p===r.you.currentPlanet} onClick={()=>selectPlanet(p)}>{p}</button>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
+                <button disabled={p===r.you.currentPlanet} onClick={()=>selectPlanet(p)} style={{ textAlign:'left' }}>{p}</button>
                 <div style={{ display:'flex', gap:4 }}>
                   {onPlanet.map((pl:any) => (
                     <span
@@ -318,7 +355,8 @@ export function App() {
             )
           })}
         </svg>
-  </div>
+        </div>
+      </div>
   <div>
     <h3>News</h3>
     {r.room.news && r.room.news.length > 0 ? (

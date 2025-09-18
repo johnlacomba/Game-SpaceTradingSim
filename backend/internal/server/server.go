@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"sort"
@@ -46,17 +47,19 @@ type Player struct {
 }
 
 type Room struct {
-	ID         string                        `json:"id"`
-	Name       string                        `json:"name"`
-	Started    bool                          `json:"started"`
-	Players    map[PlayerID]*Player          `json:"players"`
-	Turn       int                           `json:"turn"`
-	Planets    map[string]*Planet            `json:"planets"`
-	Persist    map[PlayerID]*PersistedPlayer `json:"-"`
-	mu         sync.Mutex
-	readyCh    chan struct{} // signal to end turn early when all humans are ready
-	TurnEndsAt time.Time     `json:"-"`
-	News       []NewsItem    `json:"-"`
+	ID              string                        `json:"id"`
+	Name            string                        `json:"name"`
+	Started         bool                          `json:"started"`
+	Players         map[PlayerID]*Player          `json:"players"`
+	Turn            int                           `json:"turn"`
+	Planets         map[string]*Planet            `json:"planets"`
+	Persist         map[PlayerID]*PersistedPlayer `json:"-"`
+	mu              sync.Mutex
+	readyCh         chan struct{}         // signal to end turn early when all humans are ready
+	TurnEndsAt      time.Time             `json:"-"`
+	News            []NewsItem            `json:"-"`
+	PlanetOrder     []string              `json:"-"`
+	PlanetPositions map[string][2]float64 `json:"-"`
 }
 
 // ModalItem represents a queued modal to show to a specific player
@@ -489,6 +492,15 @@ func (gs *GameServer) startGame(roomID string) {
 					pl.Ready = false
 				}
 			}
+			// Randomize planet order for UI layout
+			names := planetNames(room.Planets)
+			for i := range names {
+				j := rand.Intn(i + 1)
+				names[i], names[j] = names[j], names[i]
+			}
+			room.PlanetOrder = names
+			// Generate random positions (normalized 0..1) with spacing
+			room.PlanetPositions = generatePlanetPositions(names)
 			room.Started = true
 			room.Turn = 0
 			room.TurnEndsAt = time.Now().Add(turnDuration)
@@ -1068,7 +1080,24 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"players":    players,
 				"turnEndsAt": room.TurnEndsAt.UnixMilli(),
 				"allReady":   allReady,
-				"planets":    planetNames(room.Planets),
+				"planets": func() []string {
+					if len(room.PlanetOrder) > 0 {
+						out := make([]string, len(room.PlanetOrder))
+						copy(out, room.PlanetOrder)
+						return out
+					}
+					return planetNames(room.Planets)
+				}(),
+				"planetPositions": func() map[string]map[string]float64 {
+					if len(room.PlanetPositions) == 0 {
+						return nil
+					}
+					out := make(map[string]map[string]float64, len(room.PlanetPositions))
+					for k, v := range room.PlanetPositions {
+						out[k] = map[string]float64{"x": v[0], "y": v[1]}
+					}
+					return out
+				}(),
 				"news": func() []map[string]interface{} {
 					arr := make([]map[string]interface{}, 0, len(room.News))
 					for _, n := range room.News {
@@ -1291,3 +1320,43 @@ func minInt(a, b int) int {
 	return b
 }
 func clampInt(v, lo, hi int) int { return maxInt(lo, minInt(v, hi)) }
+
+// generatePlanetPositions returns normalized positions in [0,1]x[0,1] with a minimal spacing
+func generatePlanetPositions(names []string) map[string][2]float64 {
+	m := make(map[string][2]float64, len(names))
+	if len(names) == 0 {
+		return m
+	}
+	minDist := 0.18 // minimal distance between planets (normalized)
+	margin := 0.08  // keep away from edges
+	placed := make([][2]float64, 0, len(names))
+	for _, n := range names {
+		var x, y float64
+		ok := false
+		for tries := 0; tries < 200; tries++ {
+			x = margin + rand.Float64()*(1-2*margin)
+			y = margin + rand.Float64()*(1-2*margin)
+			good := true
+			for _, p := range placed {
+				dx := p[0] - x
+				dy := p[1] - y
+				if math.Hypot(dx, dy) < minDist {
+					good = false
+					break
+				}
+			}
+			if good {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			// fallback without spacing guarantee
+			x = margin + rand.Float64()*(1-2*margin)
+			y = margin + rand.Float64()*(1-2*margin)
+		}
+		placed = append(placed, [2]float64{x, y})
+		m[n] = [2]float64{x, y}
+	}
+	return m
+}
