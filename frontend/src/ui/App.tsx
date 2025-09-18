@@ -320,8 +320,8 @@ export function App() {
     )}
   </div>
   <div>
-    <h3>Market — {visible.name || r.you.currentPlanet}</h3>
-        <ul>
+  <h3>Market — {visible.name || r.you.currentPlanet}</h3>
+    <ul style={{ listStyle:'none', padding: 0, margin: 0 }}>
           {Object.keys(goods).map(g => {
             const price = prices[g]
             const range = priceRanges[g]
@@ -353,7 +353,7 @@ export function App() {
         {Object.keys(r.you.inventory).length === 0 ? (
           <div>Empty</div>
         ) : (
-          <ul>
+          <ul style={{ listStyle:'none', padding: 0, margin: 0 }}>
             {Object.keys(r.you.inventory).sort().map(g => {
               const qty = r.you.inventory[g]
               const avg = r.you.inventoryAvgCost?.[g]
