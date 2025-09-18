@@ -677,10 +677,19 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					visGoods[g] = 0
 				}
 			}
+			// attach static price ranges for each visible good
+			ranges := defaultPriceRanges()
+			visRanges := map[string][2]int{}
+			for g := range visGoods {
+				if r, ok := ranges[g]; ok {
+					visRanges[g] = r
+				}
+			}
 			visible = map[string]interface{}{
-				"name":   planet.Name,
-				"goods":  visGoods,
-				"prices": planet.Prices,
+				"name":        planet.Name,
+				"goods":       visGoods,
+				"prices":      planet.Prices,
+				"priceRanges": visRanges,
 			}
 		}
 		payloadByPlayer[id] = map[string]interface{}{
@@ -771,6 +780,9 @@ func defaultPlanets() map[string]*Planet {
 	}
 	sort.Strings(allGoods)
 
+	// Static price ranges per good
+	ranges := defaultPriceRanges()
+
 	m := map[string]*Planet{}
 	for _, n := range names {
 		goods := map[string]int{}
@@ -778,7 +790,11 @@ func defaultPlanets() map[string]*Planet {
 		prod := map[string]int{}
 		for _, g := range standard {
 			goods[g] = 20 + rand.Intn(30)
-			prices[g] = 5 + rand.Intn(20)
+			if r, ok := ranges[g]; ok {
+				prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
+			} else {
+				prices[g] = 10 + rand.Intn(15)
+			}
 			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
 		}
 		for _, g := range uniqueByLoc[n] {
@@ -788,10 +804,29 @@ func defaultPlanets() map[string]*Planet {
 		// ensure price exists for every good to allow selling anywhere
 		for _, g := range allGoods {
 			if _, ok := prices[g]; !ok {
-				prices[g] = 8 + rand.Intn(25)
+				if r, ok := ranges[g]; ok {
+					prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
+				} else {
+					prices[g] = 8 + rand.Intn(25)
+				}
 			}
 		}
 		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod}
+	}
+	return m
+}
+
+// defaultPriceRanges returns a static min/max range for each good.
+// Standard goods have a slightly lower range; unique goods are a bit higher.
+func defaultPriceRanges() map[string][2]int {
+	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	unique := []string{"Solar Panels", "Acid Extract", "Electronics", "Iron Alloy", "Helium-3", "Methane", "Ice Crystals", "Deep Blue Dye", "Xenon Gas", "Titan Spice", "Rare Metals"}
+	m := map[string][2]int{}
+	for _, g := range standard {
+		m[g] = [2]int{5, 24}
+	}
+	for _, g := range unique {
+		m[g] = [2]int{8, 32}
 	}
 	return m
 }

@@ -8,7 +8,7 @@ type RoomPlayer = { id: string; name: string; money: number; currentPlanet: stri
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; allReady?: boolean; turnEndsAt?: number }
   you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean }
-  visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number> } | {}
+  visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
 }
 
 type LobbyState = { rooms: LobbyRoom[] }
@@ -178,6 +178,7 @@ export function App() {
   const visible = (r.visiblePlanet || {}) as any
   const goods: Record<string, number> = visible.goods || {}
   const prices: Record<string, number> = visible.prices || {}
+  const priceRanges: Record<string, [number, number]> = (visible.priceRanges as any) || {}
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
@@ -308,6 +309,7 @@ export function App() {
         <ul>
           {Object.keys(goods).map(g => {
             const price = prices[g]
+            const range = priceRanges[g]
             const available = goods[g]
             const owned = r.you.inventory[g] || 0
             const youPaid = r.you.inventoryAvgCost?.[g]
@@ -315,7 +317,7 @@ export function App() {
             const amt = (amountsByGood[g] ?? maxBuy)
             return (
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
-                <b>{g}</b>: {available} @ ${price} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
+                <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (range ${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
                   <input style={{ width: 64 }} type="number" value={amt} min={0} max={999}
                     onChange={e=>{
