@@ -226,7 +226,6 @@ export function App() {
             Ready
           </button>
           <span><strong>${r.you.money}</strong></span>
-          <span title={`Ship capacity`}>Cargo: {usedSlots}/{capacity}</span>
           {!r.room.started && (
             <>
               <button onClick={startGame} disabled={!r.room.allReady} title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}>Start Game</button>
@@ -362,7 +361,7 @@ export function App() {
         </ul>
       </div>
       <div>
-        <h3>Ship Inventory</h3>
+        <h3>Ship Inventory <span title="Ship capacity" style={{ color:'#666', fontWeight: 500, marginLeft: 6 }}>{usedSlots}/{capacity}</span></h3>
         {Object.keys(r.you.inventory).length === 0 ? (
           <div>Empty</div>
         ) : (
