@@ -170,6 +170,22 @@ func (gs *GameServer) readLoop(p *Player) {
 					Ready:             p.Ready,
 				}
 				delete(room.Players, p.ID)
+				// If no humans remain, signal the ticker to end the current turn early
+				if room.Started {
+					hasHuman := false
+					for _, pl := range room.Players {
+						if !pl.IsBot {
+							hasHuman = true
+							break
+						}
+					}
+					if !hasHuman {
+						select {
+						case room.readyCh <- struct{}{}:
+						default:
+						}
+					}
+				}
 				room.mu.Unlock()
 				gs.broadcastRoom(room)
 			}
@@ -392,6 +408,22 @@ func (gs *GameServer) exitRoom(p *Player) {
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
+	// If game running and no humans remain, prompt the ticker to end turn now
+	if room.Started {
+		hasHuman := false
+		for _, pl := range room.Players {
+			if !pl.IsBot {
+				hasHuman = true
+				break
+			}
+		}
+		if !hasHuman {
+			select {
+			case room.readyCh <- struct{}{}:
+			default:
+			}
+		}
+	}
 	room.mu.Unlock()
 	gs.broadcastRoom(room)
 	// send them back to the lobby
@@ -462,15 +494,31 @@ func (gs *GameServer) addBot(roomID string) {
 func (gs *GameServer) runTicker(room *Room) {
 	base := turnDuration
 	for {
-		// Wait for either timer or early ready signal
-		timer := time.NewTimer(base)
-		select {
-		case <-timer.C:
-			// time-based turn end
-		case <-room.readyCh:
-			// early turn end due to all humans ready
-			if !timer.Stop() {
-				<-timer.C
+		// Determine if there are any human players; if only bots, don't wait 60s
+		room.mu.Lock()
+		onlyBots := true
+		for _, pl := range room.Players {
+			if !pl.IsBot {
+				onlyBots = false
+				break
+			}
+		}
+		room.mu.Unlock()
+
+		if onlyBots {
+			// Skip the long timer; tiny pause to avoid a tight CPU loop
+			time.Sleep(150 * time.Millisecond)
+		} else {
+			// Wait for either timer or early ready signal
+			timer := time.NewTimer(base)
+			select {
+			case <-timer.C:
+				// time-based turn end
+			case <-room.readyCh:
+				// early turn end due to all humans ready
+				if !timer.Stop() {
+					<-timer.C
+				}
 			}
 		}
 		// Process end-of-turn effects and start the next turn
@@ -481,7 +529,11 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		room.Turn++
 		// new turn begins; set the next deadline and reset human ready
-		room.TurnEndsAt = time.Now().Add(base)
+		if onlyBots {
+			room.TurnEndsAt = time.Now()
+		} else {
+			room.TurnEndsAt = time.Now().Add(base)
+		}
 		// Apply news effects to prices and production based on baselines
 		// First, recompute from baselines
 		for _, pl := range room.Planets {
