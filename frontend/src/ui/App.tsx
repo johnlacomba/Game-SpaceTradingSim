@@ -235,7 +235,7 @@ export function App() {
           )}
         </div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 240px 320px 240px', gap: 16, padding: 16 }}>
       {/* Planets column (first, wide to host arrows) */}
       <div ref={planetsContainerRef} style={{ position: 'relative' }}>
         <h3>Planets</h3>
@@ -305,6 +305,10 @@ export function App() {
         </svg>
   </div>
   <div>
+    <h3>News</h3>
+    <div style={{ color:'#666' }}>No news yet.</div>
+  </div>
+  <div>
     <h3>Market — {visible.name || r.you.currentPlanet}</h3>
         <ul>
           {Object.keys(goods).map(g => {
@@ -317,7 +321,7 @@ export function App() {
             const amt = (amountsByGood[g] ?? maxBuy)
             return (
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
-                <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (range ${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
+                <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
                   <input style={{ width: 64 }} type="number" value={amt} min={0} max={999}
                     onChange={e=>{
