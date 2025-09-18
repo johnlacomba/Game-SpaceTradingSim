@@ -330,6 +330,13 @@ export function App() {
             const youPaid = r.you.inventoryAvgCost?.[g]
             const maxBuy = price > 0 ? Math.min(available, Math.floor(r.you.money / price)) : 0
             const amt = (amountsByGood[g] ?? maxBuy)
+            const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+              ? (price > youPaid
+                  ? { background:'#10b98122', color:'#065f46', border:'1px solid #10b98155' }
+                  : price < youPaid
+                    ? { background:'#ef444422', color:'#7f1d1d', border:'1px solid #ef444455' }
+                    : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
+              : undefined
             return (
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
                 <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
@@ -341,7 +348,7 @@ export function App() {
                     }} />
                   <button disabled={amt<=0} onClick={()=>buy(g, amt)}>Buy</button>
                   <span>Owned: {owned}</span>
-                  <button disabled={owned<=0} onClick={()=>sell(g, owned)}>Sell</button>
+                  <button disabled={owned<=0} onClick={()=>sell(g, owned)} style={sellStyle}>Sell</button>
                 </div>
               </li>
             )
