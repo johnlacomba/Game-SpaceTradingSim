@@ -219,6 +219,10 @@ export function App() {
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
+      {/* Global styles for ticker animation */}
+      <style>{`
+        @keyframes newsTickerMove { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+      `}</style>
       {r.you.modal && r.you.modal.id && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
@@ -283,7 +287,20 @@ export function App() {
           )}
         </div>
       </div>
-  <div style={{ display: 'grid', gridTemplateColumns: '1fr 240px 320px 240px', gap: 16, padding: 16 }}>
+      {/* News ticker below header */}
+      <div style={{ background:'#e0f2fe', color:'#075985', borderTop:'1px solid #93c5fd', borderBottom:'1px solid #93c5fd', padding:'6px 0' }}>
+        <div style={{ position:'relative', overflow:'hidden' }}>
+          <div style={{ display:'inline-block', whiteSpace:'nowrap', willChange:'transform', animation:'newsTickerMove 30s linear infinite' }}>
+            {(() => {
+              const items = (r.room.news && r.room.news.length > 0)
+                ? r.room.news.map(n => `${n.headline} @ ${n.planet} (${n.turnsRemaining}t left)`).join('   •   ')
+                : 'No news yet.'
+              return `${items}   •   ${items}`
+            })()}
+          </div>
+        </div>
+      </div>
+  <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
       {/* Planets column (first) */}
       <div>
         <h3>Planets</h3>
@@ -357,21 +374,6 @@ export function App() {
         </svg>
         </div>
       </div>
-  <div>
-    <h3>News</h3>
-    {r.room.news && r.room.news.length > 0 ? (
-      <ul style={{ padding: 0, listStyle: 'none', margin: 0 }}>
-        {r.room.news.map((n, i) => (
-          <li key={i} style={{ marginBottom: 8 }}>
-            <div style={{ fontWeight: 600 }}>{n.headline}</div>
-            <div style={{ color: '#666', fontSize: 12 }}>@ {n.planet} · {n.turnsRemaining} turn{n.turnsRemaining===1?'':'s'} left</div>
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <div style={{ color:'#666' }}>No news yet.</div>
-    )}
-  </div>
   <div>
   <h3>Market — {visible.name || r.you.currentPlanet}</h3>
     <ul style={{ listStyle:'none', padding: 0, margin: 0 }}>
