@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -653,6 +654,26 @@ func (gs *GameServer) generateNews(room *Room) {
 		planet := planets[rand.Intn(len(planets))]
 		g := goods[rand.Intn(len(goods))]
 		turns := 2 + rand.Intn(3) // 2-4 turns
+		// Occasionally generate purely whimsical, no-effect headlines
+		if rand.Intn(4) == 0 { // ~25% chance
+			flavor := []string{
+				"Giant rubber duck spotted orbiting {planet}",
+				"Space sloths delay cargo lanes near {planet}",
+				"Galactic karaoke night declared a hit on {planet}",
+				"Meteor shower forms perfect smiley face above {planet}",
+				"Zero-G bake-off crowns new croissant champion on {planet}",
+				"Mystery signal from {planet} turns out to be an enthusiastic toaster",
+				"Tourists report seeing a nebula shaped like a llama near {planet}",
+				"Local asteroid adopts three moons near {planet}",
+				"Quantum bubble tea craze sweeps {planet}",
+				"Holographic parade confuses satellites around {planet}",
+			}
+			txt := flavor[rand.Intn(len(flavor))]
+			txt = strings.ReplaceAll(txt, "{planet}", planet)
+			ni := NewsItem{Planet: planet, TurnsRemaining: turns, Headline: txt}
+			room.News = append(room.News, ni)
+			continue
+		}
 		// random effect type: price up/down or prod up/down
 		var headline string
 		ni := NewsItem{Planet: planet, TurnsRemaining: turns}
@@ -789,6 +810,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		})
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
+	recipients := make([]*Player, 0, len(room.Players))
 	for id, pp := range room.Players {
 		planet := room.Planets[pp.CurrentPlanet]
 		visible := map[string]interface{}{}
@@ -803,6 +825,11 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					visGoods[g] = 0
 				}
 			}
+			// copy prices map to avoid concurrent mutation during encoding
+			visPrices := map[string]int{}
+			for k, v := range planet.Prices {
+				visPrices[k] = v
+			}
 			// attach static price ranges for each visible good
 			ranges := defaultPriceRanges()
 			visRanges := map[string][2]int{}
@@ -814,7 +841,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			visible = map[string]interface{}{
 				"name":        planet.Name,
 				"goods":       visGoods,
-				"prices":      planet.Prices,
+				"prices": visPrices,
 				"priceRanges": visRanges,
 			}
 		}
@@ -844,13 +871,16 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"id":                pp.ID,
 				"name":              pp.Name,
 				"money":             pp.Money,
-				"inventory":         pp.Inventory,
-				"inventoryAvgCost":  pp.InventoryAvgCost,
+				"inventory":         cloneIntMap(pp.Inventory),
+				"inventoryAvgCost":  cloneIntMap(pp.InventoryAvgCost),
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
 			},
 			"visiblePlanet": visible,
+		}
+		if pp.conn != nil {
+			recipients = append(recipients, pp)
 		}
 	}
 	room.mu.Unlock()
@@ -861,12 +891,9 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		only.writeMu.Unlock()
 		return
 	}
-	for id, pp := range room.Players {
-		if pp.conn == nil {
-			continue
-		}
+	for _, pp := range recipients {
 		pp.writeMu.Lock()
-		pp.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[id]})
+		pp.conn.WriteJSON(WSOut{Type: "roomState", Payload: payloadByPlayer[pp.ID]})
 		pp.writeMu.Unlock()
 	}
 }
