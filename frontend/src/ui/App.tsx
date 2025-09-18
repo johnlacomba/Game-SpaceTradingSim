@@ -179,6 +179,9 @@ export function App() {
   const goods: Record<string, number> = visible.goods || {}
   const prices: Record<string, number> = visible.prices || {}
   const priceRanges: Record<string, [number, number]> = (visible.priceRanges as any) || {}
+  const capacity = 200
+  const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
+  const freeSlots = Math.max(0, capacity - usedSlots)
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
@@ -223,6 +226,7 @@ export function App() {
             Ready
           </button>
           <span><strong>${r.you.money}</strong></span>
+          <span title={`Ship capacity`}>Cargo: {usedSlots}/{capacity}</span>
           {!r.room.started && (
             <>
               <button onClick={startGame} disabled={!r.room.allReady} title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}>Start Game</button>
@@ -328,8 +332,9 @@ export function App() {
             const available = goods[g]
             const owned = r.you.inventory[g] || 0
             const youPaid = r.you.inventoryAvgCost?.[g]
-            const maxBuy = price > 0 ? Math.min(available, Math.floor(r.you.money / price)) : 0
-            const amt = (amountsByGood[g] ?? maxBuy)
+            const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+            const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+            const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
             const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
               ? (price > youPaid
                   ? { background:'#10b98122', color:'#065f46', border:'1px solid #10b98155' }
@@ -341,12 +346,13 @@ export function App() {
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
                 <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
-                  <input style={{ width: 64 }} type="number" value={amt} min={0} max={999}
+          <input style={{ width: 64 }} type="number" value={amt} min={0} max={maxBuy}
                     onChange={e=>{
                       const v = Number(e.target.value)
-                      setAmountsByGood(s => ({ ...s, [g]: isNaN(v) ? 0 : v }))
+            const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+            setAmountsByGood(s => ({ ...s, [g]: capped }))
                     }} />
-                  <button disabled={amt<=0} onClick={()=>buy(g, amt)}>Buy</button>
+          <button disabled={amt<=0} onClick={()=>buy(g, amt)} title={freeSlots<=0 ? 'Cargo full' : undefined}>Buy</button>
                   <span>Owned: {owned}</span>
                   <button disabled={owned<=0} onClick={()=>sell(g, owned)} style={sellStyle}>Sell</button>
                 </div>

@@ -24,6 +24,7 @@ type WSOut struct {
 }
 
 const turnDuration = 60 * time.Second
+const shipCapacity = 200 // maximum total units a ship can carry
 
 type PlayerID string
 
@@ -577,9 +578,19 @@ func (gs *GameServer) runTicker(room *Room) {
 				if avail <= 0 || bp.Money < price {
 					continue
 				}
+				// Determine purchase amount subject to money, availability, and ship capacity
 				amount := bp.Money / price
 				if amount > avail {
 					amount = avail
+				}
+				// Respect ship capacity for bots as well
+				used := inventoryTotal(bp.Inventory)
+				free := shipCapacity - used
+				if free <= 0 {
+					break
+				}
+				if amount > free {
+					amount = free
 				}
 				if amount <= 0 {
 					continue
@@ -728,12 +739,21 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	if price <= 0 {
 		return
 	}
+	// Enforce ship capacity: cap purchase to remaining free slots
+	used := inventoryTotal(p.Inventory)
+	free := shipCapacity - used
+	if free <= 0 {
+		return
+	}
 	maxByMoney := p.Money / price
 	if amount > maxByMoney {
 		amount = maxByMoney
 	}
 	if amount > available {
 		amount = available
+	}
+	if amount > free {
+		amount = free
 	}
 	if amount <= 0 {
 		return
@@ -1028,6 +1048,18 @@ func cloneIntMap(m map[string]int) map[string]int {
 		out[k] = v
 	}
 	return out
+}
+
+// inventoryTotal returns the sum of all units across goods
+func inventoryTotal(inv map[string]int) int {
+	if inv == nil {
+		return 0
+	}
+	total := 0
+	for _, v := range inv {
+		total += v
+	}
+	return total
 }
 
 func maxInt(a, b int) int {
