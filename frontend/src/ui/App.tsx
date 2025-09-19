@@ -433,18 +433,16 @@ export function App() {
             if (pl.destinationPlanet === pl.currentPlanet) return null
             const x1 = from.x, y1 = from.y
             const x2 = to.x, y2 = to.y
-            const dx = Math.max(80, Math.abs(y2 - y1) * 0.3 + 80)
-            const c1x = x1 + dx, c1y = y1
-            const c2x = x2 + dx, c2y = y2
-            const d = `M ${x1},${y1} C ${c1x},${c1y} ${c2x},${c2y} ${x2},${y2}`
+            const d = `M ${x1},${y1} L ${x2},${y2}`
             return (
               <path key={pl.id}
                 d={d}
                 fill="none"
                 stroke={colorFor(String(pl.id))}
                 strokeWidth={2}
+                strokeLinecap="round"
                 markerEnd={`url(#arrow-head-${pl.id})`}
-                opacity={0.9}
+                opacity={0.95}
               />
             )
           })}
