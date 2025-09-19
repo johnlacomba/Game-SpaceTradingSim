@@ -119,6 +119,7 @@ export function App() {
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
+  const playersMenuRef = useRef<HTMLDivElement | null>(null)
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [playersOpen, setPlayersOpen] = useState(false)
@@ -142,6 +143,20 @@ export function App() {
       setStage('room')
     }
   }, [messages])
+
+  // Close Players menu on outside click
+  useEffect(() => {
+    if (!playersOpen) return
+    const onDocDown = (e: MouseEvent) => {
+      const el = playersMenuRef.current
+      if (!el) return
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        setPlayersOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [playersOpen])
 
   // Actions
   const onConnect = () => {
@@ -169,6 +184,16 @@ export function App() {
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
+  // Player info modal state
+  const [playerInfo, setPlayerInfo] = useState<null | { id: string; name: string; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; usedSlots: number; capacity: number }>(null)
+  useEffect(() => {
+    const last = messages[messages.length-1]
+    if (!last) return
+    if (last.type === 'playerInfo') {
+      setPlayerInfo(last.payload)
+    }
+  }, [messages])
+  const requestPlayerInfo = (pid: string) => send('getPlayer', { playerId: pid })
 
   // Compute planet center positions from server data, with a stable fallback
   useEffect(() => {
@@ -362,20 +387,16 @@ export function App() {
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
           )}
-          <div
-            onMouseEnter={() => setPlayersOpen(true)}
-            onMouseLeave={() => setPlayersOpen(false)}
-            style={{ position:'relative' }}
-          >
-            <button onClick={() => setPlayersOpen(v=>!v)}>Players ▾</button>
+          <div ref={playersMenuRef} style={{ position:'relative' }}>
+            <button onClick={() => setPlayersOpen(v=>!v)} aria-expanded={playersOpen} aria-haspopup="menu">Players ▾</button>
             {playersOpen && (
               <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:8, zIndex:1000, minWidth:280 }}>
                 <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-                  {r.room.players.map((pl)=> (
+          {r.room.players.map((pl)=> (
                     <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, lineHeight:1.2, padding:'6px 8px', borderRadius:6 }}>
                       <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ width:8, height:8, borderRadius:4, background: pl.ready ? '#10b981' : '#ef4444' }} />
                       <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
-                      <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{pl.name}</span>
+            <button onClick={()=>requestPlayerInfo(pl.id)} style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'left', background:'transparent', border:'none', padding:0, cursor:'pointer', color:'#1d4ed8' }} title="View inventory">{pl.name}</button>
                       <span style={{ color:'#111' }}>${pl.money}</span>
                       <span style={{ color:'#666' }}>@ {pl.currentPlanet}</span>
                     </li>
@@ -405,6 +426,28 @@ export function App() {
               <button onClick={addBot}>Add Bot</button>
               <button onClick={exitRoom}>Exit</button>
             </>
+          )}
+          {playerInfo && (
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2100 }}>
+              <div style={{ background:'#fff', padding:16, borderRadius:8, width:380, maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <div style={{ fontWeight:700 }}>Ship Inventory — {playerInfo.name}</div>
+                  <button onClick={()=>setPlayerInfo(null)}>Close</button>
+                </div>
+                <div style={{ color:'#666', marginBottom:8 }}>Capacity: {playerInfo.usedSlots}/{playerInfo.capacity}</div>
+                {Object.keys(playerInfo.inventory).length === 0 ? (
+                  <div>Empty</div>
+                ) : (
+                  <ul style={{ listStyle:'none', padding:0, margin:0 }}>
+                    {Object.keys(playerInfo.inventory).sort().map(g => (
+                      <li key={g} style={{ padding:'4px 0' }}>
+                        {g}: {playerInfo.inventory[g]}{typeof playerInfo.inventoryAvgCost[g] === 'number' ? ` (avg $${playerInfo.inventoryAvgCost[g]})` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
           )}
           {r.room.started && (
             <button onClick={exitRoom}>Exit</button>

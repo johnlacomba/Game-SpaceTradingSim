@@ -338,6 +338,41 @@ func (gs *GameServer) readLoop(p *Player) {
 				}
 				gs.handleSell(room, p, data.Good, data.Amount)
 			}
+		case "getPlayer":
+			// payload: { playerId }
+			var data struct {
+				PlayerID string `json:"playerId"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if data.PlayerID == "" {
+				break
+			}
+			room := gs.getRoom(p.roomID)
+			if room == nil {
+				break
+			}
+			room.mu.Lock()
+			target := room.Players[PlayerID(data.PlayerID)]
+			var payload interface{}
+			if target != nil {
+				inv := cloneIntMap(target.Inventory)
+				avg := cloneIntMap(target.InventoryAvgCost)
+				used := inventoryTotal(inv)
+				payload = map[string]interface{}{
+					"id":               target.ID,
+					"name":             target.Name,
+					"inventory":        inv,
+					"inventoryAvgCost": avg,
+					"usedSlots":        used,
+					"capacity":         shipCapacity,
+				}
+			}
+			room.mu.Unlock()
+			if payload != nil && p.conn != nil {
+				p.writeMu.Lock()
+				p.conn.WriteJSON(WSOut{Type: "playerInfo", Payload: payload})
+				p.writeMu.Unlock()
+			}
 		case "setReady":
 			var data struct {
 				Ready bool `json:"ready"`
