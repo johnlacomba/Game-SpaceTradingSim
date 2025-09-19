@@ -372,7 +372,7 @@ export function App() {
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
             <div style={{ whiteSpace:'pre-wrap', marginBottom:12 }}>{r.you.modal.body}</div>
-            { (r.you.modal as any).kind === 'upgrade-offer' ? (
+            { (r.you.modal as any).kind ? (
               <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
                 <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}>Decline</button>
                 <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}>Accept</button>
@@ -423,9 +423,9 @@ export function App() {
           </button>
           <span><strong>${r.you.money}</strong></span>
           <div title="Ship fuel (price varies by planet)">
-            <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/100</span>
+            <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}</span>
             <span style={{ marginLeft: 8, color:'#666' }}>@ ${ fuelPrice }/unit</span>
-            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={inTransit || (r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < fuelPrice} title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100)) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
           </div>
           {!r.room.started && (
             <>

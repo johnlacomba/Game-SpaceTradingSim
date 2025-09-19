@@ -47,11 +47,13 @@ type Player struct {
 	IsBot             bool            `json:"-"`
 	writeMu           sync.Mutex      // guards conn writes
 	// Transit state (server-only)
-	InTransit        bool   `json:"-"`
-	TransitFrom      string `json:"-"`
-	TransitRemaining int    `json:"-"` // units remaining to destination along straight line
-	TransitTotal     int    `json:"-"` // initial units at start of transit
-	CapacityBonus    int    `json:"-"`
+	InTransit         bool   `json:"-"`
+	TransitFrom       string `json:"-"`
+	TransitRemaining  int    `json:"-"` // units remaining to destination along straight line
+	TransitTotal      int    `json:"-"` // initial units at start of transit
+	CapacityBonus     int    `json:"-"`
+	SpeedBonus        int    `json:"-"`
+	FuelCapacityBonus int    `json:"-"`
 }
 
 type Room struct {
@@ -76,9 +78,13 @@ type ModalItem struct {
 	Title string `json:"title"`
 	Body  string `json:"body"`
 	// Optional metadata for actionable modals (e.g., upgrade offers)
-	Kind          string `json:"kind,omitempty"`
-	Price         int    `json:"price,omitempty"`
-	CapacityBonus int    `json:"capacityBonus,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Price             int    `json:"price,omitempty"`
+	CapacityBonus     int    `json:"capacityBonus,omitempty"`
+	PricePerUnit      int    `json:"pricePerUnit,omitempty"`
+	Units             int    `json:"units,omitempty"`
+	SpeedBonus        int    `json:"speedBonus,omitempty"`
+	FuelCapacityBonus int    `json:"fuelCapacityBonus,omitempty"`
 }
 
 // NewsItem represents a temporary room-wide event affecting a planet's prices/production
@@ -122,6 +128,8 @@ type PersistedPlayer struct {
 	TransitRemaining  int
 	TransitTotal      int
 	CapacityBonus     int
+	SpeedBonus        int
+	FuelCapacityBonus int
 }
 
 type GameServer struct {
@@ -212,6 +220,8 @@ func (gs *GameServer) readLoop(p *Player) {
 					TransitRemaining:  p.TransitRemaining,
 					TransitTotal:      p.TransitTotal,
 					CapacityBonus:     p.CapacityBonus,
+					SpeedBonus:        p.SpeedBonus,
+					FuelCapacityBonus: p.FuelCapacityBonus,
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -299,6 +309,26 @@ func (gs *GameServer) readLoop(p *Player) {
 							p.CapacityBonus += m.CapacityBonus
 							// Confirm
 							gs.enqueueModal(p, "Upgrade Installed", "Your cargo capacity increased by "+strconv.Itoa(m.CapacityBonus)+" to "+strconv.Itoa(shipCapacity+p.CapacityBonus)+".")
+						} else {
+							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
+						}
+					}
+					if m.Kind == "speed-offer" && data.Accept {
+						price := m.PricePerUnit * m.Units
+						if p.Money >= price {
+							p.Money -= price
+							p.SpeedBonus += m.Units
+							gs.enqueueModal(p, "Engine Upgrade Installed", "Your ship speed increased by "+strconv.Itoa(m.Units)+" units/turn.")
+						} else {
+							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
+						}
+					}
+					if m.Kind == "fuelcap-offer" && data.Accept {
+						price := m.PricePerUnit * m.Units
+						if p.Money >= price {
+							p.Money -= price
+							p.FuelCapacityBonus += m.Units
+							gs.enqueueModal(p, "Fuel Tank Expanded", "Your fuel capacity increased by "+strconv.Itoa(m.Units)+" to "+strconv.Itoa(fuelCapacity+p.FuelCapacityBonus)+".")
 						} else {
 							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
 						}
@@ -539,6 +569,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				TransitRemaining:  p.TransitRemaining,
 				TransitTotal:      p.TransitTotal,
 				CapacityBonus:     p.CapacityBonus,
+				SpeedBonus:        p.SpeedBonus,
+				FuelCapacityBonus: p.FuelCapacityBonus,
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -570,6 +602,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.TransitRemaining = snap.TransitRemaining
 		p.TransitTotal = snap.TransitTotal
 		p.CapacityBonus = snap.CapacityBonus
+		p.SpeedBonus = snap.SpeedBonus
+		p.FuelCapacityBonus = snap.FuelCapacityBonus
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -586,6 +620,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.TransitRemaining = 0
 		p.TransitTotal = 0
 		p.CapacityBonus = 0
+		p.SpeedBonus = 0
+		p.FuelCapacityBonus = 0
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -622,6 +658,8 @@ func (gs *GameServer) exitRoom(p *Player) {
 		TransitRemaining:  p.TransitRemaining,
 		TransitTotal:      p.TransitTotal,
 		CapacityBonus:     p.CapacityBonus,
+		SpeedBonus:        p.SpeedBonus,
+		FuelCapacityBonus: p.FuelCapacityBonus,
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -921,8 +959,8 @@ func (gs *GameServer) runTicker(room *Room) {
 					p.TransitRemaining = distanceUnits(room, p.CurrentPlanet, p.DestinationPlanet)
 					p.TransitTotal = p.TransitRemaining
 				}
-				// Determine this turn's movement: up to 20 units, but cannot exceed fuel
-				moveCap := 20
+				// Determine this turn's movement: up to (20 + SpeedBonus) units, but cannot exceed fuel
+				moveCap := 20 + p.SpeedBonus
 				move := minInt(moveCap, p.TransitRemaining)
 				move = minInt(move, p.Fuel)
 				if move <= 0 {
@@ -1054,7 +1092,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				if price <= 0 {
 					price = 10
 				}
-				maxUnits := minInt(fuelCapacity-bp.Fuel, bp.Money/price)
+				maxUnits := minInt((fuelCapacity+bp.FuelCapacityBonus)-bp.Fuel, bp.Money/price)
 				if maxUnits > 0 {
 					bp.Money -= maxUnits * price
 					bp.Fuel += maxUnits
@@ -1075,10 +1113,10 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 		}
-		// Rare per-player events (humans only): tax, lottery, asteroid
+		// Rare per-player events; bots are impacted too. Humans receive modals; bots auto-resolve.
 		for _, hp := range room.Players {
 			if hp.IsBot {
-				// Bots: small chance to auto-upgrade if affordable
+				// Auto-accept capacity upgrade sometimes if affordable
 				if rand.Intn(50) == 0 { // ~2% per turn
 					price := 5000
 					bonus := 50
@@ -1087,6 +1125,25 @@ func (gs *GameServer) runTicker(room *Room) {
 						hp.CapacityBonus += bonus
 					}
 				}
+				// Consider engine speed offer if rolled this turn
+				if rand.Intn(40) == 0 {
+					units := 1 + rand.Intn(10)
+					price := units * 1000
+					if hp.Money >= price {
+						hp.Money -= price
+						hp.SpeedBonus += units
+					}
+				}
+				// Consider fuel capacity offer if rolled this turn
+				if rand.Intn(40) == 0 {
+					units := 20 + rand.Intn(81)
+					price := units * 50
+					if hp.Money >= price {
+						hp.Money -= price
+						hp.FuelCapacityBonus += units
+					}
+				}
+				// Bots skip modals; move on to next player
 				continue
 			}
 			// Income tax: ~1% chance per turn
@@ -1123,6 +1180,22 @@ func (gs *GameServer) runTicker(room *Room) {
 				price := 5000
 				bonus := 50
 				mi := ModalItem{ID: randID(), Title: "Shipyard Offer", Body: "Special offer: +" + strconv.Itoa(bonus) + " cargo capacity for $" + strconv.Itoa(price) + ". Accept?", Kind: "upgrade-offer", Price: price, CapacityBonus: bonus}
+				hp.Modals = append(hp.Modals, mi)
+			}
+			// Speed upgrade offer: 1-10 units, $1000 per unit
+			if rand.Intn(40) == 0 { // ~2.5%/turn
+				units := 1 + rand.Intn(10)
+				ppu := 1000
+				price := units * ppu
+				mi := ModalItem{ID: randID(), Title: "Engine Upgrade", Body: "Offer: +" + strconv.Itoa(units) + " speed (units/turn) for $" + strconv.Itoa(ppu) + " per unit (total $" + strconv.Itoa(price) + "). Accept?", Kind: "speed-offer", PricePerUnit: ppu, Units: units}
+				hp.Modals = append(hp.Modals, mi)
+			}
+			// Fuel capacity upgrade offer: 20-100 units, $50 per unit
+			if rand.Intn(40) == 0 { // ~2.5%/turn
+				units := 20 + rand.Intn(81) // 20..100
+				ppu := 50
+				price := units * ppu
+				mi := ModalItem{ID: randID(), Title: "Fuel Tank Expansion", Body: "Offer: +" + strconv.Itoa(units) + " fuel capacity for $" + strconv.Itoa(ppu) + " per unit (total $" + strconv.Itoa(price) + "). Accept?", Kind: "fuelcap-offer", PricePerUnit: ppu, Units: units}
 				hp.Modals = append(hp.Modals, mi)
 			}
 		}
@@ -1494,6 +1567,8 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"transitRemaining":  pp.TransitRemaining,
 				"transitTotal":      pp.TransitTotal,
 				"capacity":          shipCapacity + pp.CapacityBonus,
+				"fuelCapacity":      fuelCapacity + pp.FuelCapacityBonus,
+				"speedPerTurn":      20 + pp.SpeedBonus,
 				"modal":             nextModal,
 			},
 			"visiblePlanet": visible,
@@ -1781,7 +1856,7 @@ func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 			price = planet.FuelPrice
 		}
 	}
-	maxCap := fuelCapacity - p.Fuel
+	maxCap := (fuelCapacity + p.FuelCapacityBonus) - p.Fuel
 	if maxCap <= 0 {
 		return
 	}
