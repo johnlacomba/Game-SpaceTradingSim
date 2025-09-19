@@ -909,7 +909,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				pl.Goods[g] = pl.Goods[g] + amt
 			}
 		}
-		// simple bot AI: sell > $10, buy <= $10, pick a new random destination
+		// simple bot AI: sell when price > 50% of max, buy when price <= 50% of max, pick a new random destination
 		for _, bp := range room.Players {
 			if !bp.IsBot {
 				continue
@@ -918,10 +918,17 @@ func (gs *GameServer) runTicker(room *Room) {
 			if planet == nil {
 				continue
 			}
-			// sell everything profitable (>10)
+			// reference price ranges per good
+			ranges := defaultPriceRanges()
+			// sell everything above mid-price (>50% of max)
 			for g, qty := range bp.Inventory {
 				price := planet.Prices[g]
-				if qty > 0 && price > 10 {
+				max := 0
+				if r, ok := ranges[g]; ok {
+					max = r[1]
+				}
+				threshold := max / 2
+				if qty > 0 && price > threshold {
 					bp.Inventory[g] -= qty
 					planet.Goods[g] += qty
 					bp.Money += qty * price
@@ -931,7 +938,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 			}
-			// buy anything cheap (<=10)
+			// buy anything at or below mid-price (<=50% of max)
 			keys := make([]string, 0, len(planet.Goods))
 			for k := range planet.Goods {
 				keys = append(keys, k)
@@ -939,7 +946,18 @@ func (gs *GameServer) runTicker(room *Room) {
 			sort.Strings(keys)
 			for _, g := range keys {
 				price := planet.Prices[g]
-				if price <= 0 || price > 10 {
+				if price <= 0 {
+					continue
+				}
+				max := 0
+				if r, ok := ranges[g]; ok {
+					max = r[1]
+				}
+				if max <= 0 {
+					continue
+				}
+				threshold := max / 2
+				if price > threshold {
 					continue
 				}
 				avail := planet.Goods[g]
