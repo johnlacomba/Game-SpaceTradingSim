@@ -293,7 +293,7 @@ export function App() {
           <div style={{ display:'inline-block', whiteSpace:'nowrap', willChange:'transform', animation:'newsTickerMove 30s linear infinite' }}>
             {(() => {
               const items = (r.room.news && r.room.news.length > 0)
-                ? r.room.news.map(n => `${n.headline} @ ${n.planet} (${n.turnsRemaining}t left)`).join('   •   ')
+                ? r.room.news.map(n => `${n.headline}`).join('   •   ')
                 : 'No news yet.'
               return `${items}   •   ${items}`
             })()}
