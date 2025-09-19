@@ -1084,61 +1084,125 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 			}
-			// buy anything at or below mid-price (<=50% of max)
-			keys := make([]string, 0, len(planet.Goods))
-			for k := range planet.Goods {
-				keys = append(keys, k)
+			// Fuel-first policy: ensure a minimum reserve before buying goods
+			minReserve := 20
+			if bp.Fuel < minReserve {
+				fp := planet.FuelPrice
+				if fp <= 0 {
+					fp = 10
+				}
+				capLeft := (fuelCapacity + bp.FuelCapacityBonus) - bp.Fuel
+				if capLeft > 0 {
+					need := minInt(minReserve-bp.Fuel, capLeft)
+					if need > 0 {
+						cost := need * fp
+						if bp.Money < cost {
+							// Sell cargo at current prices (highest first) to fund fuel
+							type kv struct {
+								g string
+								p int
+							}
+							goods := make([]kv, 0, len(bp.Inventory))
+							for g := range bp.Inventory {
+								goods = append(goods, kv{g: g, p: planet.Prices[g]})
+							}
+							sort.Slice(goods, func(i, j int) bool { return goods[i].p > goods[j].p })
+							short := cost - bp.Money
+							for _, item := range goods {
+								if short <= 0 {
+									break
+								}
+								g := item.g
+								price := planet.Prices[g]
+								if price <= 0 {
+									continue
+								}
+								qty := bp.Inventory[g]
+								if qty <= 0 {
+									continue
+								}
+								needUnits := (short + price - 1) / price
+								sellUnits := qty
+								if sellUnits > needUnits {
+									sellUnits = needUnits
+								}
+								bp.Inventory[g] -= sellUnits
+								planet.Goods[g] += sellUnits
+								proceeds := sellUnits * price
+								bp.Money += proceeds
+								short -= proceeds
+								if bp.Inventory[g] <= 0 {
+									delete(bp.Inventory, g)
+									delete(bp.InventoryAvgCost, g)
+								}
+							}
+						}
+						// Buy as much as needed (or affordable) toward the reserve
+						canBuy := minInt(need, bp.Money/fp)
+						if canBuy > 0 {
+							bp.Money -= canBuy * fp
+							bp.Fuel += canBuy
+						}
+					}
+				}
 			}
-			sort.Strings(keys)
-			for _, g := range keys {
-				price := planet.Prices[g]
-				if price <= 0 {
-					continue
+			// buy anything at or below mid-price (<=50% of max) — skip if still below fuel reserve
+			if bp.Fuel >= minReserve {
+				keys := make([]string, 0, len(planet.Goods))
+				for k := range planet.Goods {
+					keys = append(keys, k)
 				}
-				max := 0
-				if r, ok := ranges[g]; ok {
-					max = r[1]
-				}
-				if max <= 0 {
-					continue
-				}
-				threshold := max / 2
-				if price > threshold {
-					continue
-				}
-				avail := planet.Goods[g]
-				if avail <= 0 || bp.Money < price {
-					continue
-				}
-				// Determine purchase amount subject to money, availability, and ship capacity
-				amount := bp.Money / price
-				if amount > avail {
-					amount = avail
-				}
-				// Respect ship capacity for bots as well
-				used := inventoryTotal(bp.Inventory)
-				free := shipCapacity + bp.CapacityBonus - used
-				if free <= 0 {
-					break
-				}
-				if amount > free {
-					amount = free
-				}
-				if amount <= 0 {
-					continue
-				}
-				cost := amount * price
-				bp.Money -= cost
-				planet.Goods[g] -= amount
-				oldQty := bp.Inventory[g]
-				oldAvg := bp.InventoryAvgCost[g]
-				newQty := oldQty + amount
-				bp.Inventory[g] = newQty
-				if newQty > 0 {
-					newAvg := (oldQty*oldAvg + amount*price) / newQty
-					bp.InventoryAvgCost[g] = newAvg
-				} else {
-					delete(bp.InventoryAvgCost, g)
+				sort.Strings(keys)
+				for _, g := range keys {
+					price := planet.Prices[g]
+					if price <= 0 {
+						continue
+					}
+					max := 0
+					if r, ok := ranges[g]; ok {
+						max = r[1]
+					}
+					if max <= 0 {
+						continue
+					}
+					threshold := max / 2
+					if price > threshold {
+						continue
+					}
+					avail := planet.Goods[g]
+					if avail <= 0 || bp.Money < price {
+						continue
+					}
+					// Determine purchase amount subject to money, availability, and ship capacity
+					amount := bp.Money / price
+					if amount > avail {
+						amount = avail
+					}
+					// Respect ship capacity for bots as well
+					used := inventoryTotal(bp.Inventory)
+					free := shipCapacity + bp.CapacityBonus - used
+					if free <= 0 {
+						break
+					}
+					if amount > free {
+						amount = free
+					}
+					if amount <= 0 {
+						continue
+					}
+					cost := amount * price
+					bp.Money -= cost
+					planet.Goods[g] -= amount
+					oldQty := bp.Inventory[g]
+					oldAvg := bp.InventoryAvgCost[g]
+					newQty := oldQty + amount
+					bp.Inventory[g] = newQty
+					if newQty > 0 {
+						newAvg := (oldQty*oldAvg + amount*price) / newQty
+						bp.InventoryAvgCost[g] = newAvg
+					} else {
+						delete(bp.InventoryAvgCost, g)
+					}
 				}
 			}
 			// Bot refuel behavior (uses local planet fuel price)
@@ -1153,7 +1217,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					bp.Fuel += maxUnits
 				}
 			}
-			// choose a new destination different from current within fuel range
+			// choose a new destination different from current; if out of range, try to sell cargo to afford fuel to reach it
 			pn := planetNames(room.Planets)
 			if len(pn) > 1 {
 				for tries := 0; tries < 8; tries++ {
@@ -1161,10 +1225,76 @@ func (gs *GameServer) runTicker(room *Room) {
 					if dest == bp.CurrentPlanet {
 						continue
 					}
-					if distanceUnits(room, bp.CurrentPlanet, dest) <= bp.Fuel {
+					dist := distanceUnits(room, bp.CurrentPlanet, dest)
+					if dist <= bp.Fuel {
 						bp.DestinationPlanet = dest
 						break
 					}
+					// Need more fuel to reach this destination
+					fuelNeeded := dist - bp.Fuel
+					// Respect fuel capacity
+					capLeft := (fuelCapacity + bp.FuelCapacityBonus) - bp.Fuel
+					if capLeft <= 0 || capLeft < fuelNeeded {
+						// Can't carry enough fuel to reach; try another destination
+						continue
+					}
+					fp := planet.FuelPrice
+					if fp <= 0 {
+						fp = 10
+					}
+					cost := fuelNeeded * fp
+					if bp.Money < cost {
+						// Try to liquidate cargo (even at a loss) to raise funds for fuel
+						short := cost - bp.Money
+						// Build goods list sorted by current price desc to sell fewer units
+						type kv struct {
+							g string
+							p int
+						}
+						goods := make([]kv, 0, len(bp.Inventory))
+						for g := range bp.Inventory {
+							goods = append(goods, kv{g: g, p: planet.Prices[g]})
+						}
+						sort.Slice(goods, func(i, j int) bool { return goods[i].p > goods[j].p })
+						for _, item := range goods {
+							if short <= 0 {
+								break
+							}
+							g := item.g
+							price := planet.Prices[g]
+							if price <= 0 {
+								continue
+							}
+							qty := bp.Inventory[g]
+							if qty <= 0 {
+								continue
+							}
+							// units to sell to cover the shortfall (rounded up)
+							needUnits := (short + price - 1) / price
+							sellUnits := qty
+							if sellUnits > needUnits {
+								sellUnits = needUnits
+							}
+							// perform sale
+							bp.Inventory[g] -= sellUnits
+							planet.Goods[g] += sellUnits
+							proceeds := sellUnits * price
+							bp.Money += proceeds
+							short -= proceeds
+							if bp.Inventory[g] <= 0 {
+								delete(bp.Inventory, g)
+								delete(bp.InventoryAvgCost, g)
+							}
+						}
+					}
+					if bp.Money >= cost {
+						// Buy the fuel now and set destination
+						bp.Money -= cost
+						bp.Fuel += fuelNeeded
+						bp.DestinationPlanet = dest
+						break
+					}
+					// Otherwise, try another candidate
 				}
 			}
 		}
