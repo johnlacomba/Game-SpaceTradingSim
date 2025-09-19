@@ -284,6 +284,30 @@ export function App() {
   const capacity = 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
+  // Compute map distance between current and selected destination using normalized positions
+  const getNormPos = (name?: string): { x: number; y: number } | undefined => {
+    if (!name) return undefined
+    const serverPos = (r.room as any).planetPositions?.[name] as { x: number; y: number } | undefined
+    if (serverPos) return serverPos
+    const px = planetPos[name]
+    if (px && containerSize.width > 0 && containerSize.height > 0) {
+      return { x: px.x / containerSize.width, y: px.y / containerSize.height }
+    }
+    return undefined
+  }
+  const destName = r.you.destinationPlanet
+  let mapTitle = 'Map'
+  if (destName && destName !== r.you.currentPlanet) {
+    const a = getNormPos(r.you.currentPlanet)
+    const b = getNormPos(destName)
+    if (a && b) {
+      const dx = a.x - b.x
+      const dy = a.y - b.y
+      const d = Math.sqrt(dx*dx + dy*dy)
+      const units = Math.max(1, Math.round(d * 100)) // simple scaled units
+      mapTitle = `Map — ${units} units`
+    }
+  }
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
@@ -354,9 +378,9 @@ export function App() {
       </div>
   <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
-      {/* Planets column (first) */}
+      {/* Map column (first) */}
       <div>
-        <h3>Planets</h3>
+        <h3>{mapTitle}</h3>
         <div ref={planetsContainerRef} style={{ position:'relative', height: 380 }}>
         <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
