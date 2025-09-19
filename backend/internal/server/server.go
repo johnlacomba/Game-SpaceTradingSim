@@ -635,7 +635,19 @@ func (gs *GameServer) startGame(roomID string) {
 			room.PlanetPositions = generatePlanetPositions(names)
 			room.Started = true
 			room.Turn = 0
-			room.TurnEndsAt = time.Now().Add(turnDuration)
+			// If no humans at start, set deadline to now; runTicker will extend when a human appears
+			if func() bool {
+				for _, pl := range room.Players {
+					if !pl.IsBot {
+						return true
+					}
+				}
+				return false
+			}() {
+				room.TurnEndsAt = time.Now().Add(turnDuration)
+			} else {
+				room.TurnEndsAt = time.Now()
+			}
 			go gs.runTicker(room)
 		}
 	}
@@ -679,7 +691,19 @@ func (gs *GameServer) runTicker(room *Room) {
 				break
 			}
 		}
+		// If humans are present but the current deadline is stale (e.g., came from a bot-only turn), push a fresh deadline now
+		if !onlyBots {
+			now := time.Now()
+			if room.TurnEndsAt.Before(now.Add(1 * time.Second)) {
+				room.TurnEndsAt = now.Add(base)
+				// We'll broadcast below after unlocking so clients see a proper countdown immediately upon join
+			}
+		}
 		room.mu.Unlock()
+		if !onlyBots {
+			// Broadcast any updated deadline on transition from bot-only to human-present
+			gs.broadcastRoom(room)
+		}
 
 		if onlyBots {
 			// Skip the long timer; tiny pause to avoid a tight CPU loop
