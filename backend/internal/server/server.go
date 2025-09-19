@@ -51,6 +51,7 @@ type Player struct {
 	TransitFrom      string `json:"-"`
 	TransitRemaining int    `json:"-"` // units remaining to destination along straight line
 	TransitTotal     int    `json:"-"` // initial units at start of transit
+	CapacityBonus    int    `json:"-"`
 }
 
 type Room struct {
@@ -74,6 +75,10 @@ type ModalItem struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Body  string `json:"body"`
+	// Optional metadata for actionable modals (e.g., upgrade offers)
+	Kind          string `json:"kind,omitempty"`
+	Price         int    `json:"price,omitempty"`
+	CapacityBonus int    `json:"capacityBonus,omitempty"`
 }
 
 // NewsItem represents a temporary room-wide event affecting a planet's prices/production
@@ -116,6 +121,7 @@ type PersistedPlayer struct {
 	TransitFrom       string
 	TransitRemaining  int
 	TransitTotal      int
+	CapacityBonus     int
 }
 
 type GameServer struct {
@@ -205,6 +211,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					TransitFrom:       p.TransitFrom,
 					TransitRemaining:  p.TransitRemaining,
 					TransitTotal:      p.TransitTotal,
+					CapacityBonus:     p.CapacityBonus,
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -269,6 +276,33 @@ func (gs *GameServer) readLoop(p *Player) {
 				if len(p.Modals) > 0 && (data.ID == "" || p.Modals[0].ID == data.ID) {
 					// pop first
 					p.Modals = append([]ModalItem(nil), p.Modals[1:]...)
+				}
+				room.mu.Unlock()
+				gs.sendRoomState(room, p)
+			}
+		case "respondModal":
+			// payload: { id, accept }
+			var data struct {
+				ID     string `json:"id"`
+				Accept bool   `json:"accept"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				room.mu.Lock()
+				if len(p.Modals) > 0 && p.Modals[0].ID == data.ID {
+					m := p.Modals[0]
+					// Remove modal
+					p.Modals = append([]ModalItem(nil), p.Modals[1:]...)
+					if m.Kind == "upgrade-offer" && data.Accept {
+						if p.Money >= m.Price {
+							p.Money -= m.Price
+							p.CapacityBonus += m.CapacityBonus
+							// Confirm
+							gs.enqueueModal(p, "Upgrade Installed", "Your cargo capacity increased by "+strconv.Itoa(m.CapacityBonus)+" to "+strconv.Itoa(shipCapacity+p.CapacityBonus)+".")
+						} else {
+							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
+						}
+					}
 				}
 				room.mu.Unlock()
 				gs.sendRoomState(room, p)
@@ -364,7 +398,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					"inventory":        inv,
 					"inventoryAvgCost": avg,
 					"usedSlots":        used,
-					"capacity":         shipCapacity,
+					"capacity":         shipCapacity + target.CapacityBonus,
 				}
 			}
 			room.mu.Unlock()
@@ -467,6 +501,14 @@ func (gs *GameServer) createRoom(name string) *Room {
 		Persist: map[PlayerID]*PersistedPlayer{},
 		readyCh: make(chan struct{}, 1),
 	}
+	// Pre-randomize planet order and positions so the map is ready before game start
+	names := planetNames(room.Planets)
+	for i := range names {
+		j := rand.Intn(i + 1)
+		names[i], names[j] = names[j], names[i]
+	}
+	room.PlanetOrder = names
+	room.PlanetPositions = generatePlanetPositions(names)
 	gs.roomsMu.Lock()
 	gs.rooms[room.ID] = room
 	gs.roomsMu.Unlock()
@@ -496,6 +538,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				TransitFrom:       p.TransitFrom,
 				TransitRemaining:  p.TransitRemaining,
 				TransitTotal:      p.TransitTotal,
+				CapacityBonus:     p.CapacityBonus,
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -526,6 +569,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.TransitFrom = snap.TransitFrom
 		p.TransitRemaining = snap.TransitRemaining
 		p.TransitTotal = snap.TransitTotal
+		p.CapacityBonus = snap.CapacityBonus
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -541,6 +585,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.TransitFrom = ""
 		p.TransitRemaining = 0
 		p.TransitTotal = 0
+		p.CapacityBonus = 0
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -572,6 +617,11 @@ func (gs *GameServer) exitRoom(p *Player) {
 		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 		Ready:             p.Ready,
 		Fuel:              p.Fuel,
+		InTransit:         p.InTransit,
+		TransitFrom:       p.TransitFrom,
+		TransitRemaining:  p.TransitRemaining,
+		TransitTotal:      p.TransitTotal,
+		CapacityBonus:     p.CapacityBonus,
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -624,15 +674,18 @@ func (gs *GameServer) startGame(roomID string) {
 					pl.Ready = false
 				}
 			}
-			// Randomize planet order for UI layout
-			names := planetNames(room.Planets)
-			for i := range names {
-				j := rand.Intn(i + 1)
-				names[i], names[j] = names[j], names[i]
+			// Planet order/positions are set at room creation; keep them unless unset
+			if len(room.PlanetOrder) == 0 {
+				names := planetNames(room.Planets)
+				for i := range names {
+					j := rand.Intn(i + 1)
+					names[i], names[j] = names[j], names[i]
+				}
+				room.PlanetOrder = names
 			}
-			room.PlanetOrder = names
-			// Generate random positions (normalized 0..1) with spacing
-			room.PlanetPositions = generatePlanetPositions(names)
+			if len(room.PlanetPositions) == 0 {
+				room.PlanetPositions = generatePlanetPositions(room.PlanetOrder)
+			}
 			room.Started = true
 			room.Turn = 0
 			// If no humans at start, set deadline to now; runTicker will extend when a human appears
@@ -971,7 +1024,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 				// Respect ship capacity for bots as well
 				used := inventoryTotal(bp.Inventory)
-				free := shipCapacity - used
+				free := shipCapacity + bp.CapacityBonus - used
 				if free <= 0 {
 					break
 				}
@@ -1025,6 +1078,15 @@ func (gs *GameServer) runTicker(room *Room) {
 		// Rare per-player events (humans only): tax, lottery, asteroid
 		for _, hp := range room.Players {
 			if hp.IsBot {
+				// Bots: small chance to auto-upgrade if affordable
+				if rand.Intn(50) == 0 { // ~2% per turn
+					price := 5000
+					bonus := 50
+					if hp.Money >= price {
+						hp.Money -= price
+						hp.CapacityBonus += bonus
+					}
+				}
 				continue
 			}
 			// Income tax: ~1% chance per turn
@@ -1055,6 +1117,13 @@ func (gs *GameServer) runTicker(room *Room) {
 				hp.Inventory = map[string]int{}
 				hp.InventoryAvgCost = map[string]int{}
 				gs.enqueueModal(hp, "Asteroid Collision", "Your ship collided with an asteroid and you lost all cargo.")
+			}
+			// Capacity upgrade offer: ~2% chance per turn
+			if rand.Intn(50) == 0 {
+				price := 5000
+				bonus := 50
+				mi := ModalItem{ID: randID(), Title: "Shipyard Offer", Body: "Special offer: +" + strconv.Itoa(bonus) + " cargo capacity for $" + strconv.Itoa(price) + ". Accept?", Kind: "upgrade-offer", Price: price, CapacityBonus: bonus}
+				hp.Modals = append(hp.Modals, mi)
 			}
 		}
 		// reset human players' ready flags for the new turn
@@ -1231,7 +1300,7 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	}
 	// Enforce ship capacity: cap purchase to remaining free slots
 	used := inventoryTotal(p.Inventory)
-	free := shipCapacity - used
+	free := shipCapacity + p.CapacityBonus - used
 	if free <= 0 {
 		return
 	}
@@ -1355,9 +1424,21 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"fuelPrice":   planet.FuelPrice,
 			}
 		}
-		nextModal := map[string]string{}
+		var nextModal map[string]interface{}
 		if len(pp.Modals) > 0 {
-			nextModal = map[string]string{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
+			nm := map[string]interface{}{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
+			if pp.Modals[0].Kind != "" {
+				nm["kind"] = pp.Modals[0].Kind
+			}
+			if pp.Modals[0].Price != 0 {
+				nm["price"] = pp.Modals[0].Price
+			}
+			if pp.Modals[0].CapacityBonus != 0 {
+				nm["capacityBonus"] = pp.Modals[0].CapacityBonus
+			}
+			nextModal = nm
+		} else {
+			nextModal = map[string]interface{}{}
 		}
 		payloadByPlayer[id] = map[string]interface{}{
 			"room": map[string]interface{}{
@@ -1412,6 +1493,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"transitFrom":       pp.TransitFrom,
 				"transitRemaining":  pp.TransitRemaining,
 				"transitTotal":      pp.TransitTotal,
+				"capacity":          shipCapacity + pp.CapacityBonus,
 				"modal":             nextModal,
 			},
 			"visiblePlanet": visible,

@@ -308,7 +308,7 @@ export function App() {
   const prices: Record<string, number> = visible.prices || {}
   const priceRanges: Record<string, [number, number]> = (visible.priceRanges as any) || {}
   const fuelPrice: number = typeof visible.fuelPrice === 'number' ? visible.fuelPrice : 10
-  const capacity = 200
+  const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
   // Compute map distance between current and selected destination using normalized positions
@@ -372,9 +372,16 @@ export function App() {
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
             <div style={{ whiteSpace:'pre-wrap', marginBottom:12 }}>{r.you.modal.body}</div>
-            <div style={{ display:'flex', justifyContent:'flex-end' }}>
-              <button onClick={()=>ackModal(r.you.modal?.id)}>OK</button>
-            </div>
+            { (r.you.modal as any).kind === 'upgrade-offer' ? (
+              <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+                <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}>Decline</button>
+                <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}>Accept</button>
+              </div>
+            ) : (
+              <div style={{ display:'flex', justifyContent:'flex-end' }}>
+                <button onClick={()=>ackModal(r.you.modal?.id)}>OK</button>
+              </div>
+            )}
           </div>
         </div>
       )}
