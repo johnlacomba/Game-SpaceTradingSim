@@ -46,6 +46,7 @@ type Player struct {
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
 	writeMu           sync.Mutex      // guards conn writes
+	Bankrupt          bool            `json:"-"`
 	// Transit state (server-only)
 	InTransit         bool   `json:"-"`
 	TransitFrom       string `json:"-"`
@@ -123,6 +124,7 @@ type PersistedPlayer struct {
 	Ready             bool
 	Modals            []ModalItem
 	Fuel              int
+	Bankrupt          bool
 	InTransit         bool
 	TransitFrom       string
 	TransitRemaining  int
@@ -215,6 +217,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					Ready:             p.Ready,
 					Modals:            cloneModals(p.Modals),
 					Fuel:              p.Fuel,
+					Bankrupt:          p.Bankrupt,
 					InTransit:         p.InTransit,
 					TransitFrom:       p.TransitFrom,
 					TransitRemaining:  p.TransitRemaining,
@@ -353,6 +356,9 @@ func (gs *GameServer) readLoop(p *Player) {
 			if room := gs.getRoom(p.roomID); room != nil {
 				room.mu.Lock()
 				allow := true
+				if p.Bankrupt {
+					allow = false
+				}
 				if p.InTransit {
 					allow = false
 					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
@@ -381,6 +387,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.Bankrupt {
+					gs.sendRoomState(room, p)
+					break
+				}
 				if p.InTransit {
 					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
 					gs.sendRoomState(room, p)
@@ -395,6 +405,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.Bankrupt {
+					gs.sendRoomState(room, p)
+					break
+				}
 				if p.InTransit {
 					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
 					gs.sendRoomState(room, p)
@@ -477,6 +491,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.Bankrupt {
+					gs.sendRoomState(room, p)
+					break
+				}
 				if p.InTransit {
 					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
 					gs.sendRoomState(room, p)
@@ -564,6 +582,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				Ready:             p.Ready,
 				Modals:            cloneModals(p.Modals),
 				Fuel:              p.Fuel,
+				Bankrupt:          p.Bankrupt,
 				InTransit:         p.InTransit,
 				TransitFrom:       p.TransitFrom,
 				TransitRemaining:  p.TransitRemaining,
@@ -604,6 +623,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.CapacityBonus = snap.CapacityBonus
 		p.SpeedBonus = snap.SpeedBonus
 		p.FuelCapacityBonus = snap.FuelCapacityBonus
+		p.Bankrupt = snap.Bankrupt
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -622,6 +642,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.CapacityBonus = 0
 		p.SpeedBonus = 0
 		p.FuelCapacityBonus = 0
+		p.Bankrupt = false
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -653,6 +674,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 		Ready:             p.Ready,
 		Fuel:              p.Fuel,
+		Bankrupt:          p.Bankrupt,
 		InTransit:         p.InTransit,
 		TransitFrom:       p.TransitFrom,
 		TransitRemaining:  p.TransitRemaining,
@@ -951,6 +973,9 @@ func (gs *GameServer) runTicker(room *Room) {
 		gs.generateNews(room)
 		// resolve travel with fuel consumption
 		for _, p := range room.Players {
+			if p.Bankrupt {
+				continue
+			}
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
 				// initialize transit if needed
 				if !p.InTransit || p.TransitRemaining <= 0 || p.TransitFrom == "" {
@@ -982,11 +1007,41 @@ func (gs *GameServer) runTicker(room *Room) {
 					p.TransitFrom = ""
 					p.TransitRemaining = 0
 					p.TransitTotal = 0
+					// Dock tax on arrival
+					p.Money -= 10
+					if !p.IsBot {
+						gs.enqueueModal(p, "Dock Tax", "Docking fee of 10 credits charged at "+p.CurrentPlanet+".")
+					}
+					if p.Money < -500 && !p.Bankrupt {
+						// Queue Game Over first, then mark bankrupt to preserve the modal
+						if !p.IsBot {
+							gs.enqueueModal(p, "Game Over", "Your ship was impounded for unpaid dock taxes. You may continue watching.")
+						}
+						// Impound and bankrupt
+						p.Bankrupt = true
+						// Announce via news ticker
+						room.News = append(room.News, NewsItem{Headline: p.Name + " bankrupted by dock taxes at " + p.CurrentPlanet, Planet: p.CurrentPlanet, TurnsRemaining: 3})
+					}
 				} else {
 					// Still en route
 					p.InTransit = true
 					if !p.IsBot {
 						gs.enqueueModal(p, "In Transit", "You are still in transit towards "+p.DestinationPlanet+".")
+					}
+				}
+			} else {
+				// Staying in same location: apply dock tax if not in transit
+				if !p.InTransit {
+					p.Money -= 10
+					if !p.IsBot {
+						gs.enqueueModal(p, "Dock Tax", "Docking fee of 10 credits charged at "+p.CurrentPlanet+".")
+					}
+					if p.Money < -500 && !p.Bankrupt {
+						if !p.IsBot {
+							gs.enqueueModal(p, "Game Over", "Your ship was impounded for unpaid dock taxes. You may continue watching.")
+						}
+						p.Bankrupt = true
+						room.News = append(room.News, NewsItem{Headline: p.Name + " bankrupted by dock taxes at " + p.CurrentPlanet, Planet: p.CurrentPlanet, TurnsRemaining: 3})
 					}
 				}
 			}
@@ -1115,6 +1170,11 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		// Rare per-player events; bots are impacted too. Humans receive modals; bots auto-resolve.
 		for _, hp := range room.Players {
+			if hp.Bankrupt {
+				// Ensure no destination/arrow for bankrupt players
+				hp.DestinationPlanet = ""
+				continue
+			}
 			if hp.IsBot {
 				// Auto-accept capacity upgrade sometimes if affordable
 				if rand.Intn(50) == 0 { // ~2% per turn
@@ -1161,6 +1221,14 @@ func (gs *GameServer) runTicker(room *Room) {
 				// Deduct tax (can go negative to reflect debt)
 				hp.Money -= tax
 				gs.enqueueModal(hp, "Federation Tax", "Federation income tax is due. "+strconv.Itoa(tax)+" credits due.")
+				if hp.Money < -500 && !hp.Bankrupt {
+					// Queue Game Over first, then mark bankrupt so modal isn't blocked
+					gs.enqueueModal(hp, "Game Over", "Your ship was impounded for unpaid debts. You may continue watching.")
+					hp.Bankrupt = true
+					room.News = append(room.News, NewsItem{Headline: hp.Name + " bankrupted by taxes at " + hp.CurrentPlanet, Planet: hp.CurrentPlanet, TurnsRemaining: 3})
+					// Skip the rest of events for this player this turn
+					continue
+				}
 			}
 			// Lottery win: ~1% chance per turn
 			if rand.Intn(100) == 0 {
@@ -1201,7 +1269,7 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		// reset human players' ready flags for the new turn
 		for _, pl := range room.Players {
-			if !pl.IsBot {
+			if !pl.IsBot && !pl.Bankrupt {
 				pl.Ready = false
 			}
 		}
@@ -1438,10 +1506,10 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	// prepare minimal view per-player (fog of goods for current planet only)
 	room.mu.Lock()
-	// compute whether all non-bot players are ready
+	// compute whether all non-bot, non-bankrupt players are ready
 	allReady := true
 	for _, pp := range room.Players {
-		if pp.IsBot {
+		if pp.IsBot || pp.Bankrupt {
 			continue
 		}
 		if !pp.Ready {
@@ -1451,18 +1519,119 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	}
 	players := []map[string]interface{}{}
 	for _, pp := range room.Players {
+		displayMoney := pp.Money
+		moneyField := interface{}(displayMoney)
+		if pp.Bankrupt {
+			moneyField = "Bankrupt"
+		}
 		players = append(players, map[string]interface{}{
 			"id":                pp.ID,
 			"name":              pp.Name,
-			"money":             pp.Money,
+			"money":             moneyField,
 			"currentPlanet":     pp.CurrentPlanet,
 			"destinationPlanet": pp.DestinationPlanet,
 			"ready":             pp.Ready,
+			"bankrupt":          pp.Bankrupt,
 		})
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
 	recipients := make([]*Player, 0, len(room.Players))
 	for id, pp := range room.Players {
+		if pp.Bankrupt {
+			// Build next modal if any (bankrupt players still see modals like Game Over)
+			var nm map[string]interface{}
+			if len(pp.Modals) > 0 {
+				nm = map[string]interface{}{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
+				if pp.Modals[0].Kind != "" {
+					nm["kind"] = pp.Modals[0].Kind
+				}
+				if pp.Modals[0].Price != 0 {
+					nm["price"] = pp.Modals[0].Price
+				}
+				if pp.Modals[0].CapacityBonus != 0 {
+					nm["capacityBonus"] = pp.Modals[0].CapacityBonus
+				}
+				if pp.Modals[0].PricePerUnit != 0 {
+					nm["pricePerUnit"] = pp.Modals[0].PricePerUnit
+				}
+				if pp.Modals[0].Units != 0 {
+					nm["units"] = pp.Modals[0].Units
+				}
+				if pp.Modals[0].SpeedBonus != 0 {
+					nm["speedBonus"] = pp.Modals[0].SpeedBonus
+				}
+				if pp.Modals[0].FuelCapacityBonus != 0 {
+					nm["fuelCapacityBonus"] = pp.Modals[0].FuelCapacityBonus
+				}
+			} else {
+				nm = map[string]interface{}{}
+			}
+			// Bankrupt players see no planet detail and cannot interact
+			payloadByPlayer[id] = map[string]interface{}{
+				"room": map[string]interface{}{
+					"id":         room.ID,
+					"name":       room.Name,
+					"started":    room.Started,
+					"turn":       room.Turn,
+					"players":    players,
+					"turnEndsAt": room.TurnEndsAt.UnixMilli(),
+					"allReady":   allReady,
+					"planets": func() []string {
+						if len(room.PlanetOrder) > 0 {
+							out := make([]string, len(room.PlanetOrder))
+							copy(out, room.PlanetOrder)
+							return out
+						}
+						return planetNames(room.Planets)
+					}(),
+					"planetPositions": func() map[string]map[string]float64 {
+						if len(room.PlanetPositions) == 0 {
+							return nil
+						}
+						out := make(map[string]map[string]float64, len(room.PlanetPositions))
+						for k, v := range room.PlanetPositions {
+							out[k] = map[string]float64{"x": v[0], "y": v[1]}
+						}
+						return out
+					}(),
+					"news": func() []map[string]interface{} {
+						arr := make([]map[string]interface{}, 0, len(room.News))
+						for _, n := range room.News {
+							arr = append(arr, map[string]interface{}{
+								"headline":       n.Headline,
+								"planet":         n.Planet,
+								"turnsRemaining": n.TurnsRemaining,
+							})
+						}
+						return arr
+					}(),
+				},
+				"you": map[string]interface{}{
+					"id":                pp.ID,
+					"name":              pp.Name,
+					"money":             "Bankrupt",
+					"inventory":         map[string]int{},
+					"inventoryAvgCost":  map[string]int{},
+					"currentPlanet":     pp.CurrentPlanet,
+					"destinationPlanet": "",
+					"ready":             false,
+					"fuel":              0,
+					"inTransit":         false,
+					"transitFrom":       "",
+					"transitRemaining":  0,
+					"transitTotal":      0,
+					"capacity":          shipCapacity + pp.CapacityBonus,
+					"fuelCapacity":      fuelCapacity + pp.FuelCapacityBonus,
+					"speedPerTurn":      20 + pp.SpeedBonus,
+					"modal":             map[string]interface{}{},
+				},
+				"visiblePlanet": map[string]interface{}{},
+			}
+			if pp.conn != nil {
+				recipients = append(recipients, pp)
+			}
+			continue
+		}
 		planet := room.Planets[pp.CurrentPlanet]
 		visible := map[string]interface{}{}
 		if planet != nil {
@@ -1743,6 +1912,10 @@ func cloneModals(in []ModalItem) []ModalItem {
 }
 
 func (gs *GameServer) enqueueModal(p *Player, title, body string) {
+	// Do not enqueue new modals once a player is bankrupt; they can still review existing queue.
+	if p == nil || p.Bankrupt {
+		return
+	}
 	mi := ModalItem{ID: randID(), Title: title, Body: body}
 	p.Modals = append(p.Modals, mi)
 }

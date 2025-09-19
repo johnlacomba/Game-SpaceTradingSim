@@ -469,7 +469,7 @@ export function App() {
         <div ref={planetsContainerRef} style={{ position:'relative', height: 380 }}>
         <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
-            const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p)
+            const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
             const center = planetPos[p]
             const left = center ? center.x : 0
             const top = center ? center.y : 0
@@ -520,7 +520,7 @@ export function App() {
               </marker>
             ))}
           </defs>
-          {(r.room.players as any[]).map(pl => {
+          {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
             const from = planetPos[pl.currentPlanet]
             const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
             if (!from || !to) return null
