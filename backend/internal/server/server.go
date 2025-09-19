@@ -823,10 +823,12 @@ func (gs *GameServer) runTicker(room *Room) {
 					delete(bp.InventoryAvgCost, g)
 				}
 			}
-			// Bot refuel behavior (uses local planet Fuel price)
+			// Bot refuel behavior (uses local planet Crude Oil price)
 			if bp.Fuel < 20 {
-				price := planet.Prices["Fuel"]
-				if price <= 0 { price = 10 }
+				price := planet.Prices["Crude Oil"]
+				if price <= 0 {
+					price = 10
+				}
 				maxUnits := minInt(fuelCapacity-bp.Fuel, bp.Money/price)
 				if maxUnits > 0 {
 					bp.Money -= maxUnits * price
@@ -983,17 +985,19 @@ func (gs *GameServer) generateNews(room *Room) {
 			room.News = append(room.News, ni)
 			continue
 		}
-		// 20% chance to generate a Fuel price headline (price up/down for Fuel on a planet)
+		// 20% chance to generate a Crude Oil price headline (price up/down for Crude Oil on a planet)
 		if rand.Intn(5) == 0 {
 			ni := NewsItem{Planet: planet, TurnsRemaining: turns}
-			// fuel price delta +/- 2-5 credits
+			// crude oil price delta +/- 2-5 credits
 			delta := 2 + rand.Intn(4)
-			if rand.Intn(2) == 0 { delta = -delta }
-			ni.PriceDelta = map[string]int{"Fuel": delta}
+			if rand.Intn(2) == 0 {
+				delta = -delta
+			}
+			ni.PriceDelta = map[string]int{"Crude Oil": delta}
 			if delta > 0 {
-				ni.Headline = "Fuel prices spike on " + planet
+				ni.Headline = "Crude Oil prices spike on " + planet
 			} else {
-				ni.Headline = "Fuel prices dip on " + planet
+				ni.Headline = "Crude Oil prices dip on " + planet
 			}
 			room.News = append(room.News, ni)
 			continue
@@ -1269,7 +1273,7 @@ func defaultPlanets() map[string]*Planet {
 	// All 8 planets + a few stations
 	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
 	// Standard goods produced broadly
-	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
 	// Unique per-location goods
 	uniqueByLoc := map[string][]string{
 		"Mercury":       {"Solar Panels"},
@@ -1316,8 +1320,8 @@ func defaultPlanets() map[string]*Planet {
 			} else {
 				prices[g] = 10 + rand.Intn(15)
 			}
-			// Nudge initial Fuel price to ~ $10 on average at start (per-planet variation 8–12)
-			if g == "Fuel" {
+			// Nudge initial Crude Oil price to ~ $10 on average at start (per-planet variation 8–12)
+			if g == "Crude Oil" {
 				prices[g] = 8 + rand.Intn(5) // 8..12
 			}
 			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
@@ -1358,7 +1362,7 @@ func defaultPlanets() map[string]*Planet {
 // defaultPriceRanges returns a static min/max range for each good.
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
-	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
 	unique := []string{"Solar Panels", "Acid Extract", "Electronics", "Iron Alloy", "Helium-3", "Methane", "Ice Crystals", "Deep Blue Dye", "Xenon Gas", "Titan Spice", "Rare Metals"}
 	m := map[string][2]int{}
 	for _, g := range standard {
@@ -1510,20 +1514,36 @@ func distanceUnits(room *Room, from, to string) int {
 func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 	room.mu.Lock()
 	defer func() { room.mu.Unlock(); gs.sendRoomState(room, p) }()
-	if amount < 0 { amount = 0 }
+	if amount < 0 {
+		amount = 0
+	}
 	planet := room.Planets[p.CurrentPlanet]
 	price := 10
 	if planet != nil && planet.Prices != nil {
-		if planet.Prices["Fuel"] > 0 { price = planet.Prices["Fuel"] }
+		if planet.Prices["Crude Oil"] > 0 {
+			price = planet.Prices["Crude Oil"]
+		}
 	}
 	maxCap := fuelCapacity - p.Fuel
-	if maxCap <= 0 { return }
-	if amount == 0 || amount > maxCap { amount = maxCap }
-	if price <= 0 { price = 10 }
+	if maxCap <= 0 {
+		return
+	}
+	if amount == 0 || amount > maxCap {
+		amount = maxCap
+	}
+	if price <= 0 {
+		price = 10
+	}
 	maxByMoney := 0
-	if price > 0 { maxByMoney = p.Money / price }
-	if amount > maxByMoney { amount = maxByMoney }
-	if amount <= 0 { return }
+	if price > 0 {
+		maxByMoney = p.Money / price
+	}
+	if amount > maxByMoney {
+		amount = maxByMoney
+	}
+	if amount <= 0 {
+		return
+	}
 	cost := amount * price
 	p.Money -= cost
 	p.Fuel += amount

@@ -376,10 +376,10 @@ export function App() {
             Ready
           </button>
           <span><strong>${r.you.money}</strong></span>
-          <div title="Ship fuel (price varies by planet)">
+          <div title="Ship fuel (Crude Oil price varies by planet)">
             <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/100</span>
-            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ (visible.prices?.Fuel ?? 10) }/unit</span>
-            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < (visible.prices?.Fuel ?? 10)} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < (visible.prices?.Fuel ?? 10) ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ (visible.prices?.['Crude Oil'] ?? 10) }/unit</span>
+            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < (visible.prices?.['Crude Oil'] ?? 10)} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < (visible.prices?.['Crude Oil'] ?? 10) ? 'Not enough credits' : 'Fill to max')}>Fill</button>
           </div>
           {!r.room.started && (
             <>
