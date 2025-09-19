@@ -46,6 +46,11 @@ type Player struct {
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
 	writeMu           sync.Mutex      // guards conn writes
+	// Transit state (server-only)
+	InTransit        bool   `json:"-"`
+	TransitFrom      string `json:"-"`
+	TransitRemaining int    `json:"-"` // units remaining to destination along straight line
+	TransitTotal     int    `json:"-"` // initial units at start of transit
 }
 
 type Room struct {
@@ -107,6 +112,10 @@ type PersistedPlayer struct {
 	Ready             bool
 	Modals            []ModalItem
 	Fuel              int
+	InTransit         bool
+	TransitFrom       string
+	TransitRemaining  int
+	TransitTotal      int
 }
 
 type GameServer struct {
@@ -192,6 +201,10 @@ func (gs *GameServer) readLoop(p *Player) {
 					Ready:             p.Ready,
 					Modals:            cloneModals(p.Modals),
 					Fuel:              p.Fuel,
+					InTransit:         p.InTransit,
+					TransitFrom:       p.TransitFrom,
+					TransitRemaining:  p.TransitRemaining,
+					TransitTotal:      p.TransitTotal,
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -276,6 +289,10 @@ func (gs *GameServer) readLoop(p *Player) {
 			if room := gs.getRoom(p.roomID); room != nil {
 				room.mu.Lock()
 				allow := true
+				if p.InTransit {
+					allow = false
+					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
+				}
 				if len(room.PlanetPositions) > 0 && data.Planet != "" && data.Planet != p.CurrentPlanet {
 					cost := distanceUnits(room, p.CurrentPlanet, data.Planet)
 					if cost > p.Fuel {
@@ -300,6 +317,11 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.InTransit {
+					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
+					gs.sendRoomState(room, p)
+					break
+				}
 				gs.handleBuy(room, p, data.Good, data.Amount)
 			}
 		case "sell":
@@ -309,6 +331,11 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.InTransit {
+					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
+					gs.sendRoomState(room, p)
+					break
+				}
 				gs.handleSell(room, p, data.Good, data.Amount)
 			}
 		case "setReady":
@@ -351,6 +378,11 @@ func (gs *GameServer) readLoop(p *Player) {
 			}
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
+				if p.InTransit {
+					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
+					gs.sendRoomState(room, p)
+					break
+				}
 				gs.handleRefuel(room, p, data.Amount)
 			}
 		}
@@ -425,6 +457,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				Ready:             p.Ready,
 				Modals:            cloneModals(p.Modals),
 				Fuel:              p.Fuel,
+				InTransit:         p.InTransit,
+				TransitFrom:       p.TransitFrom,
+				TransitRemaining:  p.TransitRemaining,
+				TransitTotal:      p.TransitTotal,
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -451,6 +487,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		} else {
 			p.Fuel = fuelCapacity
 		}
+		p.InTransit = snap.InTransit
+		p.TransitFrom = snap.TransitFrom
+		p.TransitRemaining = snap.TransitRemaining
+		p.TransitTotal = snap.TransitTotal
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -462,6 +502,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.Inventory = map[string]int{}
 		p.InventoryAvgCost = map[string]int{}
 		p.Modals = []ModalItem{}
+		p.InTransit = false
+		p.TransitFrom = ""
+		p.TransitRemaining = 0
+		p.TransitTotal = 0
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -758,21 +802,43 @@ func (gs *GameServer) runTicker(room *Room) {
 		// resolve travel with fuel consumption
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
-				moved := false
-				if _, ok := room.Planets[p.DestinationPlanet]; ok {
-					cost := distanceUnits(room, p.CurrentPlanet, p.DestinationPlanet)
-					if cost <= p.Fuel {
-						p.Fuel -= cost
-						p.CurrentPlanet = p.DestinationPlanet
-						moved = true
-					}
+				// initialize transit if needed
+				if !p.InTransit || p.TransitRemaining <= 0 || p.TransitFrom == "" {
+					p.InTransit = true
+					p.TransitFrom = p.CurrentPlanet
+					p.TransitRemaining = distanceUnits(room, p.CurrentPlanet, p.DestinationPlanet)
+					p.TransitTotal = p.TransitRemaining
 				}
-				if !moved {
+				// Determine this turn's movement: up to 20 units, but cannot exceed fuel
+				moveCap := 20
+				move := minInt(moveCap, p.TransitRemaining)
+				move = minInt(move, p.Fuel)
+				if move <= 0 {
+					// No fuel to progress
 					if !p.IsBot {
-						gs.enqueueModal(p, "Insufficient Fuel", "You didn't have enough fuel to make the trip.")
+						gs.enqueueModal(p, "Insufficient Fuel", "You didn't have enough fuel to make progress toward "+p.DestinationPlanet+".")
+					}
+					// remain in transit; do not clear destination
+					continue
+				}
+				// Consume fuel and reduce remaining distance
+				p.Fuel -= move
+				p.TransitRemaining -= move
+				if p.TransitRemaining <= 0 {
+					// Arrived
+					p.CurrentPlanet = p.DestinationPlanet
+					p.DestinationPlanet = ""
+					p.InTransit = false
+					p.TransitFrom = ""
+					p.TransitRemaining = 0
+					p.TransitTotal = 0
+				} else {
+					// Still en route
+					p.InTransit = true
+					if !p.IsBot {
+						gs.enqueueModal(p, "In Transit", "You are still in transit towards "+p.DestinationPlanet+".")
 					}
 				}
-				p.DestinationPlanet = ""
 			}
 		}
 		// accumulate per-planet production
@@ -1265,6 +1331,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
 				"fuel":              pp.Fuel,
+				"inTransit":         pp.InTransit,
+				"transitFrom":       pp.TransitFrom,
+				"transitRemaining":  pp.TransitRemaining,
+				"transitTotal":      pp.TransitTotal,
 				"modal":             nextModal,
 			},
 			"visiblePlanet": visible,

@@ -7,7 +7,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
+  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
@@ -298,6 +298,7 @@ export function App() {
     return undefined
   }
   const destName = r.you.destinationPlanet
+  const inTransit = Boolean((r.you as any).inTransit)
   let mapTitle = 'Map'
   if (destName && destName !== r.you.currentPlanet) {
     const a = getNormPos(r.you.currentPlanet)
@@ -321,6 +322,22 @@ export function App() {
     const d = Math.sqrt(dx*dx + dy*dy)
     return Math.max(1, Math.ceil(d * 40))
   }
+  // Interpolate your ship position if in transit
+  const yourTransitPos = (() => {
+    if (!inTransit) return undefined as undefined | { x: number; y: number }
+    const from = (r.you as any).transitFrom || r.you.currentPlanet
+    const to = r.you.destinationPlanet
+    const rem: number = (r.you as any).transitRemaining ?? 0
+    const total: number = (r.you as any).transitTotal ?? 0
+    if (!from || !to || total <= 0) return undefined
+    const a = getNormPos(from)
+    const b = getNormPos(to)
+    if (!a || !b) return undefined
+    const progressed = Math.max(0, Math.min(1, (total - rem) / total))
+    const x = (a.x + (b.x - a.x) * progressed) * containerSize.width
+    const y = (a.y + (b.y - a.y) * progressed) * containerSize.height
+    return { x, y }
+  })()
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
@@ -380,7 +397,7 @@ export function App() {
           <div title="Ship fuel (price varies by planet)">
             <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/100</span>
             <span style={{ marginLeft: 8, color:'#666' }}>@ ${ fuelPrice }/unit</span>
-            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < fuelPrice} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={inTransit || (r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < fuelPrice} title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
           </div>
           {!r.room.started && (
             <>
@@ -407,19 +424,19 @@ export function App() {
             const left = center ? center.x : 0
             const top = center ? center.y : 0
             const need = travelUnits(r.you.currentPlanet, p)
-            const canReach = p === r.you.currentPlanet || need <= (r.you.fuel ?? 0)
+            const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
             return (
               <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
                 <button
                   disabled={p===r.you.currentPlanet || !canReach}
                   onClick={()=>selectPlanet(p)}
                   style={{ textAlign:'left' }}
-                  title={p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined)}
+                  title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                 >
                   {p}
                 </button>
                 <div style={{ display:'flex', gap:4 }}>
-                  {onPlanet.map((pl:any) => (
+                  {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
                     <span
                       key={pl.id}
                       title={pl.name}
@@ -473,6 +490,10 @@ export function App() {
               />
             )
           })}
+          {/* Your in-transit position marker */}
+          {inTransit && yourTransitPos && (
+            <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
+          )}
         </svg>
         </div>
       </div>
@@ -495,19 +516,20 @@ export function App() {
                     ? { background:'#ef444422', color:'#7f1d1d', border:'1px solid #ef444455' }
                     : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
               : undefined
+            const disabledTrade = inTransit
             return (
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
                 <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
-          <input style={{ width: 64 }} type="number" value={amt} min={0} max={maxBuy}
+          <input style={{ width: 64 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
                     onChange={e=>{
                       const v = Number(e.target.value)
             const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
             setAmountsByGood(s => ({ ...s, [g]: capped }))
                     }} />
-          <button disabled={amt<=0} onClick={()=>buy(g, amt)} title={freeSlots<=0 ? 'Cargo full' : undefined}>Buy</button>
+          <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)}>Buy</button>
                   <span>Owned: {owned}</span>
-                  <button disabled={owned<=0} onClick={()=>sell(g, owned)} style={sellStyle}>Sell</button>
+                  <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
                 </div>
               </li>
             )
