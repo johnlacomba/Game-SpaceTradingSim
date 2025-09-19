@@ -7,7 +7,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
+  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
 }
 
@@ -168,6 +168,7 @@ export function App() {
   const buy = (good: string, amount: number) => send('buy', { good, amount })
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
+  const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
 
   // Compute planet center positions from server data, with a stable fallback
   useEffect(() => {
@@ -304,9 +305,20 @@ export function App() {
       const dx = a.x - b.x
       const dy = a.y - b.y
       const d = Math.sqrt(dx*dx + dy*dy)
-      const units = Math.max(1, Math.round(d * 100)) // simple scaled units
+      const units = Math.max(1, Math.ceil(d * 40)) // match server scaling
       mapTitle = `Map — ${units} units`
     }
+  }
+  // Helper to compute fuel cost between two planets (server-aligned scaling)
+  const travelUnits = (from?: string, to?: string) => {
+    if (!from || !to || from === to) return 0
+    const a = getNormPos(from)
+    const b = getNormPos(to)
+    if (!a || !b) return 0
+    const dx = a.x - b.x
+    const dy = a.y - b.y
+    const d = Math.sqrt(dx*dx + dy*dy)
+    return Math.max(1, Math.ceil(d * 40))
   }
 
   return (
@@ -364,6 +376,11 @@ export function App() {
             Ready
           </button>
           <span><strong>${r.you.money}</strong></span>
+          <div title="Ship fuel (price varies by planet)">
+            <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/100</span>
+            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ (visible.prices?.Fuel ?? 10) }/unit</span>
+            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < (visible.prices?.Fuel ?? 10)} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < (visible.prices?.Fuel ?? 10) ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+          </div>
           {!r.room.started && (
             <>
               <button onClick={startGame} disabled={!r.room.allReady} title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}>Start Game</button>
@@ -388,9 +405,18 @@ export function App() {
             const center = planetPos[p]
             const left = center ? center.x : 0
             const top = center ? center.y : 0
+            const need = travelUnits(r.you.currentPlanet, p)
+            const canReach = p === r.you.currentPlanet || need <= (r.you.fuel ?? 0)
             return (
               <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
-                <button disabled={p===r.you.currentPlanet} onClick={()=>selectPlanet(p)} style={{ textAlign:'left' }}>{p}</button>
+                <button
+                  disabled={p===r.you.currentPlanet || !canReach}
+                  onClick={()=>selectPlanet(p)}
+                  style={{ textAlign:'left' }}
+                  title={p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined)}
+                >
+                  {p}
+                </button>
                 <div style={{ display:'flex', gap:4 }}>
                   {onPlanet.map((pl:any) => (
                     <span

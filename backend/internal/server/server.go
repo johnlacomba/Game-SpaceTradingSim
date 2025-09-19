@@ -27,6 +27,7 @@ type WSOut struct {
 
 const turnDuration = 60 * time.Second
 const shipCapacity = 200 // maximum total units a ship can carry
+const fuelCapacity = 100 // maximum fuel units (distance units)
 
 type PlayerID string
 
@@ -40,6 +41,7 @@ type Player struct {
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	Ready             bool            `json:"ready"`
 	Modals            []ModalItem     `json:"-"`
+	Fuel              int             `json:"fuel"`
 	conn              *websocket.Conn // not serialized
 	roomID            string          // not serialized
 	IsBot             bool            `json:"-"`
@@ -100,6 +102,7 @@ type PersistedPlayer struct {
 	InventoryAvgCost  map[string]int
 	Ready             bool
 	Modals            []ModalItem
+	Fuel              int
 }
 
 type GameServer struct {
@@ -128,7 +131,7 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Create a transient player connection until they identify
-	p := &Player{ID: PlayerID(randID()), Name: "", Money: 1000, CurrentPlanet: "Earth", DestinationPlanet: "", Inventory: map[string]int{}, InventoryAvgCost: map[string]int{}}
+	p := &Player{ID: PlayerID(randID()), Name: "", Money: 1000, CurrentPlanet: "Earth", DestinationPlanet: "", Inventory: map[string]int{}, InventoryAvgCost: map[string]int{}, Fuel: fuelCapacity}
 	p.conn = conn
 	go gs.readLoop(p)
 }
@@ -184,6 +187,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 					Ready:             p.Ready,
 					Modals:            cloneModals(p.Modals),
+					Fuel:              p.Fuel,
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -267,9 +271,23 @@ func (gs *GameServer) readLoop(p *Player) {
 			json.Unmarshal(msg.Payload, &data)
 			if room := gs.getRoom(p.roomID); room != nil {
 				room.mu.Lock()
-				p.DestinationPlanet = data.Planet
+				allow := true
+				if len(room.PlanetPositions) > 0 && data.Planet != "" && data.Planet != p.CurrentPlanet {
+					cost := distanceUnits(room, p.CurrentPlanet, data.Planet)
+					if cost > p.Fuel {
+						allow = false
+						gs.enqueueModal(p, "Insufficient Fuel", "You don't have enough fuel to reach "+data.Planet+".")
+					}
+				}
+				if allow {
+					p.DestinationPlanet = data.Planet
+				}
 				room.mu.Unlock()
-				gs.sendRoomState(room, nil)
+				if allow {
+					gs.sendRoomState(room, nil)
+				} else {
+					gs.sendRoomState(room, p)
+				}
 			}
 		case "buy":
 			var data struct {
@@ -322,6 +340,14 @@ func (gs *GameServer) readLoop(p *Player) {
 		case "exitRoom":
 			if p.roomID != "" {
 				gs.exitRoom(p)
+			}
+		case "refuel":
+			var data struct {
+				Amount int `json:"amount"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				gs.handleRefuel(room, p, data.Amount)
 			}
 		}
 	}
@@ -405,11 +431,19 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		}
 		p.Ready = snap.Ready
 		p.Modals = append([]ModalItem(nil), snap.Modals...)
+		if snap.Fuel > 0 {
+			p.Fuel = snap.Fuel
+		} else {
+			p.Fuel = fuelCapacity
+		}
 		delete(room.Persist, p.ID)
 	} else {
 		p.CurrentPlanet = "Earth"
 		p.DestinationPlanet = ""
 		p.Ready = false
+		if p.Fuel <= 0 {
+			p.Fuel = fuelCapacity
+		}
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -440,6 +474,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		Inventory:         cloneIntMap(p.Inventory),
 		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 		Ready:             p.Ready,
+		Fuel:              p.Fuel,
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -691,11 +726,22 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		// Randomly generate 0-2 news items per turn
 		gs.generateNews(room)
-		// resolve travel
+		// resolve travel with fuel consumption
 		for _, p := range room.Players {
 			if p.DestinationPlanet != "" && p.DestinationPlanet != p.CurrentPlanet {
+				moved := false
 				if _, ok := room.Planets[p.DestinationPlanet]; ok {
-					p.CurrentPlanet = p.DestinationPlanet
+					cost := distanceUnits(room, p.CurrentPlanet, p.DestinationPlanet)
+					if cost <= p.Fuel {
+						p.Fuel -= cost
+						p.CurrentPlanet = p.DestinationPlanet
+						moved = true
+					}
+				}
+				if !moved {
+					if !p.IsBot {
+						gs.enqueueModal(p, "Insufficient Fuel", "You didn't have enough fuel to make the trip.")
+					}
 				}
 				p.DestinationPlanet = ""
 			}
@@ -777,12 +823,25 @@ func (gs *GameServer) runTicker(room *Room) {
 					delete(bp.InventoryAvgCost, g)
 				}
 			}
-			// choose a new destination different from current
+			// Bot refuel behavior (uses local planet Fuel price)
+			if bp.Fuel < 20 {
+				price := planet.Prices["Fuel"]
+				if price <= 0 { price = 10 }
+				maxUnits := minInt(fuelCapacity-bp.Fuel, bp.Money/price)
+				if maxUnits > 0 {
+					bp.Money -= maxUnits * price
+					bp.Fuel += maxUnits
+				}
+			}
+			// choose a new destination different from current within fuel range
 			pn := planetNames(room.Planets)
 			if len(pn) > 1 {
-				for tries := 0; tries < 5; tries++ {
+				for tries := 0; tries < 8; tries++ {
 					dest := pn[rand.Intn(len(pn))]
-					if dest != bp.CurrentPlanet {
+					if dest == bp.CurrentPlanet {
+						continue
+					}
+					if distanceUnits(room, bp.CurrentPlanet, dest) <= bp.Fuel {
 						bp.DestinationPlanet = dest
 						break
 					}
@@ -924,7 +983,22 @@ func (gs *GameServer) generateNews(room *Room) {
 			room.News = append(room.News, ni)
 			continue
 		}
-		// random effect type: price up/down or prod up/down
+		// 20% chance to generate a Fuel price headline (price up/down for Fuel on a planet)
+		if rand.Intn(5) == 0 {
+			ni := NewsItem{Planet: planet, TurnsRemaining: turns}
+			// fuel price delta +/- 2-5 credits
+			delta := 2 + rand.Intn(4)
+			if rand.Intn(2) == 0 { delta = -delta }
+			ni.PriceDelta = map[string]int{"Fuel": delta}
+			if delta > 0 {
+				ni.Headline = "Fuel prices spike on " + planet
+			} else {
+				ni.Headline = "Fuel prices dip on " + planet
+			}
+			room.News = append(room.News, ni)
+			continue
+		}
+		// random effect type: price up/down or prod up/down for non-fuel good
 		var headline string
 		ni := NewsItem{Planet: planet, TurnsRemaining: turns}
 		if rand.Intn(2) == 0 {
@@ -1156,6 +1230,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
+				"fuel":              pp.Fuel,
 				"modal":             nextModal,
 			},
 			"visiblePlanet": visible,
@@ -1240,6 +1315,10 @@ func defaultPlanets() map[string]*Planet {
 				prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
 			} else {
 				prices[g] = 10 + rand.Intn(15)
+			}
+			// Nudge initial Fuel price to ~ $10 on average at start (per-planet variation 8–12)
+			if g == "Fuel" {
+				prices[g] = 8 + rand.Intn(5) // 8..12
 			}
 			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
 			trend[g] = 0
@@ -1396,4 +1475,56 @@ func generatePlanetPositions(names []string) map[string][2]float64 {
 		m[n] = [2]float64{x, y}
 	}
 	return m
+}
+
+// distanceUnits computes integer travel cost between two planets using normalized positions.
+// Returns at least 1 for distinct planets; 0 if names are empty or same.
+func distanceUnits(room *Room, from, to string) int {
+	if from == "" || to == "" || from == to {
+		return 0
+	}
+	pos := room.PlanetPositions
+	if len(pos) == 0 {
+		// fallback fixed cost when positions unknown
+		return 5
+	}
+	a, okA := pos[from]
+	b, okB := pos[to]
+	if !okA || !okB {
+		return 5
+	}
+	dx := a[0] - b[0]
+	dy := a[1] - b[1]
+	d := math.Hypot(dx, dy)
+	// scale normalized distance (~0..1.4) to a reasonable unit cost range
+	// Use ceil to make longer hops cost a bit more; ensure minimum 1
+	units := int(math.Ceil(d * 40))
+	if units < 1 {
+		units = 1
+	}
+	return units
+}
+
+// handleRefuel processes a refuel request for the player.
+// amount<=0 means "fill to max you can afford and capacity".
+func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
+	room.mu.Lock()
+	defer func() { room.mu.Unlock(); gs.sendRoomState(room, p) }()
+	if amount < 0 { amount = 0 }
+	planet := room.Planets[p.CurrentPlanet]
+	price := 10
+	if planet != nil && planet.Prices != nil {
+		if planet.Prices["Fuel"] > 0 { price = planet.Prices["Fuel"] }
+	}
+	maxCap := fuelCapacity - p.Fuel
+	if maxCap <= 0 { return }
+	if amount == 0 || amount > maxCap { amount = maxCap }
+	if price <= 0 { price = 10 }
+	maxByMoney := 0
+	if price > 0 { maxByMoney = p.Money / price }
+	if amount > maxByMoney { amount = maxByMoney }
+	if amount <= 0 { return }
+	cost := amount * price
+	p.Money -= cost
+	p.Fuel += amount
 }
