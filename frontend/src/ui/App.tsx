@@ -8,7 +8,7 @@ type RoomPlayer = { id: string; name: string; money: number; currentPlanet: stri
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
   you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string } }
-  visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]> } | {}
+  visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
 type LobbyState = { rooms: LobbyRoom[] }
@@ -282,6 +282,7 @@ export function App() {
   const goods: Record<string, number> = visible.goods || {}
   const prices: Record<string, number> = visible.prices || {}
   const priceRanges: Record<string, [number, number]> = (visible.priceRanges as any) || {}
+  const fuelPrice: number = typeof visible.fuelPrice === 'number' ? visible.fuelPrice : 10
   const capacity = 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
@@ -378,8 +379,8 @@ export function App() {
           <span><strong>${r.you.money}</strong></span>
           <div title="Ship fuel (price varies by planet)">
             <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/100</span>
-            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ (visible.prices?.Fuel ?? 10) }/unit</span>
-            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < (visible.prices?.Fuel ?? 10)} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < (visible.prices?.Fuel ?? 10) ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ fuelPrice }/unit</span>
+            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={(r.you.fuel ?? 0) >= 100 || (r.you.money ?? 0) < fuelPrice} title={((r.you.fuel ?? 0) >= 100) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
           </div>
           {!r.room.started && (
             <>

@@ -78,6 +78,7 @@ type NewsItem struct {
 	PriceDelta     map[string]int `json:"priceDelta,omitempty"`
 	ProdDelta      map[string]int `json:"prodDelta,omitempty"`
 	TurnsRemaining int            `json:"turnsRemaining"`
+	FuelPriceDelta int            `json:"-"`
 }
 type Planet struct {
 	Name   string         `json:"name"`
@@ -91,6 +92,9 @@ type Planet struct {
 	BaseProd   map[string]int `json:"-"`
 	// Persistent per-good price trend (small drift applied each turn)
 	PriceTrend map[string]int `json:"-"`
+	// Separate ship fuel price (not a trade good)
+	FuelPrice     int `json:"-"`
+	BaseFuelPrice int `json:"-"`
 }
 
 // PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
@@ -614,7 +618,7 @@ func (gs *GameServer) runTicker(room *Room) {
 			room.TurnEndsAt = time.Now().Add(base)
 		}
 		// Apply news effects to prices and production based on baselines
-		// First, recompute from baselines
+		// First, recompute from baselines (and reset fuel price)
 		for _, pl := range room.Planets {
 			for g, v := range pl.BasePrices {
 				pl.Prices[g] = v
@@ -622,6 +626,7 @@ func (gs *GameServer) runTicker(room *Room) {
 			for g, v := range pl.BaseProd {
 				pl.Prod[g] = v
 			}
+			pl.FuelPrice = pl.BaseFuelPrice
 		}
 		// Decrement news and apply active deltas, clamping to static ranges
 		nextNews := make([]NewsItem, 0, len(room.News))
@@ -655,6 +660,16 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 				for g, d := range ni.ProdDelta {
 					planet.Prod[g] = maxInt(0, planet.Prod[g]+d)
+				}
+				if ni.FuelPriceDelta != 0 {
+					np := planet.FuelPrice + ni.FuelPriceDelta
+					if np < 5 {
+						np = 5
+					}
+					if np > 24 {
+						np = 24
+					}
+					planet.FuelPrice = np
 				}
 			}
 			ni.TurnsRemaining--
@@ -823,9 +838,9 @@ func (gs *GameServer) runTicker(room *Room) {
 					delete(bp.InventoryAvgCost, g)
 				}
 			}
-			// Bot refuel behavior (uses local planet Fuel price)
+			// Bot refuel behavior (uses local planet fuel price)
 			if bp.Fuel < 20 {
-				price := planet.Prices["Fuel"]
+				price := planet.FuelPrice
 				if price <= 0 {
 					price = 10
 				}
@@ -985,7 +1000,7 @@ func (gs *GameServer) generateNews(room *Room) {
 			room.News = append(room.News, ni)
 			continue
 		}
-		// 20% chance to generate a Fuel price headline (price up/down for Fuel on a planet)
+		// 20% chance to generate a ship fuel price headline (up/down)
 		if rand.Intn(5) == 0 {
 			ni := NewsItem{Planet: planet, TurnsRemaining: turns}
 			// fuel price delta +/- 2-5 credits
@@ -993,7 +1008,7 @@ func (gs *GameServer) generateNews(room *Room) {
 			if rand.Intn(2) == 0 {
 				delta = -delta
 			}
-			ni.PriceDelta = map[string]int{"Fuel": delta}
+			ni.FuelPriceDelta = delta
 			if delta > 0 {
 				ni.Headline = "Fuel prices spike on " + planet
 			} else {
@@ -1180,6 +1195,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"goods":       visGoods,
 				"prices":      visPrices,
 				"priceRanges": visRanges,
+				"fuelPrice":   planet.FuelPrice,
 			}
 		}
 		nextModal := map[string]string{}
@@ -1272,8 +1288,8 @@ func planetNames(m map[string]*Planet) []string {
 func defaultPlanets() map[string]*Planet {
 	// All 8 planets + a few stations
 	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
-	// Standard goods produced broadly
-	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	// Standard goods produced broadly (Fuel is not a trade good; use Crude Oil instead)
+	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
 	// Unique per-location goods
 	uniqueByLoc := map[string][]string{
 		"Mercury":       {"Solar Panels"},
@@ -1320,10 +1336,6 @@ func defaultPlanets() map[string]*Planet {
 			} else {
 				prices[g] = 10 + rand.Intn(15)
 			}
-			// Nudge initial Fuel price to ~ $10 on average at start (per-planet variation 8–12)
-			if g == "Fuel" {
-				prices[g] = 8 + rand.Intn(5) // 8..12
-			}
 			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
 			trend[g] = 0
 		}
@@ -1354,7 +1366,9 @@ func defaultPlanets() map[string]*Planet {
 		for k, v := range prod {
 			baseProd[k] = v
 		}
-		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend}
+		// Initialize separate per-planet ship fuel price (~$10 average)
+		fp := 8 + rand.Intn(5) // 8..12
+		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend, FuelPrice: fp, BaseFuelPrice: fp}
 	}
 	return m
 }
@@ -1362,7 +1376,7 @@ func defaultPlanets() map[string]*Planet {
 // defaultPriceRanges returns a static min/max range for each good.
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
-	standard := []string{"Food", "Ore", "Water", "Fuel"}
+	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
 	unique := []string{"Solar Panels", "Acid Extract", "Electronics", "Iron Alloy", "Helium-3", "Methane", "Ice Crystals", "Deep Blue Dye", "Xenon Gas", "Titan Spice", "Rare Metals"}
 	m := map[string][2]int{}
 	for _, g := range standard {
@@ -1519,9 +1533,9 @@ func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 	}
 	planet := room.Planets[p.CurrentPlanet]
 	price := 10
-	if planet != nil && planet.Prices != nil {
-		if planet.Prices["Fuel"] > 0 {
-			price = planet.Prices["Fuel"]
+	if planet != nil {
+		if planet.FuelPrice > 0 {
+			price = planet.FuelPrice
 		}
 	}
 	maxCap := fuelCapacity - p.Fuel
