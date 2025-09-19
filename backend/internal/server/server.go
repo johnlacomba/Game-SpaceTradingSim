@@ -415,6 +415,17 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	if p.roomID != "" && p.roomID != roomID {
 		if old := gs.getRoom(p.roomID); old != nil {
 			old.mu.Lock()
+			// Persist snapshot so rejoining the old room restores progress
+			old.Persist[p.ID] = &PersistedPlayer{
+				Money:             p.Money,
+				CurrentPlanet:     p.CurrentPlanet,
+				DestinationPlanet: p.DestinationPlanet,
+				Inventory:         cloneIntMap(p.Inventory),
+				InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
+				Ready:             p.Ready,
+				Modals:            cloneModals(p.Modals),
+				Fuel:              p.Fuel,
+			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
 			gs.broadcastRoom(old)
@@ -442,12 +453,15 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		}
 		delete(room.Persist, p.ID)
 	} else {
+		// New room without a snapshot: start with fresh per-room state
+		p.Money = 1000
 		p.CurrentPlanet = "Earth"
 		p.DestinationPlanet = ""
 		p.Ready = false
-		if p.Fuel <= 0 {
-			p.Fuel = fuelCapacity
-		}
+		p.Fuel = fuelCapacity
+		p.Inventory = map[string]int{}
+		p.InventoryAvgCost = map[string]int{}
+		p.Modals = []ModalItem{}
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
