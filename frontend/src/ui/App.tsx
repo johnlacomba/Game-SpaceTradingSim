@@ -40,6 +40,74 @@ function useWS(url: string | null) {
   return { ready, messages, send }
 }
 
+function NewsTicker({ items }: { items: string[] }) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLSpanElement | null>(null)
+  const [repeat, setRepeat] = useState(1)
+  const [anim, setAnim] = useState<{ name: string; duration: number } | null>(null)
+  const sep = '   •   '
+  // Measure and configure
+  useEffect(() => {
+    const container = containerRef.current
+    const content = contentRef.current
+    if (!container || !content) return
+    const containerWidth = container.getBoundingClientRect().width
+    const baseWidth = content.scrollWidth || content.getBoundingClientRect().width
+    // Ensure total track width >= container + one full segment, so as we animate by one segment there is no gap
+    const neededRepeats = Math.max(1, Math.ceil((containerWidth + baseWidth) / Math.max(baseWidth, 1)) - 1)
+    setRepeat(neededRepeats)
+    const distance = Math.max(1, baseWidth)
+    const pxPerSec = 80 // speed
+    const duration = distance / pxPerSec
+    const name = `newsTickerMove_${Math.random().toString(36).slice(2)}`
+    // Create dynamic keyframes
+    const styleEl = document.createElement('style')
+    styleEl.dataset.ticker = name
+    styleEl.textContent = `@keyframes ${name} { from { transform: translateX(0); } to { transform: translateX(-${distance}px); } }`
+    document.head.appendChild(styleEl)
+    setAnim({ name, duration })
+    return () => {
+      const el = document.head.querySelector(`style[data-ticker="${name}"]`)
+      if (el) el.remove()
+    }
+  }, [items.join('|')])
+  // Recompute on resize
+  useEffect(() => {
+    const onResize = () => {
+      if (!containerRef.current || !contentRef.current) return
+      const containerWidth = containerRef.current.getBoundingClientRect().width
+      const baseWidth = contentRef.current.scrollWidth || contentRef.current.getBoundingClientRect().width
+      const neededRepeats = Math.max(1, Math.ceil((containerWidth + baseWidth) / Math.max(baseWidth, 1)) - 1)
+      setRepeat(neededRepeats)
+      const distance = Math.max(1, baseWidth)
+      const pxPerSec = 80
+      const duration = distance / pxPerSec
+      const name = `newsTickerMove_${Math.random().toString(36).slice(2)}`
+      const styleEl = document.createElement('style')
+      styleEl.dataset.ticker = name
+      styleEl.textContent = `@keyframes ${name} { from { transform: translateX(0); } to { transform: translateX(-${distance}px); } }`
+      document.head.appendChild(styleEl)
+      setAnim({ name, duration })
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+  const text = items && items.length > 0 ? items.join(sep) : 'No news yet.'
+  return (
+    <div style={{ background:'#e0f2fe', color:'#075985', borderTop:'1px solid #93c5fd', borderBottom:'1px solid #93c5fd', padding:'6px 0' }}>
+      <div ref={containerRef} style={{ position:'relative', overflow:'hidden' }}>
+        <div style={{ display:'inline-flex', whiteSpace:'nowrap', willChange:'transform', animation: anim ? `${anim.name} ${anim.duration}s linear infinite` : undefined }}>
+          <span ref={contentRef} style={{ paddingRight: 24 }}>{text}</span>
+          {/* Duplicate segments to ensure seamless scroll (at least one duplicate) */}
+          {Array.from({ length: Math.max(1, repeat) }).map((_, i) => (
+            <span key={i} style={{ paddingRight: 24 }}>{text}</span>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
@@ -219,10 +287,7 @@ export function App() {
 
   return (
     <div style={{ fontFamily: 'system-ui' }}>
-      {/* Global styles for ticker animation */}
-      <style>{`
-        @keyframes newsTickerMove { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-      `}</style>
+  {/* News ticker below header (blue-hued) */}
       {r.you.modal && r.you.modal.id && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
@@ -287,19 +352,7 @@ export function App() {
           )}
         </div>
       </div>
-      {/* News ticker below header */}
-      <div style={{ background:'#e0f2fe', color:'#075985', borderTop:'1px solid #93c5fd', borderBottom:'1px solid #93c5fd', padding:'6px 0' }}>
-        <div style={{ position:'relative', overflow:'hidden' }}>
-          <div style={{ display:'inline-block', whiteSpace:'nowrap', willChange:'transform', animation:'newsTickerMove 30s linear infinite' }}>
-            {(() => {
-              const items = (r.room.news && r.room.news.length > 0)
-                ? r.room.news.map(n => `${n.headline}`).join('   •   ')
-                : 'No news yet.'
-              return `${items}   •   ${items}`
-            })()}
-          </div>
-        </div>
-      </div>
+  <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
   <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
       {/* Planets column (first) */}
       <div>
