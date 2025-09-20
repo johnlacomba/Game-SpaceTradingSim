@@ -19,13 +19,81 @@
 html, body, #root { height: 100%; }
 body {
   margin: 0;
+  /* Base space gradient */
   background:
-    radial-gradient(1000px 600px at 10% 10%, rgba(167,139,250,0.12), transparent 60%),
-    radial-gradient(800px 500px at 80% 20%, rgba(34,211,238,0.12), transparent 60%),
-    radial-gradient(700px 500px at 30% 80%, rgba(244,114,182,0.1), transparent 60%),
     linear-gradient(180deg, var(--bg), var(--bg2));
   color: var(--text);
   font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  /* Create a stacking context so ::before/::after sit behind content but above base */
+  position: relative;
+}
+
+#root { position: relative; z-index: 1; }
+
+/* Register animatable custom properties for blob positions (percentages) */
+@property --p1x { syntax: '<percentage>'; inherits: true; initial-value: 10%; }
+@property --p1y { syntax: '<percentage>'; inherits: true; initial-value: 15%; }
+@property --p2x { syntax: '<percentage>'; inherits: true; initial-value: 85%; }
+@property --p2y { syntax: '<percentage>'; inherits: true; initial-value: 20%; }
+@property --p3x { syntax: '<percentage>'; inherits: true; initial-value: 30%; }
+@property --p3y { syntax: '<percentage>'; inherits: true; initial-value: 85%; }
+
+@property --q1x { syntax: '<percentage>'; inherits: true; initial-value: 15%; }
+@property --q1y { syntax: '<percentage>'; inherits: true; initial-value: 25%; }
+@property --q2x { syntax: '<percentage>'; inherits: true; initial-value: 75%; }
+@property --q2y { syntax: '<percentage>'; inherits: true; initial-value: 35%; }
+@property --q3x { syntax: '<percentage>'; inherits: true; initial-value: 45%; }
+@property --q3y { syntax: '<percentage>'; inherits: true; initial-value: 80%; }
+
+/* Animated vaporwave “boiling” background */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1000px 700px at var(--p1x) var(--p1y), rgba(167,139,250,0.16), transparent 65%),
+    radial-gradient(1100px 800px at var(--p2x) var(--p2y), rgba(34,211,238,0.16), transparent 65%),
+    radial-gradient(900px 700px at var(--p3x) var(--p3y), rgba(244,114,182,0.10), transparent 70%);
+  background-repeat: no-repeat;
+  background-size: 120% 120%, 120% 120%, 120% 120%;
+  will-change: background-position, background-size, filter, opacity;
+  filter: blur(28px) saturate(110%);
+  opacity: 0.9;
+  /* Smoothly transition when position variables change; durations can be set via CSS vars */
+  transition:
+    --p1x var(--p1d, 48s) ease-in-out,
+    --p1y var(--p1d, 48s) ease-in-out,
+    --p2x var(--p2d, 52s) ease-in-out,
+    --p2y var(--p2d, 52s) ease-in-out,
+    --p3x var(--p3d, 50s) ease-in-out,
+    --p3y var(--p3d, 50s) ease-in-out;
+}
+
+/* Secondary slow layer adds depth/parallax */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(800px 600px at var(--q1x) var(--q1y), rgba(167,139,250,0.10), transparent 65%),
+    radial-gradient(850px 650px at var(--q2x) var(--q2y), rgba(34,211,238,0.10), transparent 65%),
+    radial-gradient(700px 600px at var(--q3x) var(--q3y), rgba(244,114,182,0.08), transparent 70%);
+  background-repeat: no-repeat;
+  background-size: 140% 140%, 140% 140%, 140% 140%;
+  will-change: background-position, background-size, filter, opacity;
+  filter: blur(36px) saturate(105%);
+  opacity: 0.7;
+  transition:
+    --q1x var(--q1d, 60s) ease-in-out,
+    --q1y var(--q1d, 60s) ease-in-out,
+    --q2x var(--q2d, 68s) ease-in-out,
+    --q2y var(--q2d, 68s) ease-in-out,
+    --q3x var(--q3d, 64s) ease-in-out,
+    --q3y var(--q3d, 64s) ease-in-out;
 }
 
 h1, h2, h3, h4 {
