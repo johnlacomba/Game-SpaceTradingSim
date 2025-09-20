@@ -2002,6 +2002,7 @@ func defaultPlanets() map[string]*Planet {
 // defaultPriceRanges returns a static min/max range for each good.
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
+	// Keep canonical lists in a fixed order for deterministic ranges
 	standard := []string{
 		"Sky Kelp",
 		"Moon Ferns",
@@ -2037,11 +2038,16 @@ func defaultPriceRanges() map[string][2]int {
 		"Chrono Crystals",
 	}
 	m := map[string][2]int{}
-	for _, g := range standard {
-		m[g] = [2]int{5, 24}
-	}
-	for _, g := range unique {
-		m[g] = [2]int{8, 32}
+	// Generate a unique [min,max] for every good using a deterministic pattern.
+	// We ensure uniqueness by giving each good a distinct min; widths vary slightly.
+	combined := make([]string, 0, len(standard)+len(unique))
+	combined = append(combined, standard...)
+	combined = append(combined, unique...)
+	for idx, g := range combined {
+		min := 5 + idx          // strictly increasing min ensures unique ranges
+		width := 16 + (idx % 7) // widths between 16..22 to add variety
+		max := min + width
+		m[g] = [2]int{min, max}
 	}
 	return m
 }
