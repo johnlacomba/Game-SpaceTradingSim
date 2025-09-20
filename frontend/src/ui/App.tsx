@@ -744,8 +744,9 @@ export function App() {
             const top = center ? center.y : 0
             const need = travelUnits(r.you.currentPlanet, p)
             const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
+            const isHere = p === r.you.currentPlanet
             return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border:'1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border: isHere ? '2px solid #3b82f6' : '1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
                 <button
                   disabled={p===r.you.currentPlanet || !canReach}
                   onClick={()=>selectPlanet(p)}
@@ -825,7 +826,8 @@ export function App() {
                 <th style={{ padding:'6px 8px' }}>Good</th>
                 <th style={{ padding:'6px 8px' }}>Available</th>
                 <th style={{ padding:'6px 8px' }}>Price</th>
-                <th style={{ padding:'6px 8px' }}>Range · %Max</th>
+                <th style={{ padding:'6px 8px' }}>Range</th>
+                <th style={{ padding:'6px 8px' }}>% of Max</th>
                 <th style={{ padding:'6px 8px' }}>Owned</th>
                 <th style={{ padding:'6px 8px' }}>Buy Qty</th>
                 <th style={{ padding:'6px 8px' }}>Actions</th>
@@ -849,13 +851,15 @@ export function App() {
                         : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
                   : undefined
                 const disabledTrade = inTransit
-                const rangeCell = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${range[0]}–${range[1]} · ${pct}%` })() : '—'
+        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+        const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
                 return (
                   <tr key={g} style={{ borderBottom:'1px solid #f3f4f6' }}>
                     <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
                     <td style={{ padding:'6px 8px' }}>{available}</td>
                     <td style={{ padding:'6px 8px' }}>${price}</td>
-                    <td style={{ padding:'6px 8px', color:'#666' }}>{rangeCell}</td>
+          <td style={{ padding:'6px 8px', color:'#666' }}>{rangeText}</td>
+          <td style={{ padding:'6px 8px', color:'#666' }}>{pctText}</td>
                     <td style={{ padding:'6px 8px' }}>
                       {owned}
                       {owned>0 && typeof youPaid === 'number' ? <span style={{ color:'#666', marginLeft:6 }}>(avg ${youPaid})</span> : null}
