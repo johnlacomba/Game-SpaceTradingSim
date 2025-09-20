@@ -257,8 +257,8 @@ export function App() {
   const [playersOpen, setPlayersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
-  // Tabs: game | graphs
-  const [activeTab, setActiveTab] = useState<'game'|'graphs'>('game')
+  // Tabs: map | market | graphs
+  const [activeTab, setActiveTab] = useState<'map'|'market'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
@@ -615,7 +615,7 @@ export function App() {
   })()
 
   return (
-    <div style={{ overflowX: 'hidden' }}>
+    <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
   {/* News ticker below header (blue-hued) */}
   {r.you.modal && r.you.modal.id && (r.you as any).modal?.title !== 'Dock Tax' && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
@@ -646,7 +646,8 @@ export function App() {
           )}
           {/* Tabs */}
           <div style={{ marginLeft:8, display:'inline-flex', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
-            <button onClick={()=>setActiveTab('game')} style={{ padding:'4px 8px', background: activeTab==='game' ? 'rgba(167,139,250,0.18)' : 'transparent', border:'none' }}>Game</button>
+            <button onClick={()=>setActiveTab('map')} style={{ padding:'4px 8px', background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', border:'none' }}>Map</button>
+            <button onClick={()=>setActiveTab('market')} style={{ padding:'4px 8px', background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', borderLeft:'1px solid var(--border)', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Market</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ padding:'4px 8px', background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', borderLeft:'1px solid var(--border)', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Graphs</button>
           </div>
           <div ref={playersMenuRef} style={{ position:'relative' }}>
@@ -778,94 +779,77 @@ export function App() {
   <div className="ticker">
     <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
   </div>
-  {activeTab==='game' ? (
-    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gap: 16, padding: 16, overflowX:'hidden' }}>
-      {/* Map column (first) */}
-  <div>
-    <h3 className="glow">{mapTitle}</h3>
-  <div ref={planetsContainerRef} className="panel" style={{ position:'relative', height: 380, overflow:'hidden', backgroundColor:'#000', backgroundImage: `url(${starfieldUrl})`, backgroundSize:'cover', backgroundPosition:'center', backgroundRepeat:'no-repeat' }}>
-  <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
-          {r.room.planets.map(p => {
-            const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
-            const center = planetPos[p]
-            const left = center ? center.x : 0
-            const top = center ? center.y : 0
-            const need = travelUnits(r.you.currentPlanet, p)
-            const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
-            const isHere = p === r.you.currentPlanet
-            return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid transparent' : '1px solid transparent', borderRadius:8, background:'transparent' }}>
-                <button
-                  disabled={p===r.you.currentPlanet || !canReach}
-                  onClick={()=>selectPlanet(p)}
-                  style={{ textAlign:'center', background:'var(--panelElevated)', border:'1px solid var(--border)' }}
-                  title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
-                >
-                  {p}
-                </button>
-                <div style={{ display:'flex', gap:4, marginTop:4, justifyContent:'center' }}>
-                  {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
-                    <span
-                      key={pl.id}
-                      title={pl.name}
-                      style={{
-                        width:14,
-                        height:14,
-                        borderRadius:7,
-                        background: colorFor(String(pl.id)),
-                        color:'#fff',
-                        display:'inline-flex',
-                        alignItems:'center',
-                        justifyContent:'center',
-                        fontSize:10,
-                        boxShadow:'0 0 0 1px rgba(0,0,0,0.15)'
-                      }}
-                    >
-                      {String(pl.name||'P').slice(0,1).toUpperCase()}
-                    </span>
-                  ))}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-        {/* Destination arrows overlay */}
-        <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          <defs>
-            {(r.room.players as any[]).map(pl => (
-              <marker key={pl.id} id={`arrow-head-${pl.id}`} markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
-                <path d="M0,0 L10,5 L0,10 z" fill={colorFor(String(pl.id))} />
-              </marker>
-            ))}
-          </defs>
-          {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
-            const from = planetPos[pl.currentPlanet]
-            const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
-            if (!from || !to) return null
-            if (pl.destinationPlanet === pl.currentPlanet) return null
-            const x1 = from.x, y1 = from.y
-            const x2 = to.x, y2 = to.y
-            const d = `M ${x1},${y1} L ${x2},${y2}`
-            return (
-              <path key={pl.id}
-                d={d}
-                fill="none"
-                stroke={colorFor(String(pl.id))}
-                strokeWidth={2}
-                strokeLinecap="round"
-                markerEnd={`url(#arrow-head-${pl.id})`}
-                opacity={0.95}
-              />
-            )
-          })}
-          {/* Your in-transit position marker */}
-          {inTransit && yourTransitPos && (
-            <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
-          )}
-        </svg>
+  {/* Content area fills window below header/ticker */}
+  <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
+    {activeTab==='map' && (
+      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding:16 }}>
+        <h3 className="glow">{mapTitle}</h3>
+        <div ref={planetsContainerRef} className="panel" style={{ position:'relative', flex:1, minHeight:0, overflow:'hidden', backgroundColor:'#000', backgroundImage: `url(${starfieldUrl})`, backgroundSize:'cover', backgroundPosition:'center', backgroundRepeat:'no-repeat' }}>
+          <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
+            {r.room.planets.map(p => {
+              const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
+              const center = planetPos[p]
+              const left = center ? center.x : 0
+              const top = center ? center.y : 0
+              const need = travelUnits(r.you.currentPlanet, p)
+              const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
+              const isHere = p === r.you.currentPlanet
+              return (
+                <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid transparent' : '1px solid transparent', borderRadius:8, background:'transparent' }}>
+                  <button
+                    disabled={p===r.you.currentPlanet || !canReach}
+                    onClick={()=>selectPlanet(p)}
+                    style={{ textAlign:'center', background:'var(--panelElevated)', border:'1px solid var(--border)' }}
+                    title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
+                  >
+                    {p}
+                  </button>
+                  <div style={{ display:'flex', gap:4, marginTop:4, justifyContent:'center' }}>
+                    {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
+                      <span
+                        key={pl.id}
+                        title={pl.name}
+                        style={{ width:14, height:14, borderRadius:7, background: colorFor(String(pl.id)), color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:10, boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }}
+                      >
+                        {String(pl.name||'P').slice(0,1).toUpperCase()}
+                      </span>
+                    ))}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+          {/* Destination arrows overlay */}
+          <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+            <defs>
+              {(r.room.players as any[]).map(pl => (
+                <marker key={pl.id} id={`arrow-head-${pl.id}`} markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 z" fill={colorFor(String(pl.id))} />
+                </marker>
+              ))}
+            </defs>
+            {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
+              const from = planetPos[pl.currentPlanet]
+              const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
+              if (!from || !to) return null
+              if (pl.destinationPlanet === pl.currentPlanet) return null
+              const x1 = from.x, y1 = from.y
+              const x2 = to.x, y2 = to.y
+              const d = `M ${x1},${y1} L ${x2},${y2}`
+              return (
+                <path key={pl.id} d={d} fill="none" stroke={colorFor(String(pl.id))} strokeWidth={2} strokeLinecap="round" markerEnd={`url(#arrow-head-${pl.id})`} opacity={0.95} />
+              )
+            })}
+            {inTransit && yourTransitPos && (
+              <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
+            )}
+          </svg>
         </div>
       </div>
-  <div>
+    )}
+
+    {activeTab==='market' && (
+      <div style={{ padding:16 }}>
         <h3 className="glow">Market — {visible.name || r.you.currentPlanet}</h3>
         <div className="panel" style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
@@ -899,21 +883,21 @@ export function App() {
                         : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
                   : undefined
                 const disabledTrade = inTransit
-        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-        const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
+                const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+                const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
                 return (
-      <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
+                  <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
                     <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
                     <td style={{ padding:'6px 8px' }}>{available}</td>
                     <td style={{ padding:'6px 8px' }}>${price}</td>
-    <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
-    <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
+                    <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
+                    <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
                     <td style={{ padding:'6px 8px' }}>
                       {owned}
-          {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
+                      {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
                     </td>
                     <td style={{ padding:'6px 8px' }}>
-          <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                      <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
                         onChange={e=>{
                           const v = Number(e.target.value)
                           const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
@@ -931,14 +915,15 @@ export function App() {
           </table>
         </div>
       </div>
-      {/* Ship Inventory moved to header dropdown */}
-    </div>
-  ) : (
-    <div style={{ padding:16 }}>
-      <h3 className="glow">Wealth Over Time</h3>
-      <WealthCharts history={wealthHistory} />
-    </div>
-  )}
+    )}
+
+    {activeTab==='graphs' && (
+      <div style={{ padding:16 }}>
+        <h3 className="glow">Wealth Over Time</h3>
+        <WealthCharts history={wealthHistory} />
+      </div>
+    )}
+  </div>
     </div>
   )
 }
