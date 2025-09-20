@@ -824,6 +824,7 @@ func (gs *GameServer) addBot(roomID string) {
 		DestinationPlanet: "",
 		Inventory:         map[string]int{},
 		InventoryAvgCost:  map[string]int{},
+		Fuel:              fuelCapacity,
 		Ready:             true, // bots are always ready
 		IsBot:             true,
 	}
@@ -1032,10 +1033,17 @@ func (gs *GameServer) runTicker(room *Room) {
 				move = minInt(move, p.Fuel)
 				if move <= 0 {
 					// No fuel to progress
-					if !p.IsBot {
+					if p.IsBot {
+						// For bots, cancel transit so they can refuel or adjust plans during AI step
+						p.InTransit = false
+						p.DestinationPlanet = ""
+						p.TransitFrom = ""
+						p.TransitRemaining = 0
+						p.TransitTotal = 0
+					} else {
 						gs.enqueueModal(p, "Insufficient Fuel", "You didn't have enough fuel to make progress toward "+p.DestinationPlanet+".")
 					}
-					// remain in transit; do not clear destination
+					// Either we showed a modal (human) and stayed in transit, or we canceled (bot). Proceed to next player.
 					continue
 				}
 				// Consume fuel and reduce remaining distance
@@ -1099,9 +1107,13 @@ func (gs *GameServer) runTicker(room *Room) {
 				pl.Goods[g] = pl.Goods[g] + amt
 			}
 		}
-		// simple bot AI: sell when price > 50% of max, buy when price <= 50% of max, pick a new random destination
+		// simple bot AI: sell when price > 50% of max, buy when price < 46% of max, pick a new random destination
 		for _, bp := range room.Players {
 			if !bp.IsBot {
+				continue
+			}
+			// Bots should not trade/refuel or pick new destinations while in transit
+			if bp.InTransit {
 				continue
 			}
 			planet := room.Planets[bp.CurrentPlanet]
@@ -1110,14 +1122,14 @@ func (gs *GameServer) runTicker(room *Room) {
 			}
 			// reference price ranges per good
 			ranges := defaultPriceRanges()
-			// sell everything above mid-price (>50% of max)
+			// sell when price is above 50% of max
 			for g, qty := range bp.Inventory {
 				price := planet.Prices[g]
 				max := 0
 				if r, ok := ranges[g]; ok {
 					max = r[1]
 				}
-				threshold := max / 2
+				threshold := (max * 50) / 100
 				if qty > 0 && price > threshold {
 					bp.Inventory[g] -= qty
 					planet.Goods[g] += qty
@@ -1195,7 +1207,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 			}
-			// buy anything at or below mid-price (<=50% of max) — skip if still below fuel reserve
+			// buy only when price is below 46% of max — skip if still below fuel reserve
 			if bp.Fuel >= minReserve {
 				keys := make([]string, 0, len(planet.Goods))
 				for k := range planet.Goods {
@@ -1214,8 +1226,9 @@ func (gs *GameServer) runTicker(room *Room) {
 					if max <= 0 {
 						continue
 					}
-					threshold := max / 2
-					if price > threshold {
+					threshold := (max * 46) / 100
+					// only buy when strictly less than 46% of max
+					if price >= threshold {
 						continue
 					}
 					avail := planet.Goods[g]
