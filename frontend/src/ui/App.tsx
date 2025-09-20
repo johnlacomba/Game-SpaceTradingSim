@@ -120,9 +120,11 @@ export function App() {
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
   const playersMenuRef = useRef<HTMLDivElement | null>(null)
+  const inventoryMenuRef = useRef<HTMLDivElement | null>(null)
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [playersOpen, setPlayersOpen] = useState(false)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
@@ -186,6 +188,20 @@ export function App() {
     document.addEventListener('mousedown', onDocDown)
     return () => document.removeEventListener('mousedown', onDocDown)
   }, [playersOpen])
+
+  // Close Ship Inventory menu on outside click
+  useEffect(() => {
+    if (!inventoryOpen) return
+    const onDocDown = (e: MouseEvent) => {
+      const el = inventoryMenuRef.current
+      if (!el) return
+      if (e.target instanceof Node && !el.contains(e.target)) {
+        setInventoryOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onDocDown)
+    return () => document.removeEventListener('mousedown', onDocDown)
+  }, [inventoryOpen])
 
   // Actions
   const onConnect = () => {
@@ -394,7 +410,7 @@ export function App() {
   })()
 
   return (
-    <div style={{ fontFamily: 'system-ui' }}>
+    <div style={{ fontFamily: 'system-ui', overflowX: 'hidden' }}>
   {/* News ticker below header (blue-hued) */}
   {r.you.modal && r.you.modal.id && (r.you as any).modal?.title !== 'Dock Tax' && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
@@ -438,6 +454,29 @@ export function App() {
                     </li>
                   ))}
                 </ul>
+              </div>
+            )}
+          </div>
+          <div ref={inventoryMenuRef} style={{ position:'relative' }}>
+            <button onClick={() => setInventoryOpen(v=>!v)} aria-expanded={inventoryOpen} aria-haspopup="menu">Ship Inventory ▾</button>
+            {inventoryOpen && (
+              <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:12, zIndex:1000, minWidth:300, maxHeight:360, overflow:'auto' }}>
+                <div style={{ color:'#666', marginBottom:8 }}>Capacity: {usedSlots}/{capacity}</div>
+                {Object.keys(r.you.inventory).length === 0 ? (
+                  <div>Empty</div>
+                ) : (
+                  <ul style={{ listStyle:'none', padding:0, margin:0 }}>
+                    {Object.keys(r.you.inventory).sort().map(g => {
+                      const qty = r.you.inventory[g]
+                      const avg = r.you.inventoryAvgCost?.[g]
+                      return (
+                        <li key={g} style={{ padding:'4px 0' }}>
+                          {g}: {qty}{typeof avg === 'number' ? ` (avg $${avg})` : ''}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
               </div>
             )}
           </div>
@@ -514,11 +553,11 @@ export function App() {
         </div>
       </div>
   <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
-  <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px 240px', gap: 16, padding: 16 }}>
+  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gap: 16, padding: 16, overflowX:'hidden' }}>
       {/* Map column (first) */}
       <div>
         <h3>{mapTitle}</h3>
-        <div ref={planetsContainerRef} style={{ position:'relative', height: 380 }}>
+  <div ref={planetsContainerRef} style={{ position:'relative', height: 380, overflow:'hidden' }}>
         <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
             const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
@@ -599,63 +638,70 @@ export function App() {
         </svg>
         </div>
       </div>
-  <div>
-  <h3>Market — {visible.name || r.you.currentPlanet}</h3>
-    <ul style={{ listStyle:'none', padding: 0, margin: 0 }}>
-          {Object.keys(goods).map(g => {
-            const price = prices[g]
-            const range = priceRanges[g]
-            const available = goods[g]
-            const owned = r.you.inventory[g] || 0
-            const youPaid = r.you.inventoryAvgCost?.[g]
-            const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
-            const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
-            const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
-            const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
-              ? (price > youPaid
-                  ? { background:'#10b98122', color:'#065f46', border:'1px solid #10b98155' }
-                  : price < youPaid
-                    ? { background:'#ef444422', color:'#7f1d1d', border:'1px solid #ef444455' }
-                    : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
-              : undefined
-            const disabledTrade = inTransit
-            return (
-              <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
-                <b>{g}</b>: {available} @ ${price} {range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return <span style={{ color:'#666' }}> (${range[0]}–${range[1]} · {pct}%)</span> })() : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
-                <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
-          <input style={{ width: 64 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
-                    onChange={e=>{
-                      const v = Number(e.target.value)
-            const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
-            setAmountsByGood(s => ({ ...s, [g]: capped }))
-                    }} />
-          <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)}>Buy</button>
-                  <span>Owned: {owned}</span>
-                  <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
-                </div>
-              </li>
-            )
-          })}
-        </ul>
-      </div>
       <div>
-        <h3>Ship Inventory <span title="Ship capacity" style={{ color:'#666', fontWeight: 500, marginLeft: 6 }}>{usedSlots}/{capacity}</span></h3>
-        {Object.keys(r.you.inventory).length === 0 ? (
-          <div>Empty</div>
-        ) : (
-          <ul style={{ listStyle:'none', padding: 0, margin: 0 }}>
-            {Object.keys(r.you.inventory).sort().map(g => {
-              const qty = r.you.inventory[g]
-              const avg = r.you.inventoryAvgCost?.[g]
-              return (
-                <li key={g}>
-                  {g}: {qty}{typeof avg === 'number' ? ` (avg $${avg})` : ''}
-                </li>
-              )
-            })}
-          </ul>
-        )}
+        <h3>Market — {visible.name || r.you.currentPlanet}</h3>
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse' }}>
+            <thead>
+              <tr style={{ textAlign:'left', borderBottom:'1px solid #e5e7eb' }}>
+                <th style={{ padding:'6px 8px' }}>Good</th>
+                <th style={{ padding:'6px 8px' }}>Available</th>
+                <th style={{ padding:'6px 8px' }}>Price</th>
+                <th style={{ padding:'6px 8px' }}>Range · %Max</th>
+                <th style={{ padding:'6px 8px' }}>Owned</th>
+                <th style={{ padding:'6px 8px' }}>Buy Qty</th>
+                <th style={{ padding:'6px 8px' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(goods).map(g => {
+                const price = prices[g]
+                const range = priceRanges[g]
+                const available = goods[g]
+                const owned = r.you.inventory[g] || 0
+                const youPaid = r.you.inventoryAvgCost?.[g]
+                const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+                const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+                const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+                const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+                  ? (price > youPaid
+                      ? { background:'#10b98122', color:'#065f46', border:'1px solid #10b98155' }
+                      : price < youPaid
+                        ? { background:'#ef444422', color:'#7f1d1d', border:'1px solid #ef444455' }
+                        : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
+                  : undefined
+                const disabledTrade = inTransit
+                const rangeCell = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${range[0]}–${range[1]} · ${pct}%` })() : '—'
+                return (
+                  <tr key={g} style={{ borderBottom:'1px solid #f3f4f6' }}>
+                    <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
+                    <td style={{ padding:'6px 8px' }}>{available}</td>
+                    <td style={{ padding:'6px 8px' }}>${price}</td>
+                    <td style={{ padding:'6px 8px', color:'#666' }}>{rangeCell}</td>
+                    <td style={{ padding:'6px 8px' }}>
+                      {owned}
+                      {owned>0 && typeof youPaid === 'number' ? <span style={{ color:'#666', marginLeft:6 }}>(avg ${youPaid})</span> : null}
+                    </td>
+                    <td style={{ padding:'6px 8px' }}>
+                      <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                        onChange={e=>{
+                          const v = Number(e.target.value)
+                          const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                          setAmountsByGood(s => ({ ...s, [g]: capped }))
+                        }} />
+                    </td>
+                    <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
+                      <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
+                      <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+  {/* Ship Inventory moved to header dropdown */}
       </div>
     </div>
   )
