@@ -1905,21 +1905,30 @@ func planetNames(m map[string]*Planet) []string {
 func defaultPlanets() map[string]*Planet {
 	// All 8 planets + a few stations
 	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
-	// Standard goods produced broadly (Fuel is not a trade good; use Crude Oil instead)
-	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
-	// Unique per-location goods
+	// Standard goods produced broadly (Fuel is not a trade good)
+	standard := []string{
+		"Sky Kelp",
+		"Moon Ferns",
+		"Desalinated Sodium",
+		"Reticulated Splines",
+		"Zero-G Noodles",
+		"Quantum Bubblegum",
+		"Cosmic Coffee Beans",
+		"Nano Lint",
+	}
+	// Unique per-location goods (whimsical)
 	uniqueByLoc := map[string][]string{
-		"Mercury":       {"Solar Panels"},
-		"Venus":         {"Acid Extract"},
-		"Earth":         {"Electronics"},
-		"Mars":          {"Iron Alloy"},
-		"Jupiter":       {"Helium-3"},
-		"Saturn":        {"Methane"},
-		"Uranus":        {"Ice Crystals"},
-		"Neptune":       {"Deep Blue Dye"},
-		"Pluto Station": {"Xenon Gas"},
-		"Titan Station": {"Titan Spice"},
-		"Ceres Station": {"Rare Metals"},
+		"Mercury":       {"Cyber Toasters", "Photon Socks"},
+		"Venus":         {"Extradimensional Sea Monkeys", "Nebula Nectar"},
+		"Earth":         {"Depleted Clown Shoes", "Holographic Honey"},
+		"Mars":          {"Martian Dust Bunnies", "Laser Lemons"},
+		"Jupiter":       {"Stellar Marshmallows", "Gamma Grit"},
+		"Saturn":        {"Plasma Donuts", "Ring Popcorn"},
+		"Uranus":        {"Anti-Gravity Paperclips", "Void Raisins"},
+		"Neptune":       {"Galactic Jelly", "Comet Cotton Candy"},
+		"Pluto Station": {"Wormhole Licorice", "Singularity Seeds"},
+		"Titan Station": {"Orbital Oregano", "Alien Hot Sauce"},
+		"Ceres Station": {"Rocket Rations", "Chrono Crystals"},
 	}
 	// Union of all goods for global pricing presence
 	allGoodsSet := map[string]struct{}{}
@@ -1993,8 +2002,40 @@ func defaultPlanets() map[string]*Planet {
 // defaultPriceRanges returns a static min/max range for each good.
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
-	standard := []string{"Food", "Ore", "Water", "Crude Oil"}
-	unique := []string{"Solar Panels", "Acid Extract", "Electronics", "Iron Alloy", "Helium-3", "Methane", "Ice Crystals", "Deep Blue Dye", "Xenon Gas", "Titan Spice", "Rare Metals"}
+	standard := []string{
+		"Sky Kelp",
+		"Moon Ferns",
+		"Desalinated Sodium",
+		"Reticulated Splines",
+		"Zero-G Noodles",
+		"Quantum Bubblegum",
+		"Cosmic Coffee Beans",
+		"Nano Lint",
+	}
+	unique := []string{
+		"Cyber Toasters",
+		"Extradimensional Sea Monkeys",
+		"Depleted Clown Shoes",
+		"Photon Socks",
+		"Nebula Nectar",
+		"Holographic Honey",
+		"Martian Dust Bunnies",
+		"Laser Lemons",
+		"Stellar Marshmallows",
+		"Gamma Grit",
+		"Plasma Donuts",
+		"Ring Popcorn",
+		"Anti-Gravity Paperclips",
+		"Void Raisins",
+		"Galactic Jelly",
+		"Comet Cotton Candy",
+		"Wormhole Licorice",
+		"Singularity Seeds",
+		"Orbital Oregano",
+		"Alien Hot Sauce",
+		"Rocket Rations",
+		"Chrono Crystals",
+	}
 	m := map[string][2]int{}
 	for _, g := range standard {
 		m[g] = [2]int{5, 24}
