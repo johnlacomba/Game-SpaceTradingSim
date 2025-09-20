@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -55,6 +56,25 @@ type Player struct {
 	CapacityBonus     int    `json:"-"`
 	SpeedBonus        int    `json:"-"`
 	FuelCapacityBonus int    `json:"-"`
+	// Recent actions (last 10)
+	ActionHistory []ActionLog `json:"-"`
+}
+
+// ActionLog captures a brief recent action for audit/history
+type ActionLog struct {
+	Turn int    `json:"turn"`
+	Text string `json:"text"`
+}
+
+func (gs *GameServer) logAction(room *Room, p *Player, text string) {
+	if room == nil || p == nil {
+		return
+	}
+	entry := ActionLog{Turn: room.Turn, Text: text}
+	p.ActionHistory = append(p.ActionHistory, entry)
+	if len(p.ActionHistory) > 10 {
+		p.ActionHistory = p.ActionHistory[len(p.ActionHistory)-10:]
+	}
 }
 
 type Room struct {
@@ -132,6 +152,7 @@ type PersistedPlayer struct {
 	CapacityBonus     int
 	SpeedBonus        int
 	FuelCapacityBonus int
+	ActionHistory     []ActionLog
 }
 
 type GameServer struct {
@@ -225,6 +246,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					CapacityBonus:     p.CapacityBonus,
 					SpeedBonus:        p.SpeedBonus,
 					FuelCapacityBonus: p.FuelCapacityBonus,
+					ActionHistory:     cloneActionHistory(p.ActionHistory),
 				}
 				delete(room.Players, p.ID)
 				// If no humans remain, signal the ticker to end the current turn early
@@ -312,6 +334,7 @@ func (gs *GameServer) readLoop(p *Player) {
 							p.CapacityBonus += m.CapacityBonus
 							// Confirm
 							gs.enqueueModal(p, "Upgrade Installed", "Your cargo capacity increased by "+strconv.Itoa(m.CapacityBonus)+" to "+strconv.Itoa(shipCapacity+p.CapacityBonus)+".")
+							gs.logAction(room, p, fmt.Sprintf("Purchased cargo upgrade +%d for $%d", m.CapacityBonus, m.Price))
 						} else {
 							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
 						}
@@ -322,6 +345,7 @@ func (gs *GameServer) readLoop(p *Player) {
 							p.Money -= price
 							p.SpeedBonus += m.Units
 							gs.enqueueModal(p, "Engine Upgrade Installed", "Your ship speed increased by "+strconv.Itoa(m.Units)+" units/turn.")
+							gs.logAction(room, p, fmt.Sprintf("Purchased engine upgrade +%d for $%d", m.Units, price))
 						} else {
 							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
 						}
@@ -332,6 +356,7 @@ func (gs *GameServer) readLoop(p *Player) {
 							p.Money -= price
 							p.FuelCapacityBonus += m.Units
 							gs.enqueueModal(p, "Fuel Tank Expanded", "Your fuel capacity increased by "+strconv.Itoa(m.Units)+" to "+strconv.Itoa(fuelCapacity+p.FuelCapacityBonus)+".")
+							gs.logAction(room, p, fmt.Sprintf("Purchased fuel tank +%d for $%d", m.Units, price))
 						} else {
 							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
 						}
@@ -372,6 +397,10 @@ func (gs *GameServer) readLoop(p *Player) {
 				}
 				if allow {
 					p.DestinationPlanet = data.Planet
+					if data.Planet != "" && data.Planet != p.CurrentPlanet {
+						units := distanceUnits(room, p.CurrentPlanet, data.Planet)
+						gs.logAction(room, p, fmt.Sprintf("Traveling to %s (%d units)", data.Planet, units))
+					}
 				}
 				room.mu.Unlock()
 				if allow {
@@ -443,6 +472,13 @@ func (gs *GameServer) readLoop(p *Player) {
 					"inventoryAvgCost": avg,
 					"usedSlots":        used,
 					"capacity":         shipCapacity + target.CapacityBonus,
+					"history": func() []map[string]interface{} {
+						out := make([]map[string]interface{}, 0, len(target.ActionHistory))
+						for _, h := range target.ActionHistory {
+							out = append(out, map[string]interface{}{"turn": h.Turn, "text": h.Text})
+						}
+						return out
+					}(),
 				}
 			}
 			room.mu.Unlock()
@@ -590,6 +626,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				CapacityBonus:     p.CapacityBonus,
 				SpeedBonus:        p.SpeedBonus,
 				FuelCapacityBonus: p.FuelCapacityBonus,
+				ActionHistory:     cloneActionHistory(p.ActionHistory),
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -624,6 +661,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.SpeedBonus = snap.SpeedBonus
 		p.FuelCapacityBonus = snap.FuelCapacityBonus
 		p.Bankrupt = snap.Bankrupt
+		// restore per-room action history
+		p.ActionHistory = cloneActionHistory(snap.ActionHistory)
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -643,6 +682,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.SpeedBonus = 0
 		p.FuelCapacityBonus = 0
 		p.Bankrupt = false
+		// fresh room: clear per-room action history
+		p.ActionHistory = nil
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -682,6 +723,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		CapacityBonus:     p.CapacityBonus,
 		SpeedBonus:        p.SpeedBonus,
 		FuelCapacityBonus: p.FuelCapacityBonus,
+		ActionHistory:     cloneActionHistory(p.ActionHistory),
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -1009,6 +1051,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					p.TransitTotal = 0
 					// Dock tax on arrival
 					p.Money -= 10
+					gs.logAction(room, p, "Dock tax paid: $10")
 					if !p.IsBot {
 						gs.enqueueModal(p, "Dock Tax", "Docking fee of 10 credits charged at "+p.CurrentPlanet+".")
 					}
@@ -1033,6 +1076,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				// Staying in same location: apply dock tax if not in transit
 				if !p.InTransit {
 					p.Money -= 10
+					gs.logAction(room, p, "Dock tax paid: $10")
 					if !p.IsBot {
 						gs.enqueueModal(p, "Dock Tax", "Docking fee of 10 credits charged at "+p.CurrentPlanet+".")
 					}
@@ -1077,7 +1121,9 @@ func (gs *GameServer) runTicker(room *Room) {
 				if qty > 0 && price > threshold {
 					bp.Inventory[g] -= qty
 					planet.Goods[g] += qty
-					bp.Money += qty * price
+					proceeds := qty * price
+					bp.Money += proceeds
+					gs.logAction(room, bp, fmt.Sprintf("Sold %d %s for $%d", qty, g, proceeds))
 					if bp.Inventory[g] <= 0 {
 						delete(bp.Inventory, g)
 						delete(bp.InventoryAvgCost, g)
@@ -1130,6 +1176,7 @@ func (gs *GameServer) runTicker(room *Room) {
 								planet.Goods[g] += sellUnits
 								proceeds := sellUnits * price
 								bp.Money += proceeds
+								gs.logAction(room, bp, fmt.Sprintf("Liquidated %d %s for $%d to fund fuel", sellUnits, g, proceeds))
 								short -= proceeds
 								if bp.Inventory[g] <= 0 {
 									delete(bp.Inventory, g)
@@ -1140,8 +1187,10 @@ func (gs *GameServer) runTicker(room *Room) {
 						// Buy as much as needed (or affordable) toward the reserve
 						canBuy := minInt(need, bp.Money/fp)
 						if canBuy > 0 {
-							bp.Money -= canBuy * fp
+							total := canBuy * fp
+							bp.Money -= total
 							bp.Fuel += canBuy
+							gs.logAction(room, bp, fmt.Sprintf("Refueled %d units for $%d at %s", canBuy, total, bp.CurrentPlanet))
 						}
 					}
 				}
@@ -1203,6 +1252,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					} else {
 						delete(bp.InventoryAvgCost, g)
 					}
+					gs.logAction(room, bp, fmt.Sprintf("Bought %d %s for $%d", amount, g, cost))
 				}
 			}
 			// Bot refuel behavior (uses local planet fuel price)
@@ -1213,8 +1263,10 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 				maxUnits := minInt((fuelCapacity+bp.FuelCapacityBonus)-bp.Fuel, bp.Money/price)
 				if maxUnits > 0 {
-					bp.Money -= maxUnits * price
+					total := maxUnits * price
+					bp.Money -= total
 					bp.Fuel += maxUnits
+					gs.logAction(room, bp, fmt.Sprintf("Refueled %d units for $%d at %s", maxUnits, total, bp.CurrentPlanet))
 				}
 			}
 			// choose a new destination different from current; if out of range, try to sell cargo to afford fuel to reach it
@@ -1228,6 +1280,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					dist := distanceUnits(room, bp.CurrentPlanet, dest)
 					if dist <= bp.Fuel {
 						bp.DestinationPlanet = dest
+						gs.logAction(room, bp, fmt.Sprintf("Traveling to %s (%d units)", dest, dist))
 						break
 					}
 					// Need more fuel to reach this destination
@@ -1292,6 +1345,7 @@ func (gs *GameServer) runTicker(room *Room) {
 						bp.Money -= cost
 						bp.Fuel += fuelNeeded
 						bp.DestinationPlanet = dest
+						gs.logAction(room, bp, fmt.Sprintf("Purchased fuel %d for $%d and traveling to %s (%d units)", fuelNeeded, cost, dest, dist))
 						break
 					}
 					// Otherwise, try another candidate
@@ -1313,6 +1367,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					if hp.Money >= price {
 						hp.Money -= price
 						hp.CapacityBonus += bonus
+						gs.logAction(room, hp, fmt.Sprintf("Purchased cargo upgrade +%d for $%d", bonus, price))
 					}
 				}
 				// Consider engine speed offer if rolled this turn
@@ -1322,6 +1377,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					if hp.Money >= price {
 						hp.Money -= price
 						hp.SpeedBonus += units
+						gs.logAction(room, hp, fmt.Sprintf("Purchased engine upgrade +%d for $%d", units, price))
 					}
 				}
 				// Consider fuel capacity offer if rolled this turn
@@ -1331,7 +1387,14 @@ func (gs *GameServer) runTicker(room *Room) {
 					if hp.Money >= price {
 						hp.Money -= price
 						hp.FuelCapacityBonus += units
+						gs.logAction(room, hp, fmt.Sprintf("Purchased fuel tank +%d for $%d", units, price))
 					}
+				}
+				// Bot asteroid collision chance mirrored for completeness
+				if rand.Intn(100) == 0 {
+					hp.Inventory = map[string]int{}
+					hp.InventoryAvgCost = map[string]int{}
+					gs.logAction(room, hp, "Asteroid collision: lost all cargo")
 				}
 				// Bots skip modals; move on to next player
 				continue
@@ -1350,6 +1413,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				tax := (totalWealth * 8) / 100 // 8%
 				// Deduct tax (can go negative to reflect debt)
 				hp.Money -= tax
+				gs.logAction(room, hp, fmt.Sprintf("Income tax paid: $%d", tax))
 				gs.enqueueModal(hp, "Federation Tax", "Federation income tax is due. "+strconv.Itoa(tax)+" credits due.")
 				if hp.Money < -500 && !hp.Bankrupt {
 					// Queue Game Over first, then mark bankrupt so modal isn't blocked
@@ -1364,6 +1428,7 @@ func (gs *GameServer) runTicker(room *Room) {
 			if rand.Intn(100) == 0 {
 				amt := 500 + rand.Intn(10000-500+1)
 				hp.Money += amt
+				gs.logAction(room, hp, fmt.Sprintf("Lottery winnings: +$%d", amt))
 				gs.enqueueModal(hp, "Lottery Winner!", "You won the lottery and collect "+strconv.Itoa(amt)+" credits!")
 			}
 			// Asteroid collision: ~1% chance per turn
@@ -1371,6 +1436,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				// Lose all cargo
 				hp.Inventory = map[string]int{}
 				hp.InventoryAvgCost = map[string]int{}
+				gs.logAction(room, hp, "Asteroid collision: lost all cargo")
 				gs.enqueueModal(hp, "Asteroid Collision", "Your ship collided with an asteroid and you lost all cargo.")
 			}
 			// Capacity upgrade offer: ~2% chance per turn
@@ -1378,6 +1444,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				price := 5000
 				bonus := 50
 				mi := ModalItem{ID: randID(), Title: "Shipyard Offer", Body: "Special offer: +" + strconv.Itoa(bonus) + " cargo capacity for $" + strconv.Itoa(price) + ". Accept?", Kind: "upgrade-offer", Price: price, CapacityBonus: bonus}
+				gs.logAction(room, hp, fmt.Sprintf("Offer: +%d cargo for $%d", bonus, price))
 				hp.Modals = append(hp.Modals, mi)
 			}
 			// Speed upgrade offer: 1-10 units, $1000 per unit
@@ -1386,6 +1453,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				ppu := 1000
 				price := units * ppu
 				mi := ModalItem{ID: randID(), Title: "Engine Upgrade", Body: "Offer: +" + strconv.Itoa(units) + " speed (units/turn) for $" + strconv.Itoa(ppu) + " per unit (total $" + strconv.Itoa(price) + "). Accept?", Kind: "speed-offer", PricePerUnit: ppu, Units: units}
+				gs.logAction(room, hp, fmt.Sprintf("Offer: +%d speed for $%d total", units, price))
 				hp.Modals = append(hp.Modals, mi)
 			}
 			// Fuel capacity upgrade offer: 20-100 units, $50 per unit
@@ -1394,6 +1462,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				ppu := 50
 				price := units * ppu
 				mi := ModalItem{ID: randID(), Title: "Fuel Tank Expansion", Body: "Offer: +" + strconv.Itoa(units) + " fuel capacity for $" + strconv.Itoa(ppu) + " per unit (total $" + strconv.Itoa(price) + "). Accept?", Kind: "fuelcap-offer", PricePerUnit: ppu, Units: units}
+				gs.logAction(room, hp, fmt.Sprintf("Offer: +%d fuel capacity for $%d total", units, price))
 				hp.Modals = append(hp.Modals, mi)
 			}
 		}
@@ -1601,6 +1670,7 @@ func (gs *GameServer) handleBuy(room *Room, p *Player, good string, amount int) 
 	} else {
 		delete(p.InventoryAvgCost, good)
 	}
+	gs.logAction(room, p, fmt.Sprintf("Purchased %d %s for $%d", amount, good, cost))
 }
 
 func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int) {
@@ -1626,11 +1696,13 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 	}
 	p.Inventory[good] -= amount
 	planet.Goods[good] += amount
-	p.Money += amount * price
+	proceeds := amount * price
+	p.Money += proceeds
 	if p.Inventory[good] <= 0 {
 		delete(p.Inventory, good)
 		delete(p.InventoryAvgCost, good)
 	}
+	gs.logAction(room, p, fmt.Sprintf("Sold %d %s for $%d", amount, good, proceeds))
 }
 
 func (gs *GameServer) sendRoomState(room *Room, only *Player) {
@@ -1753,7 +1825,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"capacity":          shipCapacity + pp.CapacityBonus,
 					"fuelCapacity":      fuelCapacity + pp.FuelCapacityBonus,
 					"speedPerTurn":      20 + pp.SpeedBonus,
-					"modal":             map[string]interface{}{},
+					"modal":             nm,
 				},
 				"visiblePlanet": map[string]interface{}{},
 			}
@@ -2088,6 +2160,17 @@ func cloneModals(in []ModalItem) []ModalItem {
 	return out
 }
 
+// cloneActionHistory returns a shallow copy of the action history slice.
+// ActionLog is immutable for our purposes (just Turn and Text), so shallow copy is fine.
+func cloneActionHistory(in []ActionLog) []ActionLog {
+	if in == nil {
+		return nil
+	}
+	out := make([]ActionLog, len(in))
+	copy(out, in)
+	return out
+}
+
 func (gs *GameServer) enqueueModal(p *Player, title, body string) {
 	// Do not enqueue new modals once a player is bankrupt; they can still review existing queue.
 	if p == nil || p.Bankrupt {
@@ -2229,4 +2312,7 @@ func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 	cost := amount * price
 	p.Money -= cost
 	p.Fuel += amount
+	if amount > 0 && cost > 0 {
+		gs.logAction(room, p, fmt.Sprintf("Purchased %d fuel for $%d", amount, cost))
+	}
 }

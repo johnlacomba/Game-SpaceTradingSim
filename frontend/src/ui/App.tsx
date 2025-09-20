@@ -402,7 +402,7 @@ export function App() {
   const ackModal = (id?: string) => send('ackModal', { id })
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
   // Player info modal state
-  const [playerInfo, setPlayerInfo] = useState<null | { id: string; name: string; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; usedSlots: number; capacity: number }>(null)
+  const [playerInfo, setPlayerInfo] = useState<null | { id: string; name: string; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; usedSlots: number; capacity: number; history?: { turn: number; text: string }[] }>(null)
   useEffect(() => {
     const last = messages[messages.length-1]
     if (!last) return
@@ -698,6 +698,18 @@ export function App() {
                     ))}
                   </ul>
                 )}
+                <div style={{ marginTop:12 }}>
+                  <div style={{ fontWeight:700, marginBottom:6 }}>Recent Actions</div>
+                  {playerInfo.history && playerInfo.history.length>0 ? (
+                    <ul style={{ listStyle:'none', padding:0, margin:0, fontSize:13, color:'#374151' }}>
+                      {playerInfo.history.slice(-10).reverse().map((h, idx) => (
+                        <li key={idx} style={{ padding:'2px 0' }}>Turn {h.turn}: {h.text}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div style={{ color:'#6b7280' }}>No recent actions.</div>
+                  )}
+                </div>
               </div>
             </div>
           )}
