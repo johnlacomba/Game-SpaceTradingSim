@@ -762,16 +762,16 @@ export function App() {
             const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
             const isHere = p === r.you.currentPlanet
             return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border: isHere ? '2px solid var(--accent2)' : '1px solid var(--border)', borderRadius:8, background:'var(--panelElevated)' }}>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid var(--accent2)' : '1px solid var(--border)', borderRadius:8, background:'var(--panelElevated)' }}>
                 <button
                   disabled={p===r.you.currentPlanet || !canReach}
                   onClick={()=>selectPlanet(p)}
-                  style={{ textAlign:'left' }}
+                  style={{ textAlign:'center' }}
                   title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                 >
                   {p}
                 </button>
-                <div style={{ display:'flex', gap:4 }}>
+                <div style={{ display:'flex', gap:4, marginTop:4, justifyContent:'center' }}>
                   {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
                     <span
                       key={pl.id}
