@@ -94,7 +94,7 @@ function NewsTicker({ items }: { items: string[] }) {
   }, [])
   const text = items && items.length > 0 ? items.join(sep) : 'No news yet.'
   return (
-    <div style={{ background:'#e0f2fe', color:'#075985', borderTop:'1px solid #93c5fd', borderBottom:'1px solid #93c5fd', padding:'6px 0' }}>
+    <div style={{ padding:'6px 0' }}>
       <div ref={containerRef} style={{ position:'relative', overflow:'hidden' }}>
         <div style={{ display:'inline-flex', whiteSpace:'nowrap', willChange:'transform', animation: anim ? `${anim.name} ${anim.duration}s linear infinite` : undefined }}>
           <span ref={contentRef} style={{ paddingRight: 24 }}>{text}</span>
@@ -175,16 +175,16 @@ function WealthCharts({ history }: { history: WealthHistory }) {
         ))}
       </div>
       {/* Line chart */}
-      <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width:'100%', maxWidth:900, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8 }}>
+      <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width:'100%', maxWidth:900, background:'var(--panel)', border:'1px solid var(--border)', borderRadius:8 }}>
         {/* Axes */}
-        <rect x={padL} y={padT} width={plotW} height={plotH} fill="#fafafa" stroke="#e5e7eb" />
+        <rect x={padL} y={padT} width={plotW} height={plotH} fill="rgba(255,255,255,0.02)" stroke="var(--border)" />
         {/* Y ticks */}
         {Array.from({ length:4 }).map((_,i)=>{
           const yVal = minMoney + ((i+1)/5)*(maxMoney - minMoney)
           const y = yFor(yVal)
           return <g key={i}>
-            <line x1={padL} y1={y} x2={padL+plotW} y2={y} stroke="#f3f4f6" />
-            <text x={padL-6} y={y+4} textAnchor="end" fontSize={11} fill="#6b7280">${Math.round(yVal)}</text>
+            <line x1={padL} y1={y} x2={padL+plotW} y2={y} stroke="rgba(255,255,255,0.05)" />
+            <text x={padL-6} y={y+4} textAnchor="end" fontSize={11} fill="var(--muted)">${Math.round(yVal)}</text>
           </g>
         })}
         {/* Lines */}
@@ -197,7 +197,7 @@ function WealthCharts({ history }: { history: WealthHistory }) {
 
       {/* Last turn deltas bar chart (centered baseline) */}
       <h4 style={{ marginTop:16 }}>Last Turn Change</h4>
-      <svg viewBox="0 0 900 220" style={{ width:'100%', maxWidth:900, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8 }}>
+  <svg viewBox="0 0 900 220" style={{ width:'100%', maxWidth:900, background:'var(--panel)', border:'1px solid var(--border)', borderRadius:8 }}>
         {(() => {
           const W = 900, H = 220
           const pad = 20
@@ -206,7 +206,7 @@ function WealthCharts({ history }: { history: WealthHistory }) {
           const step = (W - pad*2) / Math.max(1, lastDeltas.length)
           return (
             <g>
-              <line x1={pad} y1={zeroY} x2={W-pad} y2={zeroY} stroke="#e5e7eb" />
+              <line x1={pad} y1={zeroY} x2={W-pad} y2={zeroY} stroke="var(--border)" />
               {lastDeltas.map((d, i) => {
                 const cx = pad + step * (i + 0.5)
                 const h = Math.round(Math.abs(d.delta) / maxAbsDelta * (H/2 - pad))
@@ -214,8 +214,8 @@ function WealthCharts({ history }: { history: WealthHistory }) {
                 return (
                   <g key={d.id}>
                     <rect x={cx - barW/2} y={y} width={barW} height={Math.max(1, h)} fill={d.color} opacity={0.8} />
-                    <text x={cx} y={d.delta>=0 ? y - 6 : y + h + 14} textAnchor="middle" fontSize={11} fill="#374151">{d.delta>=0? '+':''}{d.delta}</text>
-                    <text x={cx} y={H-6} textAnchor="middle" fontSize={11} fill="#6b7280">{history.series[d.id]?.name || d.id}</text>
+                    <text x={cx} y={d.delta>=0 ? y - 6 : y + h + 14} textAnchor="middle" fontSize={11} fill="var(--text)">{d.delta>=0? '+':''}{d.delta}</text>
+                    <text x={cx} y={H-6} textAnchor="middle" fontSize={11} fill="var(--muted)">{history.series[d.id]?.name || d.id}</text>
                   </g>
                 )
               })}
@@ -492,8 +492,8 @@ export function App() {
   // UI
   if (stage === 'title') {
     return (
-      <div style={{ padding: 24, fontFamily: 'system-ui' }}>
-        <h1>Space Trader</h1>
+      <div style={{ padding: 24 }}>
+        <h1 className="glow">Space Trader</h1>
         <input placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />
         <button onClick={onConnect} style={{ marginLeft: 8 }}>Connect</button>
       </div>
@@ -502,8 +502,8 @@ export function App() {
 
   if (stage === 'lobby') {
     return (
-      <div style={{ padding: 24, fontFamily: 'system-ui' }}>
-        <h2>Lobby</h2>
+      <div style={{ padding: 24 }}>
+        <h2 className="glow">Lobby</h2>
         <button onClick={createRoom}>Create Game</button>
         <h3 style={{ marginTop: 16 }}>Active Rooms</h3>
         <ul>
@@ -582,11 +582,11 @@ export function App() {
   })()
 
   return (
-    <div style={{ fontFamily: 'system-ui', overflowX: 'hidden' }}>
+    <div style={{ overflowX: 'hidden' }}>
   {/* News ticker below header (blue-hued) */}
   {r.you.modal && r.you.modal.id && (r.you as any).modal?.title !== 'Dock Tax' && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
-          <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
+          <div className="panel" style={{ padding:16, width:360 }}>
             <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
             <div style={{ whiteSpace:'pre-wrap', marginBottom:12 }}>{r.you.modal.body}</div>
             { (r.you.modal as any).kind ? (
@@ -602,32 +602,32 @@ export function App() {
           </div>
         </div>
       )}
-  <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb', position:'relative' }}>
+  <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid var(--border)', position:'relative' }}>
   <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
-          <strong>{r.room.name}</strong>
-          <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
+          <strong className="glow">{r.room.name}</strong>
+          <span className="muted">Turn: {r.room.turn}</span>
           {typeof r.room.turnEndsAt === 'number' && (
-            <span style={{ color:'#666' }}>
+            <span className="muted">
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
           )}
           {/* Tabs */}
-          <div style={{ marginLeft:8, display:'inline-flex', border:'1px solid #e5e7eb', borderRadius:8, overflow:'hidden' }}>
-            <button onClick={()=>setActiveTab('game')} style={{ padding:'4px 8px', background: activeTab==='game' ? '#f3f4f6' : '#fff', border:'none' }}>Game</button>
-            <button onClick={()=>setActiveTab('graphs')} style={{ padding:'4px 8px', background: activeTab==='graphs' ? '#f3f4f6' : '#fff', borderLeft:'1px solid #e5e7eb', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Graphs</button>
+          <div style={{ marginLeft:8, display:'inline-flex', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
+            <button onClick={()=>setActiveTab('game')} style={{ padding:'4px 8px', background: activeTab==='game' ? 'rgba(167,139,250,0.18)' : 'transparent', border:'none' }}>Game</button>
+            <button onClick={()=>setActiveTab('graphs')} style={{ padding:'4px 8px', background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', borderLeft:'1px solid var(--border)', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Graphs</button>
           </div>
           <div ref={playersMenuRef} style={{ position:'relative' }}>
             <button onClick={() => setPlayersOpen(v=>!v)} aria-expanded={playersOpen} aria-haspopup="menu">Players ▾</button>
             {playersOpen && (
-              <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:8, zIndex:1000, minWidth:280 }}>
+              <div className="panel" style={{ position:'absolute', top:'100%', left:0, marginTop:6, padding:8, zIndex:1000, minWidth:280 }}>
                 <ul style={{ listStyle:'none', padding:0, margin:0 }}>
           {r.room.players.map((pl)=> (
                     <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, lineHeight:1.2, padding:'6px 8px', borderRadius:6 }}>
-                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ width:8, height:8, borderRadius:4, background: pl.ready ? '#10b981' : '#ef4444' }} />
+                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ width:8, height:8, borderRadius:4, background: pl.ready ? 'var(--good)' : 'var(--bad)' }} />
                       <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
-            <button onClick={()=>requestPlayerInfo(pl.id)} style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'left', background:'transparent', border:'none', padding:0, cursor:'pointer', color:'#1d4ed8' }} title="View inventory">{pl.name}</button>
-                      <span style={{ color:'#111' }}>${pl.money}</span>
-                      <span style={{ color:'#666' }}>@ {pl.currentPlanet}</span>
+            <button onClick={()=>requestPlayerInfo(pl.id)} style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'left', background:'transparent', border:'none', padding:0, cursor:'pointer', color:'var(--accent2)' }} title="View inventory">{pl.name}</button>
+                      <span>${pl.money}</span>
+                      <span className="muted">@ {pl.currentPlanet}</span>
                     </li>
                   ))}
                 </ul>
@@ -637,8 +637,8 @@ export function App() {
           <div ref={inventoryMenuRef} style={{ position:'relative' }}>
             <button onClick={() => setInventoryOpen(v=>!v)} aria-expanded={inventoryOpen} aria-haspopup="menu">Ship Inventory ▾</button>
             {inventoryOpen && (
-              <div style={{ position:'absolute', top:'100%', left:0, marginTop:6, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', padding:12, zIndex:1000, minWidth:300, maxHeight:360, overflow:'auto' }}>
-                <div style={{ color:'#666', marginBottom:8 }}>Capacity: {usedSlots}/{capacity}</div>
+              <div className="panel" style={{ position:'absolute', top:'100%', left:0, marginTop:6, padding:12, zIndex:1000, minWidth:300, maxHeight:360, overflow:'auto' }}>
+                <div className="muted" style={{ marginBottom:8 }}>Capacity: {usedSlots}/{capacity}</div>
                 {Object.keys(r.you.inventory).length === 0 ? (
                   <div>Empty</div>
                 ) : (
@@ -658,10 +658,10 @@ export function App() {
             )}
           </div>
         </div>
-        <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+    <div style={{ display:'flex', gap:12, alignItems:'center' }}>
           <button
-            onClick={() => send('setReady', { ready: !Boolean(r.you.ready) })}
-            style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #e5e7eb', background: r.you.ready ? '#10b98122' : '#ef444422', color: r.you.ready ? '#065f46' : '#7f1d1d' }}
+      onClick={() => send('setReady', { ready: !Boolean(r.you.ready) })}
+      style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--border)', background: r.you.ready ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', color: r.you.ready ? 'var(--good)' : 'var(--bad)' }}
             title={r.you.ready ? 'Ready' : 'Not Ready'}
           >
             Ready
@@ -669,7 +669,7 @@ export function App() {
           <span><strong>${r.you.money}</strong></span>
           <div title="Ship fuel (price varies by planet)">
             <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}</span>
-            <span style={{ marginLeft: 8, color:'#666' }}>@ ${ fuelPrice }/unit</span>
+      <span className="muted" style={{ marginLeft: 8 }}>@ ${ fuelPrice }/unit</span>
             <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100)) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
           </div>
           {!r.room.started && (
@@ -680,13 +680,13 @@ export function App() {
             </>
           )}
           {playerInfo && (
-            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2100 }}>
-              <div style={{ background:'#fff', padding:16, borderRadius:8, width:380, maxHeight:'80vh', overflow:'auto', boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2100 }}>
+              <div className="panel" style={{ padding:16, width:380, maxHeight:'80vh', overflow:'auto' }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
                   <div style={{ fontWeight:700 }}>Ship Inventory — {playerInfo.name}</div>
                   <button onClick={()=>setPlayerInfo(null)}>Close</button>
                 </div>
-                <div style={{ color:'#666', marginBottom:8 }}>Capacity: {playerInfo.usedSlots}/{playerInfo.capacity}</div>
+                <div className="muted" style={{ marginBottom:8 }}>Capacity: {playerInfo.usedSlots}/{playerInfo.capacity}</div>
                 {Object.keys(playerInfo.inventory).length === 0 ? (
                   <div>Empty</div>
                 ) : (
@@ -733,8 +733,8 @@ export function App() {
             <div key={t.id}
                  style={{
                    position:'absolute', top:0, right:0,
-                   background:'#111827', color:'#f9fafb', padding:'8px 12px', borderRadius:8,
-                   boxShadow:'0 6px 16px rgba(0,0,0,0.2)',
+                   background:'linear-gradient(180deg, rgba(167,139,250,0.2), rgba(34,211,238,0.2))', color:'var(--text)', padding:'8px 12px', borderRadius:8,
+                   border:'1px solid var(--border)', boxShadow:'0 6px 16px rgba(0,0,0,0.35), 0 0 24px rgba(167,139,250,0.25)',
                    animation: 'slideDownFade 2.2s ease-out forwards',
                    fontSize: 13, maxWidth: '100%', zIndex: 1000 + i,
                  }}>
@@ -743,14 +743,16 @@ export function App() {
           ))}
         </div>
       </div>
-  <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
+  <div className="ticker">
+    <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
+  </div>
   {activeTab==='game' ? (
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gap: 16, padding: 16, overflowX:'hidden' }}>
       {/* Map column (first) */}
-      <div>
-        <h3>{mapTitle}</h3>
-  <div ref={planetsContainerRef} style={{ position:'relative', height: 380, overflow:'hidden' }}>
-        <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
+  <div>
+    <h3 className="glow">{mapTitle}</h3>
+  <div ref={planetsContainerRef} className="panel" style={{ position:'relative', height: 380, overflow:'hidden' }}>
+  <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
             const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
             const center = planetPos[p]
@@ -760,7 +762,7 @@ export function App() {
             const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
             const isHere = p === r.you.currentPlanet
             return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border: isHere ? '2px solid #3b82f6' : '1px solid #e5e7eb', borderRadius:8, background:'#fff' }}>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', alignItems:'center', gap:8, padding:8, border: isHere ? '2px solid var(--accent2)' : '1px solid var(--border)', borderRadius:8, background:'var(--panelElevated)' }}>
                 <button
                   disabled={p===r.you.currentPlanet || !canReach}
                   onClick={()=>selectPlanet(p)}
@@ -832,11 +834,11 @@ export function App() {
         </div>
       </div>
   <div>
-        <h3>Market — {visible.name || r.you.currentPlanet}</h3>
-        <div style={{ overflowX:'auto' }}>
+        <h3 className="glow">Market — {visible.name || r.you.currentPlanet}</h3>
+        <div className="panel" style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
             <thead>
-              <tr style={{ textAlign:'left', borderBottom:'1px solid #e5e7eb' }}>
+              <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
                 <th style={{ padding:'6px 8px' }}>Good</th>
                 <th style={{ padding:'6px 8px' }}>Available</th>
                 <th style={{ padding:'6px 8px' }}>Price</th>
@@ -859,27 +861,27 @@ export function App() {
                 const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
                 const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
                   ? (price > youPaid
-                      ? { background:'#10b98122', color:'#065f46', border:'1px solid #10b98155' }
+                      ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
                       : price < youPaid
-                        ? { background:'#ef444422', color:'#7f1d1d', border:'1px solid #ef444455' }
-                        : { background:'#f3f4f6', color:'#111', border:'1px solid #e5e7eb' })
+                        ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                        : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
                   : undefined
                 const disabledTrade = inTransit
         const rangeText = range ? `${range[0]}–${range[1]}` : '—'
         const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
                 return (
-                  <tr key={g} style={{ borderBottom:'1px solid #f3f4f6' }}>
+      <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
                     <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
                     <td style={{ padding:'6px 8px' }}>{available}</td>
                     <td style={{ padding:'6px 8px' }}>${price}</td>
-          <td style={{ padding:'6px 8px', color:'#666' }}>{rangeText}</td>
-          <td style={{ padding:'6px 8px', color:'#666' }}>{pctText}</td>
+    <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
+    <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
                     <td style={{ padding:'6px 8px' }}>
                       {owned}
-                      {owned>0 && typeof youPaid === 'number' ? <span style={{ color:'#666', marginLeft:6 }}>(avg ${youPaid})</span> : null}
+          {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
                     </td>
                     <td style={{ padding:'6px 8px' }}>
-                      <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+          <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
                         onChange={e=>{
                           const v = Number(e.target.value)
                           const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
@@ -901,7 +903,7 @@ export function App() {
     </div>
   ) : (
     <div style={{ padding:16 }}>
-      <h3>Wealth Over Time</h3>
+      <h3 className="glow">Wealth Over Time</h3>
       <WealthCharts history={wealthHistory} />
     </div>
   )}
