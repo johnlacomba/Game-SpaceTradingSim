@@ -124,6 +124,9 @@ export function App() {
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [playersOpen, setPlayersOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
+  // Local floating notifications (e.g., Dock Tax)
+  const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
+  const lastDockHandled = useRef<string | null>(null)
 
   // Tick local time for countdown
   useEffect(() => {
@@ -143,6 +146,32 @@ export function App() {
       setStage('room')
     }
   }, [messages])
+
+  // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
+  useEffect(() => {
+    if (!room) return
+    const modal: any = (room.you as any)?.modal
+    if (!modal || !modal.id) return
+    const title = (modal as any).title
+    if (title === 'Dock Tax') {
+      if (lastDockHandled.current !== modal.id) {
+        lastDockHandled.current = modal.id
+        setToasts(ts => [...ts, { id: modal.id, text: modal.body || 'Docking fee charged.', at: Date.now() }])
+        // Immediately ack so it doesn't block queue
+        send('ackModal', { id: modal.id })
+      }
+    }
+  }, [room?.you && (room.you as any).modal?.id])
+
+  // Auto-remove toasts after ~2.5s
+  useEffect(() => {
+    if (toasts.length === 0) return
+    const t = setInterval(() => {
+      const now = Date.now()
+      setToasts(ts => ts.filter(x => now - x.at < 2500))
+    }, 500)
+    return () => clearInterval(t)
+  }, [toasts.length])
 
   // Close Players menu on outside click
   useEffect(() => {
@@ -367,7 +396,7 @@ export function App() {
   return (
     <div style={{ fontFamily: 'system-ui' }}>
   {/* News ticker below header (blue-hued) */}
-      {r.you.modal && r.you.modal.id && (
+  {r.you.modal && r.you.modal.id && (r.you as any).modal?.title !== 'Dock Tax' && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.45)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
           <div style={{ background:'#fff', padding:16, borderRadius:8, width:360, boxShadow:'0 10px 30px rgba(0,0,0,0.2)' }}>
             <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
@@ -385,7 +414,7 @@ export function App() {
           </div>
         </div>
       )}
-      <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb' }}>
+  <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid #e5e7eb', position:'relative' }}>
   <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
           <strong>{r.room.name}</strong>
           <span style={{ color:'#666' }}>Turn: {r.room.turn}</span>
@@ -459,6 +488,29 @@ export function App() {
           {r.room.started && (
             <button onClick={exitRoom}>Exit</button>
           )}
+        </div>
+        {/* Floating toasts under money (top-right). No impact on news ticker */}
+        <style>
+          {`
+            @keyframes slideDownFade {
+              0% { opacity: 1; transform: translateY(0); }
+              100% { opacity: 0; transform: translateY(20vh); }
+            }
+          `}
+        </style>
+        <div aria-live="polite" style={{ position:'absolute', top: 42, right: 16, pointerEvents:'none', width: 280, height: 0 }}>
+          {toasts.map((t, i) => (
+            <div key={t.id}
+                 style={{
+                   position:'absolute', top:0, right:0,
+                   background:'#111827', color:'#f9fafb', padding:'8px 12px', borderRadius:8,
+                   boxShadow:'0 6px 16px rgba(0,0,0,0.2)',
+                   animation: 'slideDownFade 2.2s ease-out forwards',
+                   fontSize: 13, maxWidth: '100%', zIndex: 1000 + i,
+                 }}>
+              {t.text}
+            </div>
+          ))}
         </div>
       </div>
   <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
