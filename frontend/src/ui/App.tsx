@@ -621,7 +621,7 @@ export function App() {
             const disabledTrade = inTransit
             return (
               <li key={g} style={{ marginBottom: 8, padding: 8, borderRadius: 6, border: owned>0 ? '2px solid #3b82f6' : undefined }}>
-                <b>{g}</b>: {available} @ ${price} {range ? <span style={{ color:'#666' }}> (${range[0]}–${range[1]})</span> : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
+                <b>{g}</b>: {available} @ ${price} {range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return <span style={{ color:'#666' }}> (${range[0]}–${range[1]} · {pct}%)</span> })() : null} {owned>0 && youPaid ? <span style={{color:'#666'}}>(you paid ${youPaid})</span> : null}
                 <div style={{ display:'flex', gap: 6, alignItems:'center' }}>
           <input style={{ width: 64 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
                     onChange={e=>{
