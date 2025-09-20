@@ -701,11 +701,13 @@ export function App() {
                 <div style={{ marginTop:12 }}>
                   <div style={{ fontWeight:700, marginBottom:6 }}>Recent Actions</div>
                   {playerInfo.history && playerInfo.history.length>0 ? (
-                    <ul style={{ listStyle:'none', padding:0, margin:0, fontSize:13, color:'#374151' }}>
-                      {playerInfo.history.slice(-10).reverse().map((h, idx) => (
-                        <li key={idx} style={{ padding:'2px 0' }}>Turn {h.turn}: {h.text}</li>
-                      ))}
-                    </ul>
+          <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid #e5e7eb', borderRadius:6, padding:'6px 8px' }}>
+                      <ul style={{ listStyle:'none', padding:0, margin:0, fontSize:13, color:'#374151' }}>
+            {playerInfo.history.slice(-100).reverse().map((h, idx) => (
+                          <li key={idx} style={{ padding:'2px 0' }}>Turn {h.turn}: {h.text}</li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : (
                     <div style={{ color:'#6b7280' }}>No recent actions.</div>
                   )}

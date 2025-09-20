@@ -72,8 +72,8 @@ func (gs *GameServer) logAction(room *Room, p *Player, text string) {
 	}
 	entry := ActionLog{Turn: room.Turn, Text: text}
 	p.ActionHistory = append(p.ActionHistory, entry)
-	if len(p.ActionHistory) > 10 {
-		p.ActionHistory = p.ActionHistory[len(p.ActionHistory)-10:]
+	if len(p.ActionHistory) > 100 {
+		p.ActionHistory = p.ActionHistory[len(p.ActionHistory)-100:]
 	}
 }
 
