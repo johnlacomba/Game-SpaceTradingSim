@@ -108,6 +108,137 @@ function NewsTicker({ items }: { items: string[] }) {
   )
 }
 
+// Wealth charts: visualize player wealth over turns and recent shifts
+type WealthHistory = { roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }
+function WealthCharts({ history }: { history: WealthHistory }) {
+  const entries = Object.entries(history.series)
+  const allPoints = entries.flatMap(([, s]) => s.points)
+  if (entries.length === 0 || allPoints.length === 0) {
+    return <div>No data yet. Play a few turns to see graphs.</div>
+  }
+  let minTurn = Infinity, maxTurn = -Infinity, minMoney = Infinity, maxMoney = -Infinity
+  entries.forEach(([, s]) => {
+    s.points.forEach(p => {
+      if (p.turn < minTurn) minTurn = p.turn
+      if (p.turn > maxTurn) maxTurn = p.turn
+      if (p.money < minMoney) minMoney = p.money
+      if (p.money > maxMoney) maxMoney = p.money
+    })
+  })
+  if (!isFinite(minTurn) || !isFinite(maxTurn)) return <div>No data.</div>
+  if (minTurn === maxTurn) { maxTurn = minTurn + 1 }
+  if (!isFinite(minMoney) || !isFinite(maxMoney)) return <div>No data.</div>
+  if (minMoney === maxMoney) { minMoney -= 1; maxMoney += 1 }
+  // add small paddings
+  const moneyPad = Math.max(1, Math.round((maxMoney - minMoney) * 0.08))
+  minMoney -= moneyPad; maxMoney += moneyPad
+  const vbW = 900, vbH = 300
+  const padL = 60, padR = 20, padT = 20, padB = 30
+  const plotW = vbW - padL - padR
+  const plotH = vbH - padT - padB
+  const xFor = (t: number) => padL + ((t - minTurn) / (maxTurn - minTurn)) * plotW
+  const yFor = (m: number) => padT + (1 - (m - minMoney) / (maxMoney - minMoney)) * plotH
+
+  // Compute last-turn deltas per player
+  type DeltaRow = { id: string; name: string; color: string; delta: number }
+  const lastDeltas: DeltaRow[] = entries.map(([id, s]) => {
+    const pts = s.points
+    const n = pts.length
+    const delta = n >= 2 ? (pts[n-1].money - pts[n-2].money) : 0
+    return { id, name: s.name, color: s.color, delta }
+  })
+  const maxAbsDelta = Math.max(1, ...lastDeltas.map(d => Math.abs(d.delta)))
+
+  // Recent swings (last up to 5 intervals): list top 3 by max abs delta
+  const swings = entries.map(([id, s]) => {
+    const pts = s.points
+    const n = pts.length
+    let maxAbs = 0
+    let last = 0
+    for (let i = Math.max(1, n-5); i < n; i++) {
+      const d = pts[i].money - pts[i-1].money
+      if (Math.abs(d) > maxAbs) maxAbs = Math.abs(d)
+      if (i === n-1) last = d
+    }
+    return { id, name: s.name, color: s.color, maxAbs, last }
+  }).sort((a,b)=> b.maxAbs - a.maxAbs).slice(0,3)
+
+  return (
+    <div>
+      {/* Legend */}
+      <div style={{ display:'flex', flexWrap:'wrap', gap:12, marginBottom:8 }}>
+        {entries.map(([id, s]) => (
+          <span key={id} style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+            <span style={{ width:10, height:10, borderRadius:5, background:s.color, boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
+            <span>{s.name}</span>
+          </span>
+        ))}
+      </div>
+      {/* Line chart */}
+      <svg viewBox={`0 0 ${vbW} ${vbH}`} style={{ width:'100%', maxWidth:900, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8 }}>
+        {/* Axes */}
+        <rect x={padL} y={padT} width={plotW} height={plotH} fill="#fafafa" stroke="#e5e7eb" />
+        {/* Y ticks */}
+        {Array.from({ length:4 }).map((_,i)=>{
+          const yVal = minMoney + ((i+1)/5)*(maxMoney - minMoney)
+          const y = yFor(yVal)
+          return <g key={i}>
+            <line x1={padL} y1={y} x2={padL+plotW} y2={y} stroke="#f3f4f6" />
+            <text x={padL-6} y={y+4} textAnchor="end" fontSize={11} fill="#6b7280">${Math.round(yVal)}</text>
+          </g>
+        })}
+        {/* Lines */}
+        {entries.map(([id, s]) => {
+          const pts = [...s.points].sort((a,b)=>a.turn-b.turn)
+          const d = pts.map((p, idx) => `${idx===0?'M':'L'} ${xFor(p.turn).toFixed(1)} ${yFor(p.money).toFixed(1)}`).join(' ')
+          return <path key={id} d={d} fill="none" stroke={s.color} strokeWidth={2} opacity={0.95} />
+        })}
+      </svg>
+
+      {/* Last turn deltas bar chart (centered baseline) */}
+      <h4 style={{ marginTop:16 }}>Last Turn Change</h4>
+      <svg viewBox="0 0 900 220" style={{ width:'100%', maxWidth:900, background:'#fff', border:'1px solid #e5e7eb', borderRadius:8 }}>
+        {(() => {
+          const W = 900, H = 220
+          const pad = 20
+          const zeroY = H/2
+          const barW = Math.max(20, Math.min(60, (W - pad*2) / Math.max(1, lastDeltas.length) * 0.6))
+          const step = (W - pad*2) / Math.max(1, lastDeltas.length)
+          return (
+            <g>
+              <line x1={pad} y1={zeroY} x2={W-pad} y2={zeroY} stroke="#e5e7eb" />
+              {lastDeltas.map((d, i) => {
+                const cx = pad + step * (i + 0.5)
+                const h = Math.round(Math.abs(d.delta) / maxAbsDelta * (H/2 - pad))
+                const y = d.delta >= 0 ? zeroY - h : zeroY
+                return (
+                  <g key={d.id}>
+                    <rect x={cx - barW/2} y={y} width={barW} height={Math.max(1, h)} fill={d.color} opacity={0.8} />
+                    <text x={cx} y={d.delta>=0 ? y - 6 : y + h + 14} textAnchor="middle" fontSize={11} fill="#374151">{d.delta>=0? '+':''}{d.delta}</text>
+                    <text x={cx} y={H-6} textAnchor="middle" fontSize={11} fill="#6b7280">{history.series[d.id]?.name || d.id}</text>
+                  </g>
+                )
+              })}
+            </g>
+          )
+        })()}
+      </svg>
+      {/* Recent biggest swings (last 5 turns) */}
+      <div style={{ marginTop:12 }}>
+        <strong>Recent biggest swings (last 5 turns):</strong>
+        <ul style={{ margin:'6px 0 0 18px' }}>
+          {swings.map(s => (
+            <li key={s.id} style={{ color:'#374151' }}>
+              <span style={{ display:'inline-block', width:10, height:10, borderRadius:5, background:s.color, marginRight:6, boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
+              {s.name}: max ±{s.maxAbs} (last {s.last>=0?'+':''}{s.last})
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
@@ -126,6 +257,10 @@ export function App() {
   const [playersOpen, setPlayersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
+  // Tabs: game | graphs
+  const [activeTab, setActiveTab] = useState<'game'|'graphs'>('game')
+  // Wealth history per room: per-player series of {turn, money}
+  const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
@@ -174,6 +309,43 @@ export function App() {
     }, 500)
     return () => clearInterval(t)
   }, [toasts.length])
+
+  // Track wealth history per turn (numeric money only); reset on room change
+  useEffect(() => {
+    if (!room) return
+    const currRoomId = (room.room as any)?.id
+    const turn = (room.room as any)?.turn
+    if (currRoomId == null || typeof turn !== 'number') return
+    setWealthHistory(prev => {
+      let next = prev
+      if (prev.roomId !== currRoomId) {
+        next = { roomId: currRoomId, series: {} }
+      } else {
+        // shallow clone for immutability
+        next = { roomId: prev.roomId, series: { ...prev.series } }
+      }
+      const playersArr: Array<{ id: string; name: string; money: any }> = (room.room as any)?.players || []
+      playersArr.forEach(pl => {
+        const num = typeof pl.money === 'number' ? pl.money : null
+        if (num == null) return
+        const key = String(pl.id)
+        const color = colorFor(key)
+        const entry = next.series[key] || { name: pl.name, color, points: [] }
+        // avoid duplicate for same turn
+        const last = entry.points[entry.points.length - 1]
+        if (!last || last.turn !== turn) {
+          entry.points = [...entry.points, { turn, money: num }]
+          // cap history length to last 200 points
+          if (entry.points.length > 200) entry.points = entry.points.slice(-200)
+        }
+        // update display name/color
+        entry.name = pl.name
+        entry.color = color
+        next.series[key] = entry
+      })
+      return next
+    })
+  }, [room?.room?.id, room?.room?.turn, room?.room?.players])
 
   // Close Players menu on outside click
   useEffect(() => {
@@ -439,6 +611,11 @@ export function App() {
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
           )}
+          {/* Tabs */}
+          <div style={{ marginLeft:8, display:'inline-flex', border:'1px solid #e5e7eb', borderRadius:8, overflow:'hidden' }}>
+            <button onClick={()=>setActiveTab('game')} style={{ padding:'4px 8px', background: activeTab==='game' ? '#f3f4f6' : '#fff', border:'none' }}>Game</button>
+            <button onClick={()=>setActiveTab('graphs')} style={{ padding:'4px 8px', background: activeTab==='graphs' ? '#f3f4f6' : '#fff', borderLeft:'1px solid #e5e7eb', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Graphs</button>
+          </div>
           <div ref={playersMenuRef} style={{ position:'relative' }}>
             <button onClick={() => setPlayersOpen(v=>!v)} aria-expanded={playersOpen} aria-haspopup="menu">Players ▾</button>
             {playersOpen && (
@@ -553,7 +730,8 @@ export function App() {
         </div>
       </div>
   <NewsTicker items={(r.room.news && r.room.news.length>0) ? r.room.news.map(n=>n.headline) : []} />
-  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gap: 16, padding: 16, overflowX:'hidden' }}>
+  {activeTab==='game' ? (
+    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 3fr)', gap: 16, padding: 16, overflowX:'hidden' }}>
       {/* Map column (first) */}
       <div>
         <h3>{mapTitle}</h3>
@@ -638,7 +816,7 @@ export function App() {
         </svg>
         </div>
       </div>
-      <div>
+  <div>
         <h3>Market — {visible.name || r.you.currentPlanet}</h3>
         <div style={{ overflowX:'auto' }}>
           <table style={{ width:'100%', borderCollapse:'collapse' }}>
@@ -701,8 +879,14 @@ export function App() {
           </table>
         </div>
       </div>
-  {/* Ship Inventory moved to header dropdown */}
-      </div>
+      {/* Ship Inventory moved to header dropdown */}
+    </div>
+  ) : (
+    <div style={{ padding:16 }}>
+      <h3>Wealth Over Time</h3>
+      <WealthCharts history={wealthHistory} />
+    </div>
+  )}
     </div>
   )
 }
