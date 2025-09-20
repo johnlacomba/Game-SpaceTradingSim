@@ -226,9 +226,9 @@ function WealthCharts({ history }: { history: WealthHistory }) {
       {/* Recent biggest swings (last 5 turns) */}
       <div style={{ marginTop:12 }}>
         <strong>Recent biggest swings (last 5 turns):</strong>
-        <ul style={{ margin:'6px 0 0 18px' }}>
+        <ul style={{ margin:'6px 0 0 18px', color:'var(--text)' }}>
           {swings.map(s => (
-            <li key={s.id} style={{ color:'#374151' }}>
+            <li key={s.id}>
               <span style={{ display:'inline-block', width:10, height:10, borderRadius:5, background:s.color, marginRight:6, boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
               {s.name}: max ±{s.maxAbs} (last {s.last>=0?'+':''}{s.last})
             </li>
@@ -483,6 +483,39 @@ export function App() {
     return () => window.removeEventListener('resize', onResize)
   }, [room?.room.planets, stage])
 
+  // Generate a starfield background as a data-URL SVG sized to the map container
+  const starfieldUrl = useMemo(() => {
+    const w = Math.max(1, Math.floor(containerSize.width || 800))
+    const h = Math.max(1, Math.floor(containerSize.height || 380))
+    const count = Math.round((w * h) / 5000) // a bit denser for visibility
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return ''
+    // black base
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, w, h)
+    const colors = [
+      'rgba(255,255,255,0.95)',
+      'rgba(255,255,255,0.8)',
+      'rgba(190,210,255,0.9)',
+      'rgba(210,190,255,0.9)'
+    ]
+    for (let i = 0; i < count; i++) {
+      const x = Math.floor(Math.random() * w)
+      const y = Math.floor(Math.random() * h)
+      ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)]
+      // draw a 1px star, some slightly brighter (2px)
+      if (Math.random() < 0.15) {
+        ctx.fillRect(x, y, 2, 2)
+      } else {
+        ctx.fillRect(x, y, 1, 1)
+      }
+    }
+    return canvas.toDataURL('image/png')
+  }, [containerSize.width, containerSize.height])
+
   const colorFor = (id: string) => {
     let h = 0
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
@@ -699,9 +732,9 @@ export function App() {
                 )}
                 <div style={{ marginTop:12 }}>
                   <div style={{ fontWeight:700, marginBottom:6 }}>Recent Actions</div>
-                  {playerInfo.history && playerInfo.history.length>0 ? (
-          <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid #e5e7eb', borderRadius:6, padding:'6px 8px' }}>
-                      <ul style={{ listStyle:'none', padding:0, margin:0, fontSize:13, color:'#374151' }}>
+      {playerInfo.history && playerInfo.history.length>0 ? (
+    <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--border)', borderRadius:6, padding:'6px 8px' }}>
+          <ul style={{ listStyle:'none', padding:0, margin:0, fontSize:13, color:'var(--text)' }}>
             {playerInfo.history.slice(-100).reverse().map((h, idx) => (
                           <li key={idx} style={{ padding:'2px 0' }}>Turn {h.turn}: {h.text}</li>
                         ))}
@@ -750,7 +783,7 @@ export function App() {
       {/* Map column (first) */}
   <div>
     <h3 className="glow">{mapTitle}</h3>
-  <div ref={planetsContainerRef} className="panel" style={{ position:'relative', height: 380, overflow:'hidden' }}>
+  <div ref={planetsContainerRef} className="panel" style={{ position:'relative', height: 380, overflow:'hidden', backgroundColor:'#000', backgroundImage: `url(${starfieldUrl})`, backgroundSize:'cover', backgroundPosition:'center', backgroundRepeat:'no-repeat' }}>
   <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
           {r.room.planets.map(p => {
             const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
@@ -761,11 +794,11 @@ export function App() {
             const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
             const isHere = p === r.you.currentPlanet
             return (
-              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid var(--accent2)' : '1px solid var(--border)', borderRadius:8, background:'var(--panelElevated)' }}>
+              <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid transparent' : '1px solid transparent', borderRadius:8, background:'transparent' }}>
                 <button
                   disabled={p===r.you.currentPlanet || !canReach}
                   onClick={()=>selectPlanet(p)}
-                  style={{ textAlign:'center' }}
+                  style={{ textAlign:'center', background:'var(--panelElevated)', border:'1px solid var(--border)' }}
                   title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                 >
                   {p}
