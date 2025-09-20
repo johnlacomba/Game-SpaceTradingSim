@@ -635,10 +635,9 @@ export function App() {
             )}
           </div>
           <div ref={inventoryMenuRef} style={{ position:'relative' }}>
-            <button onClick={() => setInventoryOpen(v=>!v)} aria-expanded={inventoryOpen} aria-haspopup="menu">Ship Inventory ▾</button>
+            <button onClick={() => setInventoryOpen(v=>!v)} aria-expanded={inventoryOpen} aria-haspopup="menu">Ship Inventory [{usedSlots}/{capacity}] ▾</button>
             {inventoryOpen && (
               <div className="panel" style={{ position:'absolute', top:'100%', left:0, marginTop:6, padding:12, zIndex:1000, minWidth:300, maxHeight:360, overflow:'auto' }}>
-                <div className="muted" style={{ marginBottom:8 }}>Capacity: {usedSlots}/{capacity}</div>
                 {Object.keys(r.you.inventory).length === 0 ? (
                   <div>Empty</div>
                 ) : (
