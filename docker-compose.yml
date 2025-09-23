@@ -22,11 +22,11 @@ services:
       - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID:-test123456789abcdef}
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "sh", "-c", "wget --quiet --tries=1 --spider http://localhost:8080/health || exit 1"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=5", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 30s
+      retries: 3
+      start_period: 40s
     networks:
       - app-network
     deploy:
