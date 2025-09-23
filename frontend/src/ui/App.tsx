@@ -2706,14 +2706,35 @@ export function App() {
     
     {/* Login Modal */}
     {showLogin && (
-      <div>
-        <div style={{ position: 'fixed', top: 0, left: 0, background: 'red', color: 'white', zIndex: 9999, padding: '10px' }}>
-          DEBUG: LoginForm should be visible
+      <div style={{ 
+        position: 'fixed', 
+        top: 0, 
+        left: 0, 
+        right: 0, 
+        bottom: 0, 
+        backgroundColor: 'rgba(0,0,0,0.8)', 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        zIndex: 10000
+      }}>
+        <div style={{ 
+          backgroundColor: '#1a1a2e', 
+          padding: '2rem', 
+          borderRadius: '8px', 
+          border: '1px solid #16213e',
+          minWidth: '400px',
+          color: '#eee'
+        }}>
+          <h2>Simple Test Modal</h2>
+          <p>If you can see this, modal rendering works!</p>
+          <button onClick={() => {
+            console.log('Closing test modal');
+            setShowLogin(false);
+          }}>
+            Close
+          </button>
         </div>
-        <LoginForm onClose={() => {
-          console.log('Closing login modal');
-          setShowLogin(false);
-        }} />
       </div>
     )}
     </div>
