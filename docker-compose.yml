@@ -8,17 +8,17 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8443:8443"
-      - "8080:8080"  # Add HTTP port for fallback
+      - "8080:8080"
     volumes:
       - backend_data:/app/data
-      - ssl_certs:/app/certs:ro  # Mount SSL certificates to where backend expects them
+      - ssl_certs:/app/certs:ro
     environment:
       - GIN_MODE=release
       - HTTPS_PORT=8443
-      - TLS_ONLY=false  # Allow HTTP fallback during troubleshooting
+      - TLS_ONLY=false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/rooms"]  # Use HTTP health check
+      test: ["CMD", "wget", "--no-check-certificate", "--spider", "-q", "https://localhost:8443/rooms"]
       interval: 30s
       timeout: 5s
       retries: 3
