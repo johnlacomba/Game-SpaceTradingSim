@@ -41,53 +41,21 @@ type LobbyState = { rooms: LobbyRoom[] }
 type WSOut = { type: string; payload?: any }
 
 function useWS(url: string | null) {
+  // WebSocket and connection management refs/state
   const wsRef = useRef<WebSocket | null>(null)
-  const [ready, setReady] = useState(false)
-  const [messages, setMessages] = useState<WSOut[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected')
-  
-  // Reconnection state
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const reconnectAttemptsRef = useRef(0)
-  const maxReconnectAttempts = 10
-  const baseReconnectDelay = 1000 // Start with 1 second
-  const maxReconnectDelay = 30000 // Max 30 seconds
-  const shouldReconnectRef = useRef(true)
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const heartbeatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const shouldReconnectRef = useRef<boolean>(true)
+  const reconnectAttemptsRef = useRef<number>(0)
   const lastMessageTimeRef = useRef<number>(0)
-  
-  // Heartbeat/ping mechanism
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
-  const calculateReconnectDelay = () => {
-    const delay = Math.min(
-      baseReconnectDelay * Math.pow(2, reconnectAttemptsRef.current),
-      maxReconnectDelay
-    )
-    // Add some jitter to prevent thundering herd
-    return delay + Math.random() * 1000
-  }
-  
-  const startHeartbeat = () => {
-    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current)
-    
-    heartbeatIntervalRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        // Send ping and expect pong within 10 seconds
-        wsRef.current.send(JSON.stringify({ type: 'ping' }))
-        
-        if (heartbeatTimeoutRef.current) clearTimeout(heartbeatTimeoutRef.current)
-        heartbeatTimeoutRef.current = setTimeout(() => {
-          console.log('Heartbeat timeout - connection appears dead, reconnecting...')
-          if (wsRef.current) {
-            wsRef.current.close()
-          }
-        }, 10000)
-      }
-    }, 30000) // Send ping every 30 seconds
-  }
-  
+  const maxReconnectAttempts = 10
+
+  const [ready, setReady] = useState(false)
+  const [messages, setMessages] = useState<any[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [connectionState, setConnectionState] = useState<'connecting'|'connected'|'reconnecting'|'disconnected'>('disconnected')
+
   const stopHeartbeat = () => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current)
@@ -97,6 +65,30 @@ function useWS(url: string | null) {
       clearTimeout(heartbeatTimeoutRef.current)
       heartbeatTimeoutRef.current = null
     }
+  }
+
+  const startHeartbeat = () => {
+    // Send a ping every 20s; if no pong within 10s, trigger reconnect
+    stopHeartbeat()
+  heartbeatIntervalRef.current = setInterval(() => {
+      try {
+        wsRef.current?.send(JSON.stringify({ type: 'ping' }))
+  heartbeatTimeoutRef.current = setTimeout(() => {
+          // If no pong resets the timeout, consider the connection dead
+          try { wsRef.current?.close(4000, 'Heartbeat timeout') } catch {}
+        }, 10000)
+      } catch (e) {
+        // Ignore send errors; onerror/onclose will handle
+      }
+    }, 20000)
+  }
+
+  const calculateReconnectDelay = () => {
+    const base = 1000 // 1s
+    const max = 15000 // 15s
+    const expo = Math.min(max, base * Math.pow(2, reconnectAttemptsRef.current))
+    const jitter = Math.random() * 500
+    return expo + jitter
   }
   
   const connect = useCallback(() => {
@@ -1369,10 +1361,9 @@ export function App() {
                 
                 <button 
                   onClick={() => {
-                    console.log('Sign In button clicked!');
-                    console.log('Setting showLogin to true');
-                    setShowLogin(true);
-                    console.log('showLogin should now be true');
+                    console.log('Sign In button clicked! Redirecting to Hosted UI...');
+                    const url = `${window.location.protocol}//${window.location.host}/auth/start`;
+                    window.location.href = url;
                   }}
                   disabled={authLoading}
                   style={{ 
