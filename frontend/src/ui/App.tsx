@@ -1,5 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
+// Mobile detection hook
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false)
+  
+  useEffect(() => {
+    const checkMobile = () => {
+      const width = window.innerWidth
+      const userAgent = navigator.userAgent
+      const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i
+      const isMobileDevice = width <= 768 || mobileRegex.test(userAgent)
+      setIsMobile(isMobileDevice)
+    }
+    
+    checkMobile()
+    window.addEventListener('resize', checkMobile)
+    return () => window.removeEventListener('resize', checkMobile)
+  }, [])
+  
+  return isMobile
+}
+
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
 type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
@@ -271,6 +292,7 @@ function WealthCharts({ history }: { history: WealthHistory }) {
 }
 
 export function App() {
+  const isMobile = useIsMobile()
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
@@ -559,28 +581,79 @@ export function App() {
   // UI
   if (stage === 'title') {
     return (
-      <div style={{ padding: 24 }}>
-        <h1 className="glow">Space Trader</h1>
+      <div style={{ 
+        padding: isMobile ? 16 : 24,
+        maxWidth: isMobile ? '100vw' : 'none',
+        boxSizing: 'border-box'
+      }}>
+        <h1 className="glow" style={{ 
+          fontSize: isMobile ? '2rem' : '2.5rem',
+          textAlign: 'center'
+        }}>Space Trader</h1>
         
         {import.meta.env.VITE_DEV_MODE === 'true' && (
-          <div style={{ marginBottom: 16, padding: 12, backgroundColor: '#4444ff', color: 'white', borderRadius: 4, fontSize: '0.9em' }}>
+          <div style={{ 
+            marginBottom: 16, 
+            padding: isMobile ? 8 : 12, 
+            backgroundColor: '#4444ff', 
+            color: 'white', 
+            borderRadius: 4, 
+            fontSize: isMobile ? '0.8em' : '0.9em'
+          }}>
             <strong>Development Mode:</strong> If you see certificate warnings, you may need to:
             <br />• Visit <a href="https://localhost:8443/rooms" target="_blank" style={{ color: '#ccddff' }}>https://localhost:8443/rooms</a> and accept the self-signed certificate
             <br />• Or run the servers with HTTP fallback for testing
           </div>
         )}
         
-        <input placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />
-        <button onClick={onConnect} style={{ marginLeft: 8 }}>Connect</button>
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: isMobile ? 12 : 8,
+          alignItems: isMobile ? 'stretch' : 'center'
+        }}>
+          <input 
+            placeholder="Your name" 
+            value={name} 
+            onChange={e=>setName(e.target.value)}
+            style={{
+              padding: isMobile ? '12px' : '8px',
+              fontSize: isMobile ? '16px' : '14px',
+              flex: 1
+            }}
+          />
+          <button 
+            onClick={onConnect} 
+            style={{ 
+              padding: isMobile ? '12px 20px' : '8px 16px',
+              fontSize: isMobile ? '16px' : '14px',
+              minHeight: isMobile ? '48px' : 'auto'
+            }}
+          >
+            Connect
+          </button>
+        </div>
         
         {error && (
-          <div style={{ marginTop: 16, padding: 12, backgroundColor: '#ff4444', color: 'white', borderRadius: 4 }}>
+          <div style={{ 
+            marginTop: 16, 
+            padding: isMobile ? 8 : 12, 
+            backgroundColor: '#ff4444', 
+            color: 'white', 
+            borderRadius: 4,
+            fontSize: isMobile ? '0.8em' : '1em'
+          }}>
             <strong>Connection Error:</strong> {error}
           </div>
         )}
         
         {url && (
-          <div style={{ marginTop: 8, fontSize: '0.8em', color: '#666' }}>
+          <div style={{ 
+            marginTop: 8, 
+            fontSize: isMobile ? '0.7em' : '0.8em', 
+            color: '#666',
+            wordBreak: 'break-all'
+          }}>
             Connecting to: {url}
           </div>
         )}
@@ -590,14 +663,47 @@ export function App() {
 
   if (stage === 'lobby') {
     return (
-      <div style={{ padding: 24 }}>
-        <h2 className="glow">Lobby</h2>
-        <button onClick={createRoom}>Create Game</button>
-        <h3 style={{ marginTop: 16 }}>Active Rooms</h3>
-        <ul>
-      {lobby.rooms.map(r => (
-            <li key={r.id}>
-              <button onClick={() => joinRoom(r.id)}>
+      <div style={{ 
+        padding: isMobile ? 16 : 24,
+        maxWidth: isMobile ? '100vw' : 'none',
+        boxSizing: 'border-box'
+      }}>
+        <h2 className="glow" style={{ 
+          fontSize: isMobile ? '1.5rem' : '2rem',
+          textAlign: 'center'
+        }}>Lobby</h2>
+        <button 
+          onClick={createRoom}
+          style={{ 
+            padding: isMobile ? '12px 20px' : '8px 16px',
+            fontSize: isMobile ? '16px' : '14px',
+            minHeight: isMobile ? '48px' : 'auto',
+            width: isMobile ? '100%' : 'auto'
+          }}
+        >
+          Create Game
+        </button>
+        <h3 style={{ 
+          marginTop: 16,
+          fontSize: isMobile ? '1.2rem' : '1.5rem'
+        }}>Active Rooms</h3>
+        <ul style={{ 
+          listStyle: 'none',
+          padding: 0,
+          margin: 0
+        }}>
+          {lobby.rooms.map(r => (
+            <li key={r.id} style={{ marginBottom: isMobile ? 12 : 8 }}>
+              <button 
+                onClick={() => joinRoom(r.id)}
+                style={{ 
+                  padding: isMobile ? '12px 16px' : '8px 12px',
+                  fontSize: isMobile ? '16px' : '14px',
+                  minHeight: isMobile ? '48px' : 'auto',
+                  width: isMobile ? '100%' : 'auto',
+                  textAlign: 'left'
+                }}
+              >
                 {r.name} — {r.playerCount} players {r.started ? `(Started · Turn ${r.turn ?? 0})` : ''}
               </button>
             </li>
@@ -673,69 +779,247 @@ export function App() {
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
   {/* News ticker below header (blue-hued) */}
   {r.you.modal && r.you.modal.id && (r.you as any).modal?.title !== 'Dock Tax' && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000 }}>
-          <div className="panel" style={{ padding:16, width:360 }}>
-            <div style={{ fontWeight:700, marginBottom:8 }}>{r.you.modal.title}</div>
-            <div style={{ whiteSpace:'pre-wrap', marginBottom:12 }}>{r.you.modal.body}</div>
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding: isMobile ? 16 : 0 }}>
+          <div className="panel" style={{ 
+            padding: isMobile ? 20 : 16, 
+            width: isMobile ? '100%' : 360, 
+            maxWidth: isMobile ? '90vw' : 'none',
+            maxHeight: isMobile ? '80vh' : 'none',
+            overflow: isMobile ? 'auto' : 'visible'
+          }}>
+            <div style={{ 
+              fontWeight: 700, 
+              marginBottom: isMobile ? 12 : 8,
+              fontSize: isMobile ? 18 : 'inherit'
+            }}>{r.you.modal.title}</div>
+            <div style={{ 
+              whiteSpace: 'pre-wrap', 
+              marginBottom: isMobile ? 16 : 12,
+              fontSize: isMobile ? 16 : 'inherit',
+              lineHeight: isMobile ? 1.5 : 'inherit'
+            }}>{r.you.modal.body}</div>
             { (r.you.modal as any).kind ? (
-              <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
-                <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}>Decline</button>
-                <button onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}>Accept</button>
+              <div style={{ display:'flex', justifyContent:'flex-end', gap: isMobile ? 12 : 8, flexDirection: isMobile ? 'column' : 'row' }}>
+                <button 
+                  onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 2 : 'unset'
+                  }}
+                >
+                  Decline
+                </button>
+                <button 
+                  onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 1 : 'unset'
+                  }}
+                >
+                  Accept
+                </button>
               </div>
             ) : (
               <div style={{ display:'flex', justifyContent:'flex-end' }}>
-                <button onClick={()=>ackModal(r.you.modal?.id)}>OK</button>
+                <button 
+                  onClick={()=>ackModal(r.you.modal?.id)}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto'
+                  }}
+                >
+                  OK
+                </button>
               </div>
             )}
           </div>
         </div>
       )}
-  <div style={{ display:'flex', alignItems:'center', gap:12, justifyContent:'space-between', padding:'10px 16px', borderBottom:'1px solid var(--border)', position:'relative' }}>
-  <div style={{ display:'flex', gap:12, alignItems:'center', position:'relative' }}>
-          <strong className="glow">{r.room.name}</strong>
-          <span className="muted">Turn: {r.room.turn}</span>
+  <div style={{ 
+    display: 'flex', 
+    alignItems: 'center', 
+    gap: isMobile ? 8 : 12, 
+    justifyContent: 'space-between', 
+    padding: isMobile ? '8px 12px' : '10px 16px', 
+    borderBottom: '1px solid var(--border)', 
+    position: 'relative',
+    flexWrap: isMobile ? 'wrap' : 'nowrap'
+  }}>
+  <div style={{ 
+    display: 'flex', 
+    gap: isMobile ? 8 : 12, 
+    alignItems: 'center', 
+    position: 'relative',
+    flexWrap: isMobile ? 'wrap' : 'nowrap',
+    width: isMobile ? '100%' : 'auto'
+  }}>
+          <strong className="glow" style={{ fontSize: isMobile ? 16 : 'inherit' }}>{r.room.name}</strong>
+          <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>Turn: {r.room.turn}</span>
           {typeof r.room.turnEndsAt === 'number' && (
-            <span className="muted">
+            <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
           )}
           {/* Tabs */}
-          <div style={{ marginLeft:8, display:'inline-flex', border:'1px solid var(--border)', borderRadius:8, overflow:'hidden' }}>
-            <button onClick={()=>setActiveTab('map')} style={{ padding:'4px 8px', background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', border:'none' }}>Map</button>
-            <button onClick={()=>setActiveTab('market')} style={{ padding:'4px 8px', background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', borderLeft:'1px solid var(--border)', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Market</button>
-            <button onClick={()=>setActiveTab('graphs')} style={{ padding:'4px 8px', background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', borderLeft:'1px solid var(--border)', borderRight:'none', borderTop:'none', borderBottom:'none' }}>Graphs</button>
+          <div style={{ 
+            marginLeft: isMobile ? 0 : 8, 
+            display: 'inline-flex', 
+            border: '1px solid var(--border)', 
+            borderRadius: 8, 
+            overflow: 'hidden',
+            width: isMobile ? '100%' : 'auto',
+            order: isMobile ? 1 : 'unset'
+          }}>
+            <button onClick={()=>setActiveTab('map')} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              border: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? 16 : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Map</button>
+            <button onClick={()=>setActiveTab('market')} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? 16 : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Market</button>
+            <button onClick={()=>setActiveTab('graphs')} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? 16 : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Graphs</button>
           </div>
-          <div ref={playersMenuRef} style={{ position:'relative' }}>
-            <button onClick={() => setPlayersOpen(v=>!v)} aria-expanded={playersOpen} aria-haspopup="menu">Players ▾</button>
+          <div ref={playersMenuRef} style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setPlayersOpen(v=>!v)} 
+              aria-expanded={playersOpen} 
+              aria-haspopup="menu"
+              style={{
+                padding: isMobile ? '12px 16px' : '6px 12px',
+                fontSize: isMobile ? 16 : 'inherit',
+                minHeight: isMobile ? 48 : 'auto'
+              }}
+            >
+              Players ▾
+            </button>
             {playersOpen && (
-              <div className="panel" style={{ position:'absolute', top:'100%', left:0, marginTop:6, padding:8, zIndex:1000, minWidth:280 }}>
+              <div className="panel" style={{ 
+                position: 'absolute', 
+                top: '100%', 
+                left: isMobile ? -200 : 0, 
+                marginTop: 6, 
+                padding: 8, 
+                zIndex: 1000, 
+                minWidth: isMobile ? 320 : 280,
+                maxWidth: isMobile ? '90vw' : 'none'
+              }}>
                 <ul style={{ listStyle:'none', padding:0, margin:0 }}>
           {r.room.players.map((pl)=> (
-                    <li key={pl.id} style={{ display:'flex', alignItems:'center', gap:8, fontSize:12, lineHeight:1.2, padding:'6px 8px', borderRadius:6 }}>
-                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ width:8, height:8, borderRadius:4, background: pl.ready ? 'var(--good)' : 'var(--bad)' }} />
-                      <span style={{ width:10, height:10, borderRadius:5, background: colorFor(String(pl.id)), boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }} />
-            <button onClick={()=>requestPlayerInfo(pl.id)} style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textAlign:'left', background:'transparent', border:'none', padding:0, cursor:'pointer', color:'var(--accent2)' }} title="View inventory">{pl.name}</button>
-                      <span>${pl.money}</span>
-                      <span className="muted">@ {pl.currentPlanet}</span>
+                    <li key={pl.id} style={{ 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      gap: isMobile ? 12 : 8, 
+                      fontSize: isMobile ? 14 : 12, 
+                      lineHeight: 1.2, 
+                      padding: isMobile ? '10px 12px' : '6px 8px', 
+                      borderRadius: 6 
+                    }}>
+                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ 
+                        width: isMobile ? 10 : 8, 
+                        height: isMobile ? 10 : 8, 
+                        borderRadius: isMobile ? 5 : 4, 
+                        background: pl.ready ? 'var(--good)' : 'var(--bad)' 
+                      }} />
+                      <span style={{ 
+                        width: isMobile ? 12 : 10, 
+                        height: isMobile ? 12 : 10, 
+                        borderRadius: isMobile ? 6 : 5, 
+                        background: colorFor(String(pl.id)), 
+                        boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' 
+                      }} />
+            <button 
+              onClick={()=>requestPlayerInfo(pl.id)} 
+              style={{ 
+                flex: 1, 
+                overflow: 'hidden', 
+                textOverflow: 'ellipsis', 
+                whiteSpace: 'nowrap', 
+                textAlign: 'left', 
+                background: 'transparent', 
+                border: 'none', 
+                padding: isMobile ? '8px 0' : 0, 
+                cursor: 'pointer', 
+                color: 'var(--accent2)',
+                fontSize: isMobile ? 16 : 'inherit',
+                minHeight: isMobile ? 44 : 'auto'
+              }} 
+              title="View inventory"
+            >
+              {pl.name}
+            </button>
+                      <span style={{ fontSize: isMobile ? 14 : 'inherit' }}>${pl.money}</span>
+                      <span className="muted" style={{ fontSize: isMobile ? 12 : 'inherit' }}>@ {pl.currentPlanet}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
           </div>
-          <div ref={inventoryMenuRef} style={{ position:'relative' }}>
-            <button onClick={() => setInventoryOpen(v=>!v)} aria-expanded={inventoryOpen} aria-haspopup="menu">Ship Inventory [{usedSlots}/{capacity}] ▾</button>
+          <div ref={inventoryMenuRef} style={{ position: 'relative' }}>
+            <button 
+              onClick={() => setInventoryOpen(v=>!v)} 
+              aria-expanded={inventoryOpen} 
+              aria-haspopup="menu"
+              style={{
+                padding: isMobile ? '12px 16px' : '6px 12px',
+                fontSize: isMobile ? 16 : 'inherit',
+                minHeight: isMobile ? 48 : 'auto'
+              }}
+            >
+              Ship Inventory [{usedSlots}/{capacity}] ▾
+            </button>
             {inventoryOpen && (
-              <div className="panel" style={{ position:'absolute', top:'100%', left:0, marginTop:6, padding:12, zIndex:1000, minWidth:300, maxHeight:360, overflow:'auto' }}>
+              <div className="panel" style={{ 
+                position: 'absolute', 
+                top: '100%', 
+                left: isMobile ? -250 : 0, 
+                marginTop: 6, 
+                padding: 12, 
+                zIndex: 1000, 
+                minWidth: isMobile ? 320 : 300, 
+                maxHeight: isMobile ? '60vh' : 360, 
+                overflow: 'auto',
+                maxWidth: isMobile ? '90vw' : 'none'
+              }}>
                 {Object.keys(r.you.inventory).length === 0 ? (
-                  <div>Empty</div>
+                  <div style={{ fontSize: isMobile ? 16 : 'inherit' }}>Empty</div>
                 ) : (
                   <ul style={{ listStyle:'none', padding:0, margin:0 }}>
                     {Object.keys(r.you.inventory).sort().map(g => {
                       const qty = r.you.inventory[g]
                       const avg = r.you.inventoryAvgCost?.[g]
                       return (
-                        <li key={g} style={{ padding:'4px 0' }}>
+                        <li key={g} style={{ 
+                          padding: isMobile ? '8px 0' : '4px 0',
+                          fontSize: isMobile ? 16 : 'inherit'
+                        }}>
                           {g}: {qty}{typeof avg === 'number' ? ` (avg $${avg})` : ''}
                         </li>
                       )
@@ -746,33 +1030,132 @@ export function App() {
             )}
           </div>
         </div>
-    <div style={{ display:'flex', gap:12, alignItems:'center' }}>
+    <div style={{ 
+      display: 'flex', 
+      gap: isMobile ? 8 : 12, 
+      alignItems: 'center',
+      flexWrap: isMobile ? 'wrap' : 'nowrap'
+    }}>
           <button
       onClick={() => send('setReady', { ready: !Boolean(r.you.ready) })}
-      style={{ padding:'4px 10px', borderRadius:6, border:'1px solid var(--border)', background: r.you.ready ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', color: r.you.ready ? 'var(--good)' : 'var(--bad)' }}
+      style={{ 
+        padding: isMobile ? '12px 20px' : '4px 10px', 
+        borderRadius: 6, 
+        border: '1px solid var(--border)', 
+        background: r.you.ready ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', 
+        color: r.you.ready ? 'var(--good)' : 'var(--bad)',
+        fontSize: isMobile ? 16 : 'inherit',
+        fontWeight: isMobile ? 600 : 'normal',
+        minHeight: isMobile ? 48 : 'auto'
+      }}
             title={r.you.ready ? 'Ready' : 'Not Ready'}
           >
             Ready
           </button>
-          <span><strong>${r.you.money}</strong></span>
-          <div title="Ship fuel (price varies by planet)">
-            <span style={{ marginLeft: 8 }}>Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}</span>
-      <span className="muted" style={{ marginLeft: 8 }}>@ ${ fuelPrice }/unit</span>
-            <button onClick={() => refuel(0)} style={{ marginLeft: 6 }} disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100)) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}>Fill</button>
+          <span style={{ fontSize: isMobile ? 18 : 'inherit' }}><strong>${r.you.money}</strong></span>
+          <div title="Ship fuel (price varies by planet)" style={{ 
+            display: isMobile ? 'flex' : 'block',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 4 : 0,
+            alignItems: isMobile ? 'flex-start' : 'center'
+          }}>
+            <span style={{ 
+              marginLeft: isMobile ? 0 : 8,
+              fontSize: isMobile ? 14 : 'inherit'
+            }}>
+              Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}
+            </span>
+      <span className="muted" style={{ 
+        marginLeft: isMobile ? 0 : 8,
+        fontSize: isMobile ? 12 : 'inherit'
+      }}>@ ${ fuelPrice }/unit</span>
+            <button 
+              onClick={() => refuel(0)} 
+              style={{ 
+                marginLeft: isMobile ? 0 : 6,
+                marginTop: isMobile ? 4 : 0,
+                padding: isMobile ? '8px 16px' : '4px 8px',
+                fontSize: isMobile ? 14 : 'inherit',
+                minHeight: isMobile ? 40 : 'auto'
+              }} 
+              disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} 
+              title={inTransit ? 'Unavailable while in transit' : ((r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100)) ? 'Tank full' : ((r.you.money ?? 0) < fuelPrice ? 'Not enough credits' : 'Fill to max')}
+            >
+              Fill
+            </button>
           </div>
           {!r.room.started && (
-            <>
-              <button onClick={startGame} disabled={!r.room.allReady} title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}>Start Game</button>
-              <button onClick={addBot}>Add Bot</button>
-              <button onClick={exitRoom}>Exit</button>
-            </>
+            <div style={{ 
+              display: 'flex', 
+              gap: isMobile ? 12 : 8,
+              flexDirection: isMobile ? 'row' : 'row',
+              width: isMobile ? '100%' : 'auto',
+              order: isMobile ? 1 : 'unset'
+            }}>
+              <button 
+                onClick={startGame} 
+                disabled={!r.room.allReady} 
+                title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none'
+                }}
+              >
+                Start Game
+              </button>
+              <button 
+                onClick={addBot}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none'
+                }}
+              >
+                Add Bot
+              </button>
+              <button 
+                onClick={exitRoom}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none'
+                }}
+              >
+                Exit
+              </button>
+            </div>
           )}
           {playerInfo && (
-            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2100 }}>
-              <div className="panel" style={{ padding:16, width:380, maxHeight:'80vh', overflow:'auto' }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-                  <div style={{ fontWeight:700 }}>Ship Inventory — {playerInfo.name}</div>
-                  <button onClick={()=>setPlayerInfo(null)}>Close</button>
+            <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2100, padding: isMobile ? 16 : 0 }}>
+              <div className="panel" style={{ 
+                padding: isMobile ? 20 : 16, 
+                width: isMobile ? '100%' : 380, 
+                maxWidth: isMobile ? '90vw' : 'none',
+                maxHeight: isMobile ? '80vh' : '80vh', 
+                overflow: 'auto' 
+              }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: isMobile ? 12 : 8 }}>
+                  <div style={{ 
+                    fontWeight: 700,
+                    fontSize: isMobile ? 18 : 'inherit'
+                  }}>Ship Inventory — {playerInfo.name}</div>
+                  <button 
+                    onClick={()=>setPlayerInfo(null)}
+                    style={{
+                      padding: isMobile ? '8px 16px' : '4px 8px',
+                      fontSize: isMobile ? 16 : 'inherit',
+                      minHeight: isMobile ? 40 : 'auto'
+                    }}
+                  >
+                    Close
+                  </button>
                 </div>
                 <div className="muted" style={{ marginBottom:8 }}>Capacity: {playerInfo.usedSlots}/{playerInfo.capacity}</div>
                 {Object.keys(playerInfo.inventory).length === 0 ? (
@@ -804,9 +1187,40 @@ export function App() {
             </div>
           )}
           {r.room.started && (
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={()=>setEndGame(!Boolean(r.you.endGame))} title="Toggle End Game for this room">{r.you.endGame ? 'Cancel End Game' : 'End Game'}</button>
-              <button onClick={exitRoom}>Exit</button>
+            <div style={{ 
+              display: 'flex', 
+              gap: isMobile ? 12 : 8,
+              width: isMobile ? '100%' : 'auto',
+              order: isMobile ? 1 : 'unset'
+            }}>
+              <button 
+                onClick={()=>setEndGame(!Boolean(r.you.endGame))} 
+                title="Toggle End Game for this room"
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none',
+                  background: r.you.endGame ? 'rgba(248,113,113,0.18)' : 'rgba(52,211,153,0.18)',
+                  color: r.you.endGame ? 'var(--bad)' : 'var(--good)',
+                  border: '1px solid var(--border)'
+                }}
+              >
+                {r.you.endGame ? 'Cancel End Game' : 'End Game'}
+              </button>
+              <button 
+                onClick={exitRoom}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none'
+                }}
+              >
+                Exit
+              </button>
             </div>
           )}
         </div>
@@ -840,9 +1254,20 @@ export function App() {
   {/* Content area fills window below header/ticker */}
   <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
     {activeTab==='map' && (
-      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding:16 }}>
-        <h3 className="glow">{mapTitle}</h3>
-        <div ref={planetsContainerRef} className="panel" style={{ position:'relative', flex:1, minHeight:0, overflow:'hidden', backgroundColor:'#000', backgroundImage: `url(${starfieldUrl})`, backgroundSize:'cover', backgroundPosition:'center', backgroundRepeat:'no-repeat' }}>
+      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>{mapTitle}</h3>
+        <div ref={planetsContainerRef} className="panel" style={{ 
+          position:'relative', 
+          flex:1, 
+          minHeight: isMobile ? 300 : 0, 
+          overflow:'hidden', 
+          backgroundColor:'#000', 
+          backgroundImage: `url(${starfieldUrl})`, 
+          backgroundSize:'cover', 
+          backgroundPosition:'center', 
+          backgroundRepeat:'no-repeat',
+          touchAction: isMobile ? 'pan-x pan-y' : 'auto'
+        }}>
           <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
             {r.room.planets.map(p => {
               const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
@@ -853,21 +1278,63 @@ export function App() {
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
               return (
-                <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ position:'absolute', left, top, transform:'translate(-50%, -50%)', display:'flex', flexDirection:'column', alignItems:'center', gap:4, padding:8, border: isHere ? '2px solid transparent' : '1px solid transparent', borderRadius:8, background:'transparent' }}>
+                <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ 
+                  position:'absolute', 
+                  left, 
+                  top, 
+                  transform:'translate(-50%, -50%)', 
+                  display:'flex', 
+                  flexDirection:'column', 
+                  alignItems:'center', 
+                  gap: isMobile ? 6 : 4, 
+                  padding: isMobile ? 12 : 8, 
+                  border: isHere ? '2px solid transparent' : '1px solid transparent', 
+                  borderRadius: isMobile ? 12 : 8, 
+                  background:'transparent'
+                }}>
                   <button
                     disabled={p===r.you.currentPlanet || !canReach}
                     onClick={()=>selectPlanet(p)}
-                    style={{ textAlign:'center', background:'var(--panelElevated)', border:'1px solid var(--border)' }}
+                    style={{ 
+                      textAlign:'center', 
+                      background:'var(--panelElevated)', 
+                      border:'1px solid var(--border)',
+                      padding: isMobile ? '12px 16px' : '8px 12px',
+                      fontSize: isMobile ? 16 : 'inherit',
+                      minHeight: isMobile ? 48 : 'auto',
+                      minWidth: isMobile ? 80 : 'auto',
+                      borderRadius: isMobile ? 8 : 4,
+                      cursor: 'pointer',
+                      touchAction: 'manipulation'
+                    }}
                     title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
                     {p}
                   </button>
-                  <div style={{ display:'flex', gap:4, marginTop:4, justifyContent:'center' }}>
+                  <div style={{ 
+                    display:'flex', 
+                    gap: isMobile ? 6 : 4, 
+                    marginTop: isMobile ? 6 : 4, 
+                    justifyContent:'center',
+                    flexWrap: 'wrap'
+                  }}>
                     {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
                       <span
                         key={pl.id}
                         title={pl.name}
-                        style={{ width:14, height:14, borderRadius:7, background: colorFor(String(pl.id)), color:'#fff', display:'inline-flex', alignItems:'center', justifyContent:'center', fontSize:10, boxShadow:'0 0 0 1px rgba(0,0,0,0.15)' }}
+                        style={{ 
+                          width: isMobile ? 18 : 14, 
+                          height: isMobile ? 18 : 14, 
+                          borderRadius: isMobile ? 9 : 7, 
+                          background: colorFor(String(pl.id)), 
+                          color:'#fff', 
+                          display:'inline-flex', 
+                          alignItems:'center', 
+                          justifyContent:'center', 
+                          fontSize: isMobile ? 12 : 10, 
+                          boxShadow:'0 0 0 1px rgba(0,0,0,0.15)',
+                          fontWeight: isMobile ? 600 : 'normal'
+                        }}
                       >
                         {String(pl.name||'P').slice(0,1).toUpperCase()}
                       </span>
@@ -895,11 +1362,11 @@ export function App() {
               const x2 = to.x, y2 = to.y
               const d = `M ${x1},${y1} L ${x2},${y2}`
               return (
-                <path key={pl.id} d={d} fill="none" stroke={colorFor(String(pl.id))} strokeWidth={2} strokeLinecap="round" markerEnd={`url(#arrow-head-${pl.id})`} opacity={0.95} />
+                <path key={pl.id} d={d} fill="none" stroke={colorFor(String(pl.id))} strokeWidth={isMobile ? 3 : 2} strokeLinecap="round" markerEnd={`url(#arrow-head-${pl.id})`} opacity={0.95} />
               )
             })}
             {inTransit && yourTransitPos && (
-              <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
+              <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={isMobile ? 9 : 7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
             )}
           </svg>
         </div>
@@ -907,23 +1374,12 @@ export function App() {
     )}
 
     {activeTab==='market' && (
-      <div style={{ padding:16 }}>
-        <h3 className="glow">Market — {visible.name || r.you.currentPlanet}</h3>
-        <div className="panel" style={{ overflowX:'auto' }}>
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead>
-              <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
-                <th style={{ padding:'6px 8px' }}>Good</th>
-                <th style={{ padding:'6px 8px' }}>Available</th>
-                <th style={{ padding:'6px 8px' }}>Price</th>
-                <th style={{ padding:'6px 8px' }}>Range</th>
-                <th style={{ padding:'6px 8px' }}>% of Max</th>
-                <th style={{ padding:'6px 8px' }}>Owned</th>
-                <th style={{ padding:'6px 8px' }}>Buy Qty</th>
-                <th style={{ padding:'6px 8px' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
+        <div className="panel" style={{ overflowX: 'auto' }}>
+          {isMobile ? (
+            // Mobile card layout for better usability
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {Object.keys(goods).map(g => {
                 const price = prices[g]
                 const range = priceRanges[g]
@@ -943,42 +1399,167 @@ export function App() {
                 const disabledTrade = inTransit
                 const rangeText = range ? `${range[0]}–${range[1]}` : '—'
                 const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
+                
                 return (
-                  <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
-                    <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
-                    <td style={{ padding:'6px 8px' }}>{available}</td>
-                    <td style={{ padding:'6px 8px' }}>${price}</td>
-                    <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
-                    <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
-                    <td style={{ padding:'6px 8px' }}>
-                      {owned}
-                      {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
-                    </td>
-                    <td style={{ padding:'6px 8px' }}>
-                      <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                  <div key={g} style={{ 
+                    padding: 16, 
+                    border: '1px solid var(--border)', 
+                    borderRadius: 8,
+                    background: 'rgba(255,255,255,0.02)'
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <h4 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g}</h4>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>${price}</div>
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12, fontSize: 14 }}>
+                      <div>Available: {available}</div>
+                      <div>Range: {rangeText}</div>
+                      <div>Owned: {owned}{owned>0 && typeof youPaid === 'number' ? ` (avg $${youPaid})` : ''}</div>
+                      <div>% of Max: {pctText}</div>
+                    </div>
+                    
+                    <div style={{ marginBottom: 12 }}>
+                      <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>Buy Quantity:</label>
+                      <input 
+                        style={{ 
+                          width: '100%', 
+                          padding: '12px 16px',
+                          fontSize: 16,
+                          minHeight: 48,
+                          borderRadius: 6,
+                          border: '1px solid var(--border)',
+                          background: 'var(--bg)'
+                        }} 
+                        type="number" 
+                        value={amt} 
+                        min={0} 
+                        max={maxBuy} 
+                        disabled={disabledTrade}
                         onChange={e=>{
                           const v = Number(e.target.value)
                           const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
                           setAmountsByGood(s => ({ ...s, [g]: capped }))
-                        }} />
-                    </td>
-                    <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
-                      <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
-                      <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
-                    </td>
-                  </tr>
+                        }} 
+                      />
+                    </div>
+                    
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <button 
+                        disabled={disabledTrade || amt<=0} 
+                        onClick={()=>buy(g, amt)} 
+                        title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} 
+                        style={{ 
+                          flex: 1,
+                          padding: '16px 24px',
+                          fontSize: 18,
+                          fontWeight: 600,
+                          minHeight: 56,
+                          borderRadius: 8,
+                          background: 'var(--accent)',
+                          color: 'white',
+                          border: 'none',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Buy
+                      </button>
+                      <button 
+                        disabled={disabledTrade || owned<=0} 
+                        onClick={()=>sell(g, owned)} 
+                        style={{ 
+                          flex: 1,
+                          padding: '16px 24px',
+                          fontSize: 18,
+                          fontWeight: 600,
+                          minHeight: 56,
+                          borderRadius: 8,
+                          cursor: 'pointer',
+                          ...sellStyle
+                        }} 
+                        title={disabledTrade ? 'Unavailable while in transit' : undefined}
+                      >
+                        Sell All
+                      </button>
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
+            </div>
+          ) : (
+            // Desktop table layout
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead>
+                <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
+                  <th style={{ padding:'6px 8px' }}>Good</th>
+                  <th style={{ padding:'6px 8px' }}>Available</th>
+                  <th style={{ padding:'6px 8px' }}>Price</th>
+                  <th style={{ padding:'6px 8px' }}>Range</th>
+                  <th style={{ padding:'6px 8px' }}>% of Max</th>
+                  <th style={{ padding:'6px 8px' }}>Owned</th>
+                  <th style={{ padding:'6px 8px' }}>Buy Qty</th>
+                  <th style={{ padding:'6px 8px' }}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.keys(goods).map(g => {
+                  const price = prices[g]
+                  const range = priceRanges[g]
+                  const available = goods[g]
+                  const owned = r.you.inventory[g] || 0
+                  const youPaid = r.you.inventoryAvgCost?.[g]
+                  const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+                  const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+                  const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+                  const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+                    ? (price > youPaid
+                        ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
+                        : price < youPaid
+                          ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                          : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
+                    : undefined
+                  const disabledTrade = inTransit
+                  const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+                  const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
+                  return (
+                    <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
+                      <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
+                      <td style={{ padding:'6px 8px' }}>{available}</td>
+                      <td style={{ padding:'6px 8px' }}>${price}</td>
+                      <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
+                      <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
+                      <td style={{ padding:'6px 8px' }}>
+                        {owned}
+                        {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
+                      </td>
+                      <td style={{ padding:'6px 8px' }}>
+                        <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                          onChange={e=>{
+                            const v = Number(e.target.value)
+                            const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                            setAmountsByGood(s => ({ ...s, [g]: capped }))
+                          }} />
+                      </td>
+                      <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
+                        <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
+                        <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     )}
 
     {activeTab==='graphs' && (
-      <div style={{ padding:16 }}>
-        <h3 className="glow">Wealth Over Time</h3>
-        <WealthCharts history={wealthHistory} />
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Wealth Over Time</h3>
+        <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
+          <WealthCharts history={wealthHistory} />
+        </div>
       </div>
     )}
   </div>
