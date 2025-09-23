@@ -704,6 +704,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 			p.InventoryAvgCost = cloneIntMap(snap.InventoryAvgCost)
 		}
 		p.Ready = snap.Ready
+		p.EndGame = false // Always reset EndGame state when joining a new room
 		p.Modals = append([]ModalItem(nil), snap.Modals...)
 		if snap.Fuel > 0 {
 			p.Fuel = snap.Fuel
@@ -727,6 +728,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.CurrentPlanet = "Earth"
 		p.DestinationPlanet = ""
 		p.Ready = false
+		p.EndGame = false // Always start with EndGame false in new rooms
 		p.Fuel = fuelCapacity
 		p.Inventory = map[string]int{}
 		p.InventoryAvgCost = map[string]int{}
