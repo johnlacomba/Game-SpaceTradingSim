@@ -1004,9 +1004,10 @@ export function App() {
         return
       }
 
-      const wsUrl = awsConfig.websocketUrl || (() => {
+      const wsUrl = (() => {
         const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
         const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+        // Prefer site’s own WS endpoint through Nginx to the backend
         return isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
       })()
       
