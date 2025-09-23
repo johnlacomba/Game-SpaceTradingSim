@@ -10,6 +10,7 @@ import {
   fetchAuthSession,
   fetchUserAttributes
 } from 'aws-amplify/auth';
+import { handleSignIn } from 'aws-amplify/auth';
 import awsConfig from '../aws-config.js';
 
 // Check if we're in development mode
@@ -87,12 +88,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const isCallback = window.location.pathname.startsWith('/auth/callback')
     if (!isDevMode && isCallback) {
-      // Trigger Amplify to read the auth code, exchange tokens, and store the session
-      fetchAuthSession().finally(() => {
-        // Replace URL to remove code params
-        const target = window.location.origin + '/'
-        window.history.replaceState({}, document.title, target)
-      })
+      // Complete the Hosted UI redirect flow (exchanges code for tokens)
+      const complete = async () => {
+        try {
+          const hasCode = /[?&]code=/.test(window.location.search)
+          console.log('[Auth] Callback detected. hasCode=', hasCode)
+          // Exchange code for tokens
+          await fetchAuthSession()
+          console.log('[Auth] fetchAuthSession after callback completed')
+          // Attempt to populate user immediately
+          try {
+            const currentUser = await getCurrentUser()
+            const attrs = await fetchUserAttributes()
+            setUser({
+              username: currentUser.username,
+              email: attrs.email || '',
+              name: attrs.name || attrs.email || currentUser.username,
+              sub: attrs.sub || ''
+            })
+            console.log('[Auth] User set after callback:', currentUser.username)
+          } catch (e) {
+            console.log('[Auth] getCurrentUser after callback failed (may be transient):', e)
+          }
+        } catch (e) {
+          console.warn('[Auth] Callback processing error:', e)
+        } finally {
+          // Clean the URL
+          const target = window.location.origin + '/'
+          window.history.replaceState({}, document.title, target)
+        }
+      }
+      void complete()
     }
   }, [])
 

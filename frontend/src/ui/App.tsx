@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { signInWithRedirect } from 'aws-amplify/auth'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import LoginForm from '../components/LoginForm.jsx'
@@ -1360,10 +1361,13 @@ export function App() {
                 </div>
                 
                 <button 
-                  onClick={() => {
-                    console.log('Sign In button clicked! Redirecting to Hosted UI...');
-                    const url = `${window.location.protocol}//${window.location.host}/auth/start`;
-                    window.location.href = url;
+          onClick={async () => {
+                    console.log('Sign In button clicked! Starting Amplify Hosted UI redirect...');
+                    try {
+            await signInWithRedirect()
+                    } catch (e) {
+                      console.error('Hosted UI redirect failed:', e)
+                    }
                   }}
                   disabled={authLoading}
                   style={{ 
