@@ -857,6 +857,7 @@ export function App() {
   
   // Debug auth state
   console.log('Auth state:', { user, authLoading });
+  console.log('showLogin state:', showLogin);
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -1368,7 +1369,9 @@ export function App() {
                 <button 
                   onClick={() => {
                     console.log('Sign In button clicked!');
+                    console.log('Setting showLogin to true');
                     setShowLogin(true);
+                    console.log('showLogin should now be true');
                   }}
                   disabled={authLoading}
                   style={{ 
@@ -2702,7 +2705,17 @@ export function App() {
     />
     
     {/* Login Modal */}
-    {showLogin && <LoginForm onClose={() => setShowLogin(false)} />}
+    {showLogin && (
+      <div>
+        <div style={{ position: 'fixed', top: 0, left: 0, background: 'red', color: 'white', zIndex: 9999, padding: '10px' }}>
+          DEBUG: LoginForm should be visible
+        </div>
+        <LoginForm onClose={() => {
+          console.log('Closing login modal');
+          setShowLogin(false);
+        }} />
+      </div>
+    )}
     </div>
   )
 }
