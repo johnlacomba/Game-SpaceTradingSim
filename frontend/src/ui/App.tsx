@@ -999,15 +999,15 @@ export function App() {
               <div className="panel" style={{ 
                 position: 'absolute', 
                 top: '100%', 
-                right: isMobile ? 0 : 'auto',
+                right: isMobile ? 16 : 'auto',
                 left: isMobile ? 'auto' : 0, 
                 marginTop: 6, 
                 padding: 12, 
                 zIndex: 1000, 
-                minWidth: isMobile ? 320 : 300, 
+                minWidth: isMobile ? 280 : 300, 
                 maxHeight: isMobile ? '60vh' : 360, 
                 overflow: 'auto',
-                maxWidth: isMobile ? '90vw' : 'none'
+                maxWidth: isMobile ? '85vw' : 'none'
               }}>
                 {Object.keys(r.you.inventory).length === 0 ? (
                   <div style={{ fontSize: isMobile ? 16 : 'inherit' }}>Empty</div>
