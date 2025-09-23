@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"net/url"
 
 	"github.com/example/space-trader/internal/auth"
 	srv "github.com/example/space-trader/internal/server"
@@ -62,6 +63,32 @@ func main() {
 		w.Header().Set("Content-Type", "text/plain")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("pong"))
+	}).Methods("GET")
+
+	// OAuth start endpoint: redirect to Cognito Hosted UI authorize URL
+	r.HandleFunc("/auth/start", func(w http.ResponseWriter, r *http.Request) {
+		domain := os.Getenv("COGNITO_DOMAIN")
+		clientID := os.Getenv("COGNITO_CLIENT_ID")
+		callback := os.Getenv("COGNITO_CALLBACK_URL")
+		if callback == "" {
+			// Fallback to current host if not provided explicitly
+			callback = "https://" + r.Host + "/auth/callback"
+		}
+		if domain == "" || clientID == "" || callback == "" {
+			log.Printf("/auth/start missing configuration: domain=%q clientID=%q callback=%q", domain, clientID, callback)
+			http.Error(w, "Auth not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		q := url.Values{}
+		q.Set("client_id", clientID)
+		q.Set("response_type", "code")
+		q.Set("scope", "openid email profile")
+		q.Set("redirect_uri", callback)
+
+		authorizeURL := "https://" + domain + "/oauth2/authorize?" + q.Encode()
+		log.Printf("Redirecting to Cognito Hosted UI: %s", authorizeURL)
+		http.Redirect(w, r, authorizeURL, http.StatusFound)
 	}).Methods("GET")
 
 	// Protected routes that require authentication

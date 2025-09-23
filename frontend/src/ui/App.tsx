@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import LoginForm from '../components/LoginForm.jsx'
 import awsConfig from '../aws-config.js'
@@ -2704,38 +2705,53 @@ export function App() {
       isMobile={isMobile}
     />
     
-    {/* Login Modal */}
-    {showLogin && (
+    {/* Login Modal (render via Portal to escape stacking contexts) */}
+    {showLogin && createPortal(
       <div style={{ 
         position: 'fixed', 
-        top: 0, 
-        left: 0, 
-        right: 0, 
-        bottom: 0, 
+        inset: 0, 
         backgroundColor: 'rgba(0,0,0,0.8)', 
         display: 'flex', 
         justifyContent: 'center', 
         alignItems: 'center',
-        zIndex: 10000
+        zIndex: 999999
       }}>
         <div style={{ 
           backgroundColor: '#1a1a2e', 
           padding: '2rem', 
           borderRadius: '8px', 
           border: '1px solid #16213e',
-          minWidth: '400px',
+          minWidth: '320px',
+          maxWidth: '90vw',
           color: '#eee'
         }}>
-          <h2>Simple Test Modal</h2>
-          <p>If you can see this, modal rendering works!</p>
-          <button onClick={() => {
-            console.log('Closing test modal');
-            setShowLogin(false);
-          }}>
-            Close
-          </button>
+          <h2 style={{ marginTop: 0 }}>Sign In / Sign Up</h2>
+          {/* Keep the simple test to verify visibility; we’ll replace with LoginForm once visible */}
+          <p style={{ marginBottom: 12 }}>If you can see this, the modal is visible and on top.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => {
+              console.log('Closing test modal');
+              setShowLogin(false);
+            }}>
+              Close
+            </button>
+            <a
+              href={`${window.location.protocol}//${window.location.host}/auth/start`}
+              style={{
+                display: 'inline-block',
+                padding: '8px 12px',
+                border: '1px solid #444',
+                borderRadius: 6,
+                textDecoration: 'none',
+                color: '#fff'
+              }}
+            >
+              Use Hosted UI
+            </a>
+          </div>
         </div>
-      </div>
+      </div>,
+      document.body
     )}
     </div>
   )
