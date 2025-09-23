@@ -97,23 +97,51 @@ services:
             --non-interactive \
             -d $$DOMAIN
           
-          # Copy certificates to backend
+          # Copy certificates to shared volume
           if [ -f "/etc/letsencrypt/live/$$DOMAIN/fullchain.pem" ]; then
-            cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /etc/letsencrypt/backend-cert.pem
-            cp /etc/letsencrypt/live/$$DOMAIN/privkey.pem /etc/letsencrypt/backend-key.pem
+            echo "Copying certificates to shared volume..."
+            cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /etc/letsencrypt/fullchain.pem
+            cp /etc/letsencrypt/live/$$DOMAIN/privkey.pem /etc/letsencrypt/privkey.pem
+            echo "Certificates copied successfully"
+          else
+            echo "Certificate files not found after generation"
+            exit 1
           fi
+          
+          echo "Certificate generation completed successfully"
         else
-          echo "Using localhost - skipping certificate generation"
+          echo "DOMAIN is localhost - no certificate generation needed"
+          echo "For localhost development, use existing self-signed certificates"
         fi
-        
-        # Setup renewal cron
-        echo "0 12 * * * certbot renew --quiet" | crontab -
-        crond -f
       '
     profiles:
       - ssl-setup
     networks:
       - app-network
+
+  # Certificate renewal service (for production)
+  certbot-renew:
+    image: certbot/certbot:latest
+    volumes:
+      - ssl_certs:/etc/letsencrypt
+      - ./nginx/webroot:/var/www/html
+      - ./certbot/logs:/var/log/letsencrypt
+    environment:
+      - EMAIL=${CERTBOT_EMAIL:-admin@example.com}
+      - DOMAIN=${DOMAIN:-localhost}
+    entrypoint: |
+      sh -c '
+        echo "Setting up certificate auto-renewal..."
+        echo "0 12 * * * certbot renew --quiet && echo \"Certificate renewed at \$$(date)\"" | crontab -
+        echo "Certificate renewal cron job installed"
+        echo "Starting cron daemon..."
+        crond -f
+      '
+    profiles:
+      - ssl-renew
+    networks:
+      - app-network
+    restart: unless-stopped
 
   # Database (if needed for future features)
   database:
