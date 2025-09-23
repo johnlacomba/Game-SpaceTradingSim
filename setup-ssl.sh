@@ -4,8 +4,8 @@
 
 set -e
 
-DOMAIN="ec2-54-227-103-92.compute-1.amazonaws.com"
-EMAIL="admin@ec2-54-227-103-92.compute-1.amazonaws.com"
+DOMAIN="space-trader.click"
+EMAIL="admin@space-trader.click"
 
 if [ -z "$DOMAIN" ]; then
     echo "Usage: $0 <domain> [email]"
