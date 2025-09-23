@@ -582,81 +582,257 @@ export function App() {
   if (stage === 'title') {
     return (
       <div style={{ 
-        padding: isMobile ? 16 : 24,
-        maxWidth: isMobile ? '100vw' : 'none',
-        boxSizing: 'border-box'
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f1419 0%, #1a202c 50%, #2d3748 100%)',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: isMobile ? 20 : 40,
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        <h1 className="glow" style={{ 
-          fontSize: isMobile ? '2rem' : '2.5rem',
-          textAlign: 'center'
-        }}>Space Trader</h1>
+        {/* Animated background stars */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundImage: starfieldUrl ? `url(${starfieldUrl})` : 'none',
+          backgroundSize: 'cover',
+          opacity: 0.3,
+          animation: 'twinkle 4s ease-in-out infinite alternate'
+        }} />
         
-        {import.meta.env.VITE_DEV_MODE === 'true' && (
-          <div style={{ 
-            marginBottom: 16, 
-            padding: isMobile ? 8 : 12, 
-            backgroundColor: '#4444ff', 
-            color: 'white', 
-            borderRadius: 4, 
-            fontSize: isMobile ? '0.8em' : '0.9em'
-          }}>
-            <strong>Development Mode:</strong> If you see certificate warnings, you may need to:
-            <br />• Visit <a href="https://localhost:8443/rooms" target="_blank" style={{ color: '#ccddff' }}>https://localhost:8443/rooms</a> and accept the self-signed certificate
-            <br />• Or run the servers with HTTP fallback for testing
-          </div>
-        )}
-        
-        <div style={{ 
-          display: 'flex', 
-          flexDirection: isMobile ? 'column' : 'row',
-          gap: isMobile ? 12 : 8,
-          alignItems: isMobile ? 'stretch' : 'center'
+        {/* Main content container */}
+        <div style={{
+          position: 'relative',
+          zIndex: 1,
+          background: 'rgba(255, 255, 255, 0.02)',
+          backdropFilter: 'blur(10px)',
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          borderRadius: isMobile ? 16 : 24,
+          padding: isMobile ? 32 : 48,
+          maxWidth: isMobile ? '90vw' : 600,
+          width: '100%',
+          textAlign: 'center',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)'
         }}>
-          <input 
-            placeholder="Your name" 
-            value={name} 
-            onChange={e=>setName(e.target.value)}
-            style={{
-              padding: isMobile ? '12px' : '8px',
-              fontSize: isMobile ? '16px' : '14px',
-              flex: 1
-            }}
-          />
-          <button 
-            onClick={onConnect} 
-            style={{ 
-              padding: isMobile ? '12px 20px' : '8px 16px',
-              fontSize: isMobile ? '16px' : '14px',
-              minHeight: isMobile ? '48px' : 'auto'
-            }}
-          >
-            Connect
-          </button>
+          {/* Game Logo/Title */}
+          <div style={{ marginBottom: isMobile ? 24 : 32 }}>
+            <h1 className="glow" style={{ 
+              fontSize: isMobile ? '3rem' : '4rem',
+              fontWeight: 700,
+              margin: 0,
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              textShadow: 'none'
+            }}>
+              Space Trader
+            </h1>
+            <p style={{
+              fontSize: isMobile ? '1.1rem' : '1.3rem',
+              color: 'rgba(255, 255, 255, 0.7)',
+              margin: '8px 0 0 0',
+              fontWeight: 300
+            }}>
+              Navigate the galaxy. Trade goods. Build your fortune.
+            </p>
+          </div>
+
+          {/* Connection Form */}
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.05)',
+            borderRadius: isMobile ? 12 : 16,
+            padding: isMobile ? 24 : 32,
+            marginBottom: 24
+          }}>
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: isMobile ? 16 : 12,
+              alignItems: isMobile ? 'stretch' : 'center'
+            }}>
+              <input 
+                placeholder="Enter your commander name" 
+                value={name} 
+                onChange={e=>setName(e.target.value)}
+                style={{
+                  padding: isMobile ? '16px 20px' : '12px 16px',
+                  fontSize: isMobile ? '18px' : '16px',
+                  flex: 1,
+                  border: '2px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: isMobile ? 12 : 8,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'white',
+                  outline: 'none',
+                  transition: 'all 0.3s ease'
+                }}
+                onFocus={(e) => {
+                  e.target.style.borderColor = 'rgba(102, 126, 234, 0.5)'
+                  e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)'
+                }}
+                onBlur={(e) => {
+                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                  e.target.style.boxShadow = 'none'
+                }}
+              />
+              <button 
+                onClick={onConnect} 
+                disabled={!name.trim()}
+                style={{ 
+                  padding: isMobile ? '16px 32px' : '12px 24px',
+                  fontSize: isMobile ? '18px' : '16px',
+                  fontWeight: 600,
+                  minHeight: isMobile ? '56px' : '48px',
+                  minWidth: isMobile ? 'auto' : 120,
+                  background: name.trim() 
+                    ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                    : 'rgba(255, 255, 255, 0.1)',
+                  border: 'none',
+                  borderRadius: isMobile ? 12 : 8,
+                  color: 'white',
+                  cursor: name.trim() ? 'pointer' : 'not-allowed',
+                  transition: 'all 0.3s ease',
+                  opacity: name.trim() ? 1 : 0.5
+                }}
+                onMouseEnter={(e) => {
+                  if (name.trim()) {
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
+                }}
+              >
+                Launch Mission
+              </button>
+            </div>
+          </div>
+
+          {/* Development Mode Warning */}
+          {import.meta.env.VITE_DEV_MODE === 'true' && (
+            <div style={{ 
+              marginBottom: 24, 
+              padding: isMobile ? 16 : 20, 
+              background: 'rgba(68, 68, 255, 0.1)',
+              border: '1px solid rgba(68, 68, 255, 0.3)',
+              borderRadius: isMobile ? 12 : 16,
+              fontSize: isMobile ? '14px' : '15px',
+              lineHeight: 1.5,
+              textAlign: 'left'
+            }}>
+              <div style={{ 
+                fontWeight: 600, 
+                color: '#60a5fa', 
+                marginBottom: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <span style={{ fontSize: '1.2em' }}>⚠️</span>
+                Development Mode
+              </div>
+              <div style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                If you encounter certificate warnings, visit{' '}
+                <a 
+                  href="https://localhost:8443/rooms" 
+                  target="_blank" 
+                  style={{ 
+                    color: '#60a5fa',
+                    textDecoration: 'none',
+                    borderBottom: '1px solid rgba(96, 165, 250, 0.3)'
+                  }}
+                >
+                  https://localhost:8443/rooms
+                </a>{' '}
+                and accept the self-signed certificate.
+              </div>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {error && (
+            <div style={{ 
+              marginBottom: 24,
+              padding: isMobile ? 16 : 20, 
+              background: 'rgba(248, 113, 113, 0.1)',
+              border: '1px solid rgba(248, 113, 113, 0.3)',
+              borderRadius: isMobile ? 12 : 16,
+              fontSize: isMobile ? '14px' : '15px'
+            }}>
+              <div style={{ 
+                fontWeight: 600, 
+                color: '#f87171', 
+                marginBottom: 8,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}>
+                <span style={{ fontSize: '1.2em' }}>🚫</span>
+                Connection Failed
+              </div>
+              <div style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                {error}
+              </div>
+            </div>
+          )}
+
+          {/* Connection Info */}
+          {url && (
+            <div style={{ 
+              fontSize: isMobile ? '12px' : '13px', 
+              color: 'rgba(255, 255, 255, 0.4)',
+              fontFamily: 'monospace',
+              wordBreak: 'break-all',
+              background: 'rgba(0, 0, 0, 0.2)',
+              padding: isMobile ? 8 : 12,
+              borderRadius: 8,
+              border: '1px solid rgba(255, 255, 255, 0.1)'
+            }}>
+              Endpoint: {url}
+            </div>
+          )}
         </div>
-        
-        {error && (
-          <div style={{ 
-            marginTop: 16, 
-            padding: isMobile ? 8 : 12, 
-            backgroundColor: '#ff4444', 
-            color: 'white', 
-            borderRadius: 4,
-            fontSize: isMobile ? '0.8em' : '1em'
-          }}>
-            <strong>Connection Error:</strong> {error}
-          </div>
-        )}
-        
-        {url && (
-          <div style={{ 
-            marginTop: 8, 
-            fontSize: isMobile ? '0.7em' : '0.8em', 
-            color: '#666',
-            wordBreak: 'break-all'
-          }}>
-            Connecting to: {url}
-          </div>
-        )}
+
+        {/* Floating elements for visual appeal */}
+        <div style={{
+          position: 'absolute',
+          top: '10%',
+          left: '10%',
+          width: 100,
+          height: 100,
+          background: 'radial-gradient(circle, rgba(102, 126, 234, 0.1) 0%, transparent 70%)',
+          borderRadius: '50%',
+          animation: 'float 6s ease-in-out infinite'
+        }} />
+        <div style={{
+          position: 'absolute',
+          bottom: '20%',
+          right: '15%',
+          width: 150,
+          height: 150,
+          background: 'radial-gradient(circle, rgba(118, 75, 162, 0.1) 0%, transparent 70%)',
+          borderRadius: '50%',
+          animation: 'float 8s ease-in-out infinite reverse'
+        }} />
+
+        <style>
+          {`
+            @keyframes twinkle {
+              0% { opacity: 0.3; }
+              100% { opacity: 0.6; }
+            }
+            @keyframes float {
+              0%, 100% { transform: translateY(0px); }
+              50% { transform: translateY(-20px); }
+            }
+          `}
+        </style>
       </div>
     )
   }
@@ -664,51 +840,290 @@ export function App() {
   if (stage === 'lobby') {
     return (
       <div style={{ 
-        padding: isMobile ? 16 : 24,
-        maxWidth: isMobile ? '100vw' : 'none',
-        boxSizing: 'border-box'
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f1419 0%, #1a202c 50%, #2d3748 100%)',
+        padding: isMobile ? 20 : 40,
+        position: 'relative',
+        overflow: 'hidden'
       }}>
-        <h2 className="glow" style={{ 
-          fontSize: isMobile ? '1.5rem' : '2rem',
-          textAlign: 'center'
-        }}>Lobby</h2>
-        <button 
-          onClick={createRoom}
-          style={{ 
-            padding: isMobile ? '12px 20px' : '8px 16px',
-            fontSize: isMobile ? '16px' : '14px',
-            minHeight: isMobile ? '48px' : 'auto',
-            width: isMobile ? '100%' : 'auto'
-          }}
-        >
-          Create Game
-        </button>
-        <h3 style={{ 
-          marginTop: 16,
-          fontSize: isMobile ? '1.2rem' : '1.5rem'
-        }}>Active Rooms</h3>
-        <ul style={{ 
-          listStyle: 'none',
-          padding: 0,
-          margin: 0
+        {/* Background stars */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundImage: starfieldUrl ? `url(${starfieldUrl})` : 'none',
+          backgroundSize: 'cover',
+          opacity: 0.2
+        }} />
+
+        {/* Main content */}
+        <div style={{
+          position: 'relative',
+          zIndex: 1,
+          maxWidth: isMobile ? '100%' : 1200,
+          margin: '0 auto'
         }}>
-          {lobby.rooms.map(r => (
-            <li key={r.id} style={{ marginBottom: isMobile ? 12 : 8 }}>
+          {/* Header */}
+          <div style={{
+            textAlign: 'center',
+            marginBottom: isMobile ? 32 : 48
+          }}>
+            <h1 className="glow" style={{ 
+              fontSize: isMobile ? '2.5rem' : '3.5rem',
+              fontWeight: 700,
+              margin: '0 0 8px 0',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              Mission Control
+            </h1>
+            <p style={{
+              fontSize: isMobile ? '1.1rem' : '1.3rem',
+              color: 'rgba(255, 255, 255, 0.7)',
+              margin: 0,
+              fontWeight: 300
+            }}>
+              Choose your mission or create a new trading expedition
+            </p>
+          </div>
+
+          {/* Action Cards Container */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: isMobile ? '1fr' : '1fr 2fr',
+            gap: isMobile ? 24 : 32,
+            marginBottom: 32
+          }}>
+            {/* Create New Game Card */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.02)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: isMobile ? 16 : 20,
+              padding: isMobile ? 24 : 32,
+              textAlign: 'center',
+              boxShadow: '0 20px 40px -12px rgba(0, 0, 0, 0.3)'
+            }}>
+              <div style={{
+                fontSize: isMobile ? '3rem' : '4rem',
+                marginBottom: 16,
+                opacity: 0.8
+              }}>
+                🚀
+              </div>
+              <h3 style={{
+                fontSize: isMobile ? '1.3rem' : '1.5rem',
+                margin: '0 0 12px 0',
+                color: 'white',
+                fontWeight: 600
+              }}>
+                Start New Mission
+              </h3>
+              <p style={{
+                color: 'rgba(255, 255, 255, 0.6)',
+                fontSize: isMobile ? '0.9rem' : '1rem',
+                margin: '0 0 24px 0',
+                lineHeight: 1.5
+              }}>
+                Launch a new trading expedition and invite other commanders to join your crew.
+              </p>
               <button 
-                onClick={() => joinRoom(r.id)}
+                onClick={createRoom}
                 style={{ 
-                  padding: isMobile ? '12px 16px' : '8px 12px',
-                  fontSize: isMobile ? '16px' : '14px',
-                  minHeight: isMobile ? '48px' : 'auto',
-                  width: isMobile ? '100%' : 'auto',
-                  textAlign: 'left'
+                  padding: isMobile ? '16px 32px' : '14px 28px',
+                  fontSize: isMobile ? '18px' : '16px',
+                  fontWeight: 600,
+                  minHeight: isMobile ? '56px' : '48px',
+                  width: '100%',
+                  background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                  border: 'none',
+                  borderRadius: isMobile ? 12 : 10,
+                  color: 'white',
+                  cursor: 'pointer',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-2px)'
+                  e.currentTarget.style.boxShadow = '0 10px 25px rgba(16, 185, 129, 0.3)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'none'
                 }}
               >
-                {r.name} — {r.playerCount} players {r.started ? `(Started · Turn ${r.turn ?? 0})` : ''}
+                Create New Game
               </button>
-            </li>
-          ))}
-        </ul>
+            </div>
+
+            {/* Active Missions List */}
+            <div style={{
+              background: 'rgba(255, 255, 255, 0.02)',
+              backdropFilter: 'blur(10px)',
+              border: '1px solid rgba(255, 255, 255, 0.1)',
+              borderRadius: isMobile ? 16 : 20,
+              padding: isMobile ? 24 : 32,
+              boxShadow: '0 20px 40px -12px rgba(0, 0, 0, 0.3)'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                marginBottom: 24
+              }}>
+                <span style={{ fontSize: isMobile ? '1.5rem' : '2rem' }}>🌌</span>
+                <h3 style={{
+                  fontSize: isMobile ? '1.3rem' : '1.5rem',
+                  margin: 0,
+                  color: 'white',
+                  fontWeight: 600
+                }}>
+                  Active Missions ({lobby.rooms.length})
+                </h3>
+              </div>
+
+              {lobby.rooms.length === 0 ? (
+                <div style={{
+                  textAlign: 'center',
+                  padding: isMobile ? '32px 16px' : '48px 24px',
+                  color: 'rgba(255, 255, 255, 0.5)'
+                }}>
+                  <div style={{ fontSize: isMobile ? '3rem' : '4rem', marginBottom: 16, opacity: 0.3 }}>
+                    🛸
+                  </div>
+                  <p style={{ 
+                    fontSize: isMobile ? '1rem' : '1.1rem',
+                    margin: 0,
+                    lineHeight: 1.5
+                  }}>
+                    No active missions found.<br />
+                    Create a new game to start trading!
+                  </p>
+                </div>
+              ) : (
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: isMobile ? 12 : 16,
+                  maxHeight: isMobile ? '400px' : '500px',
+                  overflowY: 'auto',
+                  paddingRight: 8
+                }}>
+                  {lobby.rooms.map(r => (
+                    <div 
+                      key={r.id}
+                      style={{
+                        background: 'rgba(255, 255, 255, 0.05)',
+                        border: '1px solid rgba(255, 255, 255, 0.1)',
+                        borderRadius: isMobile ? 12 : 14,
+                        padding: isMobile ? 16 : 20,
+                        transition: 'all 0.3s ease',
+                        cursor: 'pointer'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
+                        e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.3)'
+                        e.currentTarget.style.transform = 'translateY(-2px)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                        e.currentTarget.style.transform = 'translateY(0)'
+                      }}
+                      onClick={() => joinRoom(r.id)}
+                    >
+                      <div style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: isMobile ? 'flex-start' : 'center',
+                        flexDirection: isMobile ? 'column' : 'row',
+                        gap: isMobile ? 8 : 16
+                      }}>
+                        <div style={{ flex: 1 }}>
+                          <h4 style={{
+                            fontSize: isMobile ? '1.1rem' : '1.2rem',
+                            margin: '0 0 8px 0',
+                            color: 'white',
+                            fontWeight: 600
+                          }}>
+                            {r.name}
+                          </h4>
+                          <div style={{
+                            display: 'flex',
+                            flexWrap: 'wrap',
+                            gap: isMobile ? 8 : 12,
+                            fontSize: isMobile ? '0.85rem' : '0.9rem',
+                            color: 'rgba(255, 255, 255, 0.6)'
+                          }}>
+                            <span style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}>
+                              <span style={{ fontSize: '1rem' }}>👥</span>
+                              {r.playerCount} commanders
+                            </span>
+                            {r.started && (
+                              <span style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                color: '#10b981'
+                              }}>
+                                <span style={{ fontSize: '1rem' }}>🎯</span>
+                                Turn {r.turn ?? 0}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8
+                        }}>
+                          <span style={{
+                            padding: isMobile ? '6px 12px' : '4px 8px',
+                            fontSize: isMobile ? '0.75rem' : '0.7rem',
+                            fontWeight: 600,
+                            borderRadius: 20,
+                            background: r.started 
+                              ? 'rgba(16, 185, 129, 0.2)' 
+                              : 'rgba(59, 130, 246, 0.2)',
+                            color: r.started ? '#10b981' : '#3b82f6',
+                            border: `1px solid ${r.started 
+                              ? 'rgba(16, 185, 129, 0.3)' 
+                              : 'rgba(59, 130, 246, 0.3)'}`
+                          }}>
+                            {r.started ? 'IN PROGRESS' : 'RECRUITING'}
+                          </span>
+                          <span style={{ 
+                            fontSize: isMobile ? '1.2rem' : '1.5rem',
+                            opacity: 0.6
+                          }}>
+                            →
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Footer info */}
+          <div style={{
+            textAlign: 'center',
+            color: 'rgba(255, 255, 255, 0.4)',
+            fontSize: isMobile ? '0.8rem' : '0.9rem'
+          }}>
+            <p style={{ margin: 0 }}>
+              Welcome, Commander {name}. Select a mission to begin your trading journey.
+            </p>
+          </div>
+        </div>
       </div>
     )
   }
