@@ -14,13 +14,17 @@ const LoginForm = ({ onClose }) => {
 
   const { signIn, signUp, confirmSignUp, resendConfirmationCode } = useAuth();
 
+  console.log('LoginForm rendered', { isSignUp, isConfirming });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    console.log('Form submitted', { isSignUp, isConfirming, username });
     setLoading(true);
     setError('');
 
     try {
       if (isConfirming) {
+        console.log('Confirming signup...');
         await confirmSignUp(username, confirmationCode);
         setIsConfirming(false);
         setIsSignUp(false);
@@ -28,6 +32,7 @@ const LoginForm = ({ onClose }) => {
         await signIn(username, password);
         onClose();
       } else if (isSignUp) {
+        console.log('Signing up...');
         const result = await signUp(username, password, email, name);
         if (result.isSignUpComplete) {
           await signIn(username, password);
@@ -36,10 +41,12 @@ const LoginForm = ({ onClose }) => {
           setIsConfirming(true);
         }
       } else {
+        console.log('Signing in...');
         await signIn(username, password);
         onClose();
       }
     } catch (err) {
+      console.error('Auth error:', err);
       setError(err.message || 'An error occurred');
     } finally {
       setLoading(false);
