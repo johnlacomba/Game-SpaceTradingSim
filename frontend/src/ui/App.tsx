@@ -997,17 +997,17 @@ export function App() {
             </button>
             {inventoryOpen && (
               <div className="panel" style={{ 
-                position: 'absolute', 
-                top: '100%', 
-                right: isMobile ? 0 : 'auto',
-                left: isMobile ? 'auto' : 0, 
-                marginTop: 6, 
+                position: isMobile ? 'fixed' : 'absolute', 
+                top: isMobile ? '120px' : '100%', 
+                right: isMobile ? 16 : 'auto',
+                left: isMobile ? 16 : 0, 
+                marginTop: isMobile ? 0 : 6, 
                 padding: 12, 
                 zIndex: 1000, 
-                minWidth: isMobile ? 280 : 300, 
+                minWidth: isMobile ? 'auto' : 300, 
                 maxHeight: isMobile ? '60vh' : 360, 
                 overflow: 'auto',
-                maxWidth: isMobile ? '85vw' : 'none'
+                maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none'
               }}>
                 {Object.keys(r.you.inventory).length === 0 ? (
                   <div style={{ fontSize: isMobile ? 16 : 'inherit' }}>Empty</div>
