@@ -75,7 +75,7 @@ sudo usermod -aG docker $USER
 Replace `space-trader.click` with your domain and `admin@space-trader.click` with your email:
 
 ```bash
-cd && sudo rm -rf Game-SpaceTradingSim || sudo ./cleanupDocker.sh || git clone https://github.com/johnlacomba/Game-SpaceTradingSim.git && cd Game-SpaceTradingSim/ && cp cleanupDocker.sh ~/cleanupDocker.sh && sudo ./setup-ssl.sh && sudo ./quick-deploy.sh space-trader.click admin@space-trader.click production
+cd && sudo rm -rf Game-SpaceTradingSim ; sudo ./cleanupDocker.sh ; git clone https://github.com/johnlacomba/Game-SpaceTradingSim.git && cd Game-SpaceTradingSim/ && cp cleanupDocker.sh ~/cleanupDocker.sh && sudo ./setup-ssl.sh && sudo ./quick-deploy.sh space-trader.click admin@space-trader.click production
 ```
 
 This command will:
