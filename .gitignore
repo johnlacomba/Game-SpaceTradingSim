@@ -14,11 +14,6 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Env files
-.env
-.env.*
-!.env.example
-
 # Coverage
 coverage/
 frontend/coverage/
