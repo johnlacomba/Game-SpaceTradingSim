@@ -25,13 +25,23 @@ variable "domain_name" {
 variable "cognito_callback_urls" {
   description = "Callback URLs for Cognito"
   type        = list(string)
-  default     = ["http://localhost:5173", "https://localhost:5173"]
+  default     = [
+    "http://localhost:5173", 
+    "https://localhost:5173",
+    "https://space-trader.click",
+    "https://space-trader.click/auth/callback"
+  ]
 }
 
 variable "cognito_logout_urls" {
   description = "Logout URLs for Cognito"
   type        = list(string)
-  default     = ["http://localhost:5173", "https://localhost:5173"]
+  default     = [
+    "http://localhost:5173", 
+    "https://localhost:5173",
+    "https://space-trader.click",
+    "https://space-trader.click/"
+  ]
 }
 
 variable "enable_ecs" {

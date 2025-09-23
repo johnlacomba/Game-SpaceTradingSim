@@ -13,9 +13,15 @@ import {
 import awsConfig from '../aws-config.js';
 
 // Check if we're in development mode
-const isDevMode = process.env.NODE_ENV !== 'production';
+const isDevMode = process.env.NODE_ENV !== 'production' && import.meta.env.VITE_USE_AWS_AUTH !== 'true';
 
-// Configure Amplify only in production mode
+console.log('Auth mode check:', { 
+  NODE_ENV: process.env.NODE_ENV, 
+  VITE_USE_AWS_AUTH: import.meta.env.VITE_USE_AWS_AUTH,
+  isDevMode 
+});
+
+// Configure Amplify only in production mode or when explicitly enabled
 if (!isDevMode) {
   Amplify.configure({
     Auth: {
