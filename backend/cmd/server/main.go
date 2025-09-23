@@ -156,18 +156,37 @@ func main() {
 		httpAddr := ":" + *httpPort
 		log.Printf("Space Trader backend (HTTP->HTTPS redirect) listening on %s", httpAddr)
 
-		// HTTP server that redirects to HTTPS
-		httpServer := &http.Server{
-			Addr: httpAddr,
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				httpsURL := "https://" + r.Host
-				if *httpsPort != "443" {
-					httpsURL += ":" + *httpsPort
-				}
-				httpsURL += r.RequestURI
+		// Create a separate router for HTTP that handles health checks
+		httpRouter := mux.NewRouter()
 
-				http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
-			}),
+		// Health endpoints available on HTTP (no redirect)
+		httpRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("HTTP Health check requested from %s", r.RemoteAddr)
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		}).Methods("GET")
+
+		httpRouter.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pong"))
+		}).Methods("GET")
+
+		// All other HTTP requests redirect to HTTPS
+		httpRouter.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpsURL := "https://" + r.Host
+			if *httpsPort != "443" {
+				httpsURL += ":" + *httpsPort
+			}
+			httpsURL += r.RequestURI
+
+			http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
+		})
+
+		httpServer := &http.Server{
+			Addr:    httpAddr,
+			Handler: httpRouter,
 		}
 
 		log.Fatal(httpServer.ListenAndServe())
