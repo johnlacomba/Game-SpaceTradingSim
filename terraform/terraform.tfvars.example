@@ -1,0 +1,18 @@
+# Development environment example
+aws_region     = "us-east-1"
+project_name   = "space-trading-sim"
+environment    = "dev"
+domain_name    = ""  # Set this if you have a custom domain
+
+cognito_callback_urls = [
+  "http://localhost:5173",
+  "https://localhost:5173"
+]
+
+cognito_logout_urls = [
+  "http://localhost:5173",
+  "https://localhost:5173"
+]
+
+# Set to true to enable ECS deployment
+enable_ecs = false

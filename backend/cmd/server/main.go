@@ -7,11 +7,16 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/example/space-trader/internal/auth"
 	srv "github.com/example/space-trader/internal/server"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load environment variables from .env file if it exists
+	_ = godotenv.Load()
+
 	var (
 		httpPort  = flag.String("http-port", "8080", "HTTP port")
 		httpsPort = flag.String("https-port", "8443", "HTTPS port")
@@ -23,13 +28,28 @@ func main() {
 
 	r := mux.NewRouter()
 
+	// Initialize Cognito auth
+	cognitoConfig := auth.NewCognitoConfig()
+
 	gs := srv.NewGameServer()
 
+	// Health check endpoint (no auth required)
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
+
+	// Protected routes that require authentication
+	protected := r.PathPrefix("/api").Subrouter()
+	protected.Use(cognitoConfig.AuthMiddleware)
+
+	// WebSocket endpoint (requires auth via query parameter or header)
 	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		gs.HandleWS(w, r)
+		gs.HandleWS(w, r, cognitoConfig)
 	})
-	// Debug REST
-	r.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
+
+	// Debug REST endpoints (protected)
+	protected.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			gs.HandleListRooms(w, r)
 			return
@@ -40,6 +60,11 @@ func main() {
 		}
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
+
+	// User profile endpoint
+	protected.HandleFunc("/profile", func(w http.ResponseWriter, r *http.Request) {
+		gs.HandleGetProfile(w, r)
+	}).Methods("GET")
 
 	// Add CORS headers for HTTPS
 	r.Use(func(next http.Handler) http.Handler {

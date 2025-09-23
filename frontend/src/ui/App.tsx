@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useAuth } from '../contexts/AuthContext.jsx'
+import LoginForm from '../components/LoginForm.jsx'
+import awsConfig from '../aws-config.js'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -848,7 +851,9 @@ export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
+  const [showLogin, setShowLogin] = useState(false)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
+  const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -869,6 +874,13 @@ export function App() {
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
+
+  // Set name from authenticated user
+  useEffect(() => {
+    if (user && !name) {
+      setName(user.name || user.username)
+    }
+  }, [user, name])
 
   // Tick local time for countdown
   useEffect(() => {
@@ -981,11 +993,32 @@ export function App() {
   }, [inventoryOpen])
 
   // Actions
-  const onConnect = () => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-    const wsUrl = isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
-    setUrl(wsUrl)
+  const onConnect = async () => {
+    if (!user) {
+      setShowLogin(true)
+      return
+    }
+
+    try {
+      const token = await getAccessToken()
+      if (!token) {
+        setShowLogin(true)
+        return
+      }
+
+      const wsUrl = awsConfig.websocketUrl || (() => {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+        return isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
+      })()
+      
+      // Append token as query parameter for WebSocket authentication
+      const wsUrlWithAuth = `${wsUrl}?token=${encodeURIComponent(token)}`
+      setUrl(wsUrlWithAuth)
+    } catch (error) {
+      console.error('Failed to get access token:', error)
+      setShowLogin(true)
+    }
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
@@ -1201,69 +1234,168 @@ export function App() {
             padding: isMobile ? 24 : 32,
             marginBottom: 24
           }}>
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: isMobile ? 'column' : 'row',
-              gap: isMobile ? 16 : 12,
-              alignItems: isMobile ? 'stretch' : 'center'
-            }}>
-              <input 
-                placeholder="Enter your commander name" 
-                value={name} 
-                onChange={e=>setName(e.target.value)}
-                style={{
-                  padding: isMobile ? '16px 20px' : '12px 16px',
-                  fontSize: isMobile ? '18px' : '16px',
-                  flex: 1,
-                  border: '2px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: isMobile ? 12 : 8,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: 'white',
-                  outline: 'none',
-                  transition: 'all 0.3s ease'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = 'rgba(102, 126, 234, 0.5)'
-                  e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)'
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                  e.target.style.boxShadow = 'none'
-                }}
-              />
-              <button 
-                onClick={onConnect} 
-                disabled={!name.trim()}
-                style={{ 
-                  padding: isMobile ? '16px 32px' : '12px 24px',
-                  fontSize: isMobile ? '18px' : '16px',
-                  fontWeight: 600,
-                  minHeight: isMobile ? '56px' : '48px',
-                  minWidth: isMobile ? 'auto' : 120,
-                  background: name.trim() 
-                    ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-                    : 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: isMobile ? 12 : 8,
-                  color: 'white',
-                  cursor: name.trim() ? 'pointer' : 'not-allowed',
-                  transition: 'all 0.3s ease',
-                  opacity: name.trim() ? 1 : 0.5
-                }}
-                onMouseEnter={(e) => {
-                  if (name.trim()) {
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = 'none'
-                }}
-              >
-                Launch Mission
-              </button>
-            </div>
+            {user ? (
+              // Authenticated user interface
+              <div>
+                <div style={{ 
+                  marginBottom: 20,
+                  padding: 16,
+                  background: 'rgba(76, 175, 80, 0.1)',
+                  border: '1px solid rgba(76, 175, 80, 0.3)',
+                  borderRadius: 8,
+                  color: '#4caf50'
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    ✅ Authenticated as {user.name || user.username}
+                  </div>
+                  <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                    {user.email}
+                  </div>
+                </div>
+                
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gap: isMobile ? 16 : 12,
+                  alignItems: isMobile ? 'stretch' : 'center'
+                }}>
+                  <input 
+                    placeholder="Enter your commander name" 
+                    value={name} 
+                    onChange={e=>setName(e.target.value)}
+                    style={{
+                      padding: isMobile ? '16px 20px' : '12px 16px',
+                      fontSize: isMobile ? '18px' : '16px',
+                      flex: 1,
+                      border: '2px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: isMobile ? 12 : 8,
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'white',
+                      outline: 'none',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = 'rgba(102, 126, 234, 0.5)'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                      e.target.style.boxShadow = 'none'
+                    }}
+                  />
+                  <button 
+                    onClick={onConnect} 
+                    disabled={!name.trim() || authLoading}
+                    style={{ 
+                      padding: isMobile ? '16px 32px' : '12px 24px',
+                      fontSize: isMobile ? '18px' : '16px',
+                      fontWeight: 600,
+                      minHeight: isMobile ? '56px' : '48px',
+                      minWidth: isMobile ? 'auto' : 120,
+                      background: name.trim() && !authLoading
+                        ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                        : 'rgba(255, 255, 255, 0.1)',
+                      border: 'none',
+                      borderRadius: isMobile ? 12 : 8,
+                      color: 'white',
+                      cursor: name.trim() && !authLoading ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.3s ease',
+                      opacity: name.trim() && !authLoading ? 1 : 0.5
+                    }}
+                    onMouseEnter={(e) => {
+                      if (name.trim() && !authLoading) {
+                        e.currentTarget.style.transform = 'translateY(-2px)'
+                        e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  >
+                    {authLoading ? 'Loading...' : 'Launch Mission'}
+                  </button>
+                </div>
+                
+                <div style={{ marginTop: 16 }}>
+                  <button
+                    onClick={signOut}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '14px',
+                      background: 'transparent',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: 6,
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
+                      e.currentTarget.style.color = 'white'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent'
+                      e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'
+                    }}
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Non-authenticated interface
+              <div>
+                <div style={{ 
+                  marginBottom: 20,
+                  padding: 16,
+                  background: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.3)',
+                  borderRadius: 8,
+                  color: '#ffc107'
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    🔐 Authentication Required
+                  </div>
+                  <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                    Please sign in to access the space trading simulation
+                  </div>
+                </div>
+                
+                <button 
+                  onClick={() => setShowLogin(true)}
+                  disabled={authLoading}
+                  style={{ 
+                    padding: isMobile ? '16px 32px' : '12px 24px',
+                    fontSize: isMobile ? '18px' : '16px',
+                    fontWeight: 600,
+                    minHeight: isMobile ? '56px' : '48px',
+                    width: '100%',
+                    background: !authLoading
+                      ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                      : 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: isMobile ? 12 : 8,
+                    color: 'white',
+                    cursor: !authLoading ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.3s ease',
+                    opacity: !authLoading ? 1 : 0.5
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!authLoading) {
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }}
+                >
+                  {authLoading ? 'Loading...' : 'Sign In / Sign Up'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Development Mode Warning */}
@@ -2562,6 +2694,9 @@ export function App() {
       reconnect={reconnect}
       isMobile={isMobile}
     />
+    
+    {/* Login Modal */}
+    {showLogin && <LoginForm onClose={() => setShowLogin(false)} />}
     </div>
   )
 }
