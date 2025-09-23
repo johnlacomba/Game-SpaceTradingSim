@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
 
-type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean }
+type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean }
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; modal?: { id: string; title: string; body: string }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
+  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean; modal?: { id: string; title: string; body: string }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
@@ -408,18 +408,10 @@ export function App() {
 
   // Actions
   const onConnect = () => {
-    // Use environment variable if available, otherwise detect from current location
-    const wsUrl = import.meta.env.VITE_WS_URL
-    if (wsUrl) {
-      setUrl(wsUrl)
-      return
-    }
-    
-    // Fallback to automatic detection
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const port = protocol === 'wss:' ? '8443' : '8080'
-    setUrl(`${protocol}//${host}/ws`)
+    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+    const wsUrl = isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
+    setUrl(wsUrl)
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
@@ -436,6 +428,7 @@ export function App() {
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
   const exitRoom = () => send('exitRoom')
+  const setEndGame = (end: boolean) => send('setEndGame', { endGame: end })
 
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
   const buy = (good: string, amount: number) => send('buy', { good, amount })
@@ -811,7 +804,10 @@ export function App() {
             </div>
           )}
           {r.room.started && (
-            <button onClick={exitRoom}>Exit</button>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={()=>setEndGame(!Boolean(r.you.endGame))} title="Toggle End Game for this room">{r.you.endGame ? 'Cancel End Game' : 'End Game'}</button>
+              <button onClick={exitRoom}>Exit</button>
+            </div>
           )}
         </div>
         {/* Floating toasts under money (top-right). No impact on news ticker */}

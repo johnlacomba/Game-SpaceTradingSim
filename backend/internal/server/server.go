@@ -41,6 +41,7 @@ type Player struct {
 	Inventory         map[string]int  `json:"inventory"`
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	Ready             bool            `json:"ready"`
+	EndGame           bool            `json:"endGame"`
 	Modals            []ModalItem     `json:"-"`
 	Fuel              int             `json:"fuel"`
 	conn              *websocket.Conn // not serialized
@@ -142,6 +143,7 @@ type PersistedPlayer struct {
 	Inventory         map[string]int
 	InventoryAvgCost  map[string]int
 	Ready             bool
+	EndGame           bool
 	Modals            []ModalItem
 	Fuel              int
 	Bankrupt          bool
@@ -236,6 +238,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					Inventory:         cloneIntMap(p.Inventory),
 					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 					Ready:             p.Ready,
+					EndGame:           p.EndGame,
 					Modals:            cloneModals(p.Modals),
 					Fuel:              p.Fuel,
 					Bankrupt:          p.Bankrupt,
@@ -516,6 +519,32 @@ func (gs *GameServer) readLoop(p *Player) {
 				}
 				room.mu.Unlock()
 				gs.broadcastRoom(room)
+			}
+		case "setEndGame":
+			var data struct {
+				EndGame bool `json:"endGame"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				room.mu.Lock()
+				p.EndGame = data.EndGame
+				// Check if all human players have toggled End Game
+				allEnd := true
+				for _, pl := range room.Players {
+					if pl.IsBot || pl.Bankrupt {
+						continue
+					}
+					if !pl.EndGame {
+						allEnd = false
+						break
+					}
+				}
+				room.mu.Unlock()
+				if allEnd {
+					gs.closeRoom(room.ID)
+				} else {
+					gs.broadcastRoom(room)
+				}
 			}
 		case "exitRoom":
 			if p.roomID != "" {
@@ -1746,6 +1775,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			"currentPlanet":     pp.CurrentPlanet,
 			"destinationPlanet": pp.DestinationPlanet,
 			"ready":             pp.Ready,
+			"endGame":           pp.EndGame,
 			"bankrupt":          pp.Bankrupt,
 		})
 	}
@@ -1830,6 +1860,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"currentPlanet":     pp.CurrentPlanet,
 					"destinationPlanet": "",
 					"ready":             false,
+					"endGame":           false,
 					"fuel":              0,
 					"inTransit":         false,
 					"transitFrom":       "",
@@ -1945,6 +1976,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
+				"endGame":           pp.EndGame,
 				"fuel":              pp.Fuel,
 				"inTransit":         pp.InTransit,
 				"transitFrom":       pp.TransitFrom,
@@ -1977,6 +2009,41 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 }
 
 func (gs *GameServer) broadcastRoom(room *Room) { gs.sendRoomState(room, nil) }
+
+// closeRoom ejects all players to the lobby and deletes the room
+func (gs *GameServer) closeRoom(roomID string) {
+	room := gs.getRoom(roomID)
+	if room == nil {
+		return
+	}
+	// Snapshot players to notify after deletion
+	room.mu.Lock()
+	players := make([]*Player, 0, len(room.Players))
+	for _, pl := range room.Players {
+		players = append(players, pl)
+	}
+	room.mu.Unlock()
+
+	// Remove room from registry
+	gs.roomsMu.Lock()
+	delete(gs.rooms, roomID)
+	gs.roomsMu.Unlock()
+
+	// Reset player state and send them to lobby
+	for _, pl := range players {
+		pl.roomID = ""
+		pl.InTransit = false
+		pl.DestinationPlanet = ""
+		pl.TransitFrom = ""
+		pl.TransitRemaining = 0
+		pl.TransitTotal = 0
+		pl.Ready = false
+		pl.EndGame = false
+		if pl.conn != nil {
+			gs.sendLobbyState(pl)
+		}
+	}
+}
 
 func planetNames(m map[string]*Planet) []string {
 	keys := make([]string, 0, len(m))
