@@ -31,4 +31,4 @@ RUN mkdir -p /app/certs
 EXPOSE 8443
 
 # Run the server
-CMD ["./space-trader-server", "-https-port=8443", "-tls-only"]
+CMD ["./space-trader-server", "-https-port=8443", "-cert=/app/certs/server-san.crt", "-key=/app/certs/server-san.key", "-http-port=8080"]

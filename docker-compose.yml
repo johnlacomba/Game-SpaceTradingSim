@@ -12,7 +12,7 @@ services:
       - ./backend/certs:/app/certs:ro
       - backend_data:/app/data
     environment:
-      - TLS_ONLY=true
+      - TLS_ONLY=${TLS_ONLY:-false}
       - HTTPS_PORT=8443
       - GIN_MODE=release
     restart: unless-stopped
@@ -21,7 +21,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 15s
     networks:
       - app-network
     deploy:

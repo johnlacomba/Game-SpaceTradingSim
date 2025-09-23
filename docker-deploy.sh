@@ -34,7 +34,14 @@ sed -i "s/CERTBOT_EMAIL=admin@example.com/CERTBOT_EMAIL=$EMAIL/g" .env
 if [ "$MODE" = "production" ]; then
     sed -i "s/DEPLOYMENT_MODE=development/DEPLOYMENT_MODE=production/g" .env
     sed -i "s/SSL_VERIFY=false/SSL_VERIFY=true/g" .env
+    sed -i "s/TLS_ONLY=false/TLS_ONLY=true/g" .env
 fi
+
+# Run production setup
+echo "🔧 Running production setup..."
+export DOMAIN="$DOMAIN"
+export DEPLOYMENT_MODE="$MODE"
+./production-setup.sh
 
 # Build frontend
 echo "🏗️  Building frontend..."

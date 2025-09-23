@@ -75,7 +75,19 @@ func main() {
 			log.Printf("Falling back to HTTP only on port %s", *httpPort)
 			log.Fatal(http.ListenAndServe(":"+*httpPort, r))
 		} else {
-			log.Fatal("TLS-only mode enabled but certificates not found")
+			log.Printf("TLS-only mode enabled but certificates not found")
+			log.Printf("Please ensure certificates are mounted or available at %s and %s", certPath, keyPath)
+			log.Fatal("Exiting due to missing certificates in TLS-only mode")
+		}
+	}
+
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		log.Printf("Private key file not found at %s", keyPath)
+		if !*tlsOnly {
+			log.Printf("Falling back to HTTP only on port %s", *httpPort)
+			log.Fatal(http.ListenAndServe(":"+*httpPort, r))
+		} else {
+			log.Fatal("TLS-only mode enabled but private key not found")
 		}
 	}
 
