@@ -114,17 +114,61 @@ resource "aws_apigatewayv2_api" "websocket" {
   tags = local.common_tags
 }
 
-# WebSocket Cognito Authorizer
-resource "aws_apigatewayv2_authorizer" "websocket_cognito" {
-  api_id           = aws_apigatewayv2_api.websocket.id
-  authorizer_type  = "JWT"
-  identity_sources = ["route.request.header.Authorization"]
-  name             = "cognito-authorizer"
+# WebSocket Routes
+resource "aws_apigatewayv2_route" "websocket_connect" {
+  api_id    = aws_apigatewayv2_api.websocket.id
+  route_key = "$connect"
+  target    = "integrations/${aws_apigatewayv2_integration.websocket_connect.id}"
+  
+  # Optional: Add authorization later if needed
+  # authorization_type = "AWS_IAM"
+}
 
-  jwt_configuration {
-    audience = [aws_cognito_user_pool_client.main.id]
-    issuer   = "https://cognito-idp.${var.aws_region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
-  }
+resource "aws_apigatewayv2_route" "websocket_disconnect" {
+  api_id    = aws_apigatewayv2_api.websocket.id
+  route_key = "$disconnect"
+  target    = "integrations/${aws_apigatewayv2_integration.websocket_disconnect.id}"
+}
+
+resource "aws_apigatewayv2_route" "websocket_default" {
+  api_id    = aws_apigatewayv2_api.websocket.id
+  route_key = "$default"
+  target    = "integrations/${aws_apigatewayv2_integration.websocket_default.id}"
+}
+
+# WebSocket Route Responses
+resource "aws_apigatewayv2_route_response" "websocket_connect" {
+  api_id             = aws_apigatewayv2_api.websocket.id
+  route_id           = aws_apigatewayv2_route.websocket_connect.id
+  route_response_key = "$default"
+}
+
+resource "aws_apigatewayv2_route_response" "websocket_disconnect" {
+  api_id             = aws_apigatewayv2_api.websocket.id
+  route_id           = aws_apigatewayv2_route.websocket_disconnect.id
+  route_response_key = "$default"
+}
+
+resource "aws_apigatewayv2_route_response" "websocket_default" {
+  api_id             = aws_apigatewayv2_api.websocket.id
+  route_id           = aws_apigatewayv2_route.websocket_default.id
+  route_response_key = "$default"
+}
+
+# WebSocket Integrations (Mock integrations for now)
+resource "aws_apigatewayv2_integration" "websocket_connect" {
+  api_id           = aws_apigatewayv2_api.websocket.id
+  integration_type = "MOCK"
+}
+
+resource "aws_apigatewayv2_integration" "websocket_disconnect" {
+  api_id           = aws_apigatewayv2_api.websocket.id
+  integration_type = "MOCK"
+}
+
+resource "aws_apigatewayv2_integration" "websocket_default" {
+  api_id           = aws_apigatewayv2_api.websocket.id
+  integration_type = "MOCK"
 }
 
 # API Gateway Deployment
@@ -154,6 +198,18 @@ resource "aws_api_gateway_stage" "main" {
 resource "aws_apigatewayv2_deployment" "websocket" {
   api_id      = aws_apigatewayv2_api.websocket.id
   description = "WebSocket deployment for ${var.environment}"
+
+  depends_on = [
+    aws_apigatewayv2_route.websocket_connect,
+    aws_apigatewayv2_route.websocket_disconnect,
+    aws_apigatewayv2_route.websocket_default,
+    aws_apigatewayv2_integration.websocket_connect,
+    aws_apigatewayv2_integration.websocket_disconnect,
+    aws_apigatewayv2_integration.websocket_default,
+    aws_apigatewayv2_route_response.websocket_connect,
+    aws_apigatewayv2_route_response.websocket_disconnect,
+    aws_apigatewayv2_route_response.websocket_default,
+  ]
 
   lifecycle {
     create_before_destroy = true
