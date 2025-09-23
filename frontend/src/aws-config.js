@@ -20,7 +20,7 @@ export const awsConfig = {
   // OAuth configuration
   oauth: {
     domain: import.meta.env.VITE_COGNITO_DOMAIN || 'space-trading-sim-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com',
-    scope: ['email', 'openid', 'profile'],
+  scopes: ['email', 'openid', 'profile'],
     redirectSignIn: import.meta.env.VITE_COGNITO_CALLBACK_URL || window.location.origin,
     redirectSignOut: import.meta.env.VITE_COGNITO_LOGOUT_URL || window.location.origin,
     responseType: 'code'

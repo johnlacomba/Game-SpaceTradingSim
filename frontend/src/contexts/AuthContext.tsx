@@ -83,6 +83,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Ensure Hosted UI callback is processed and URL cleaned
+  useEffect(() => {
+    const isCallback = window.location.pathname.startsWith('/auth/callback')
+    if (!isDevMode && isCallback) {
+      // Trigger Amplify to read the auth code, exchange tokens, and store the session
+      fetchAuthSession().finally(() => {
+        // Replace URL to remove code params
+        const target = window.location.origin + '/'
+        window.history.replaceState({}, document.title, target)
+      })
+    }
+  }, [])
+
   // Mock functions for development mode
   const mockGetAccessToken = async (): Promise<string> => {
     return 'mock-jwt-token';
@@ -182,7 +195,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   useEffect(() => {
-    checkAuthState();
+    // First process any hosted UI callback, then check auth
+    const doCheck = async () => {
+      try {
+        await fetchAuthSession()
+      } catch {}
+      await checkAuthState()
+    }
+    doCheck()
   }, []);
 
   const handleSignIn = async (username: string, password: string) => {
