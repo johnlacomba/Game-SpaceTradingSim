@@ -16,6 +16,10 @@ services:
       - GIN_MODE=release
       - HTTPS_PORT=8443
       - TLS_ONLY=false
+      # Cognito Configuration (use environment variables or replace with real values)
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - COGNITO_USER_POOL_ID=${COGNITO_USER_POOL_ID:-us-east-1_TEST123456}
+      - COGNITO_CLIENT_ID=${COGNITO_CLIENT_ID:-test123456789abcdef}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/rooms"]
