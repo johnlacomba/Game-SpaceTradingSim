@@ -1,0 +1,246 @@
+version: '3.8'
+
+services:
+  # Space Trader Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8443:8443"
+      - "8080:8080"
+    volumes:
+      - backend_data:/app/data
+      - ssl_certs:/app/certs:ro
+    environment:
+      - GIN_MODE=release
+      - HTTPS_PORT=8443
+      - TLS_ONLY=false
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/rooms"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    networks:
+      - app-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # Frontend Builder (builds the React app and exits)
+  frontend-builder:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.build-only
+      args:
+        - NODE_ENV=production
+    volumes:
+      - frontend_dist:/app/dist
+    profiles:
+      - build
+
+  # Nginx reverse proxy and static file server
+  frontend:
+    image: nginx:1.25-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - frontend_dist:/usr/share/nginx/html:ro
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ssl_certs:/etc/nginx/ssl:ro
+      - ./nginx/logs:/var/log/nginx
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # SSL Certificate Manager
+  certbot:
+    image: certbot/certbot:latest
+    volumes:
+      - ssl_certs:/etc/letsencrypt
+      - ./nginx/webroot:/var/www/html
+      - ./certbot/logs:/var/log/letsencrypt
+    environment:
+      - EMAIL=${CERTBOT_EMAIL:-admin@example.com}
+      - DOMAIN=${DOMAIN:-localhost}
+    entrypoint: |
+      sh -c '
+        if [ "$$DOMAIN" != "localhost" ]; then
+          echo "Obtaining SSL certificate for $$DOMAIN..."
+          certbot certonly \
+            --webroot \
+            --webroot-path=/var/www/html \
+            --email $$EMAIL \
+            --agree-tos \
+            --no-eff-email \
+            --keep-until-expiring \
+            --non-interactive \
+            -d $$DOMAIN
+          
+          # Copy certificates to shared volume
+          if [ -f "/etc/letsencrypt/live/$$DOMAIN/fullchain.pem" ]; then
+            echo "Copying certificates to shared volume..."
+            cp /etc/letsencrypt/live/$$DOMAIN/fullchain.pem /etc/letsencrypt/fullchain.pem
+            cp /etc/letsencrypt/live/$$DOMAIN/privkey.pem /etc/letsencrypt/privkey.pem
+            echo "Certificates copied successfully"
+          else
+            echo "Certificate files not found after generation"
+            exit 1
+          fi
+          
+          echo "Certificate generation completed successfully"
+        else
+          echo "DOMAIN is localhost - no certificate generation needed"
+          echo "For localhost development, use existing self-signed certificates"
+        fi
+      '
+    profiles:
+      - ssl-setup
+    networks:
+      - app-network
+
+  # Certificate renewal service (for production)
+  certbot-renew:
+    image: certbot/certbot:latest
+    volumes:
+      - ssl_certs:/etc/letsencrypt
+      - ./nginx/webroot:/var/www/html
+      - ./certbot/logs:/var/log/letsencrypt
+    environment:
+      - EMAIL=${CERTBOT_EMAIL:-admin@example.com}
+      - DOMAIN=${DOMAIN:-localhost}
+    entrypoint: |
+      sh -c '
+        echo "Setting up certificate auto-renewal..."
+        echo "0 12 * * * certbot renew --quiet && echo \"Certificate renewed at \$$(date)\"" | crontab -
+        echo "Certificate renewal cron job installed"
+        echo "Starting cron daemon..."
+        crond -f
+      '
+    profiles:
+      - ssl-renew
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Certificate setup - copies Let's Encrypt certs to expected names
+  cert-setup:
+    image: alpine:latest
+    volumes:
+      - ssl_certs:/ssl
+      - ./copy-certs.sh:/copy-certs.sh:ro
+    command: ["sh", "/copy-certs.sh"]
+    profiles: ["cert-setup"]
+
+  # Database (if needed for future features)
+  database:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=${DB_NAME:-spacetrader}
+      - POSTGRES_USER=${DB_USER:-spacetrader}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+    profiles:
+      - database
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # Redis (for session management/caching if needed)
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - app-network
+    profiles:
+      - cache
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Monitoring (Prometheus)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    networks:
+      - app-network
+    profiles:
+      - monitoring
+
+volumes:
+  frontend_dist:
+    driver: local
+  ssl_certs:
+    driver: local
+  backend_data:
+    driver: local
+  db_data:
+    driver: local
+  redis_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  app-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

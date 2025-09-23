@@ -41,6 +41,7 @@ type Player struct {
 	Inventory         map[string]int  `json:"inventory"`
 	InventoryAvgCost  map[string]int  `json:"inventoryAvgCost"`
 	Ready             bool            `json:"ready"`
+	EndGame           bool            `json:"endGame"`
 	Modals            []ModalItem     `json:"-"`
 	Fuel              int             `json:"fuel"`
 	conn              *websocket.Conn // not serialized
@@ -87,6 +88,7 @@ type Room struct {
 	Persist         map[PlayerID]*PersistedPlayer `json:"-"`
 	mu              sync.Mutex
 	readyCh         chan struct{}         // signal to end turn early when all humans are ready
+	closeCh         chan struct{}         // signal to stop the ticker when room is closed
 	TurnEndsAt      time.Time             `json:"-"`
 	News            []NewsItem            `json:"-"`
 	PlanetOrder     []string              `json:"-"`
@@ -142,6 +144,7 @@ type PersistedPlayer struct {
 	Inventory         map[string]int
 	InventoryAvgCost  map[string]int
 	Ready             bool
+	EndGame           bool
 	Modals            []ModalItem
 	Fuel              int
 	Bankrupt          bool
@@ -236,6 +239,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					Inventory:         cloneIntMap(p.Inventory),
 					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 					Ready:             p.Ready,
+					EndGame:           p.EndGame,
 					Modals:            cloneModals(p.Modals),
 					Fuel:              p.Fuel,
 					Bankrupt:          p.Bankrupt,
@@ -249,6 +253,10 @@ func (gs *GameServer) readLoop(p *Player) {
 					ActionHistory:     cloneActionHistory(p.ActionHistory),
 				}
 				delete(room.Players, p.ID)
+
+				// Check if room is now empty
+				isEmpty := len(room.Players) == 0
+
 				// If no humans remain, signal the ticker to end the current turn early
 				if room.Started {
 					hasHuman := false
@@ -266,7 +274,20 @@ func (gs *GameServer) readLoop(p *Player) {
 					}
 				}
 				room.mu.Unlock()
-				gs.broadcastRoom(room)
+
+				// If room is empty, close it to stop the ticker and clean up
+				if isEmpty {
+					gs.roomsMu.Lock()
+					delete(gs.rooms, room.ID)
+					gs.roomsMu.Unlock()
+					// Signal ticker to stop
+					select {
+					case room.closeCh <- struct{}{}:
+					default:
+					}
+				} else {
+					gs.broadcastRoom(room)
+				}
 			}
 		}
 	}()
@@ -278,6 +299,15 @@ func (gs *GameServer) readLoop(p *Player) {
 			return
 		}
 		switch msg.Type {
+		case "ping":
+			// Respond to ping with pong for connection keepalive
+			p.writeMu.Lock()
+			err := p.conn.WriteJSON(WSOut{Type: "pong"})
+			p.writeMu.Unlock()
+			if err != nil {
+				log.Printf("Error sending pong to player %s: %v", p.ID, err)
+				return
+			}
 		case "connect":
 			// payload: {name}
 			var data struct {
@@ -517,6 +547,32 @@ func (gs *GameServer) readLoop(p *Player) {
 				room.mu.Unlock()
 				gs.broadcastRoom(room)
 			}
+		case "setEndGame":
+			var data struct {
+				EndGame bool `json:"endGame"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				room.mu.Lock()
+				p.EndGame = data.EndGame
+				// Check if all human players have toggled End Game
+				allEnd := true
+				for _, pl := range room.Players {
+					if pl.IsBot || pl.Bankrupt {
+						continue
+					}
+					if !pl.EndGame {
+						allEnd = false
+						break
+					}
+				}
+				room.mu.Unlock()
+				if allEnd {
+					gs.closeRoom(room.ID)
+				} else {
+					gs.broadcastRoom(room)
+				}
+			}
 		case "exitRoom":
 			if p.roomID != "" {
 				gs.exitRoom(p)
@@ -584,6 +640,7 @@ func (gs *GameServer) createRoom(name string) *Room {
 		Planets: defaultPlanets(),
 		Persist: map[PlayerID]*PersistedPlayer{},
 		readyCh: make(chan struct{}, 1),
+		closeCh: make(chan struct{}),
 	}
 	// Pre-randomize planet order and positions so the map is ready before game start
 	names := planetNames(room.Planets)
@@ -647,6 +704,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 			p.InventoryAvgCost = cloneIntMap(snap.InventoryAvgCost)
 		}
 		p.Ready = snap.Ready
+		p.EndGame = false // Always reset EndGame state when joining a new room
 		p.Modals = append([]ModalItem(nil), snap.Modals...)
 		if snap.Fuel > 0 {
 			p.Fuel = snap.Fuel
@@ -670,6 +728,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.CurrentPlanet = "Earth"
 		p.DestinationPlanet = ""
 		p.Ready = false
+		p.EndGame = false // Always start with EndGame false in new rooms
 		p.Fuel = fuelCapacity
 		p.Inventory = map[string]int{}
 		p.InventoryAvgCost = map[string]int{}
@@ -714,6 +773,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		Inventory:         cloneIntMap(p.Inventory),
 		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
 		Ready:             p.Ready,
+		EndGame:           p.EndGame,
 		Fuel:              p.Fuel,
 		Bankrupt:          p.Bankrupt,
 		InTransit:         p.InTransit,
@@ -727,6 +787,10 @@ func (gs *GameServer) exitRoom(p *Player) {
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
+
+	// Check if room is now empty and should be cleaned up
+	isEmpty := len(room.Players) == 0
+
 	// If game running and no humans remain, prompt the ticker to end turn now
 	if room.Started {
 		hasHuman := false
@@ -744,7 +808,21 @@ func (gs *GameServer) exitRoom(p *Player) {
 		}
 	}
 	room.mu.Unlock()
-	gs.broadcastRoom(room)
+
+	// If room is empty, close it to stop the ticker and clean up
+	if isEmpty {
+		gs.roomsMu.Lock()
+		delete(gs.rooms, room.ID)
+		gs.roomsMu.Unlock()
+		// Signal ticker to stop
+		select {
+		case room.closeCh <- struct{}{}:
+		default:
+		}
+	} else {
+		gs.broadcastRoom(room)
+	}
+
 	// send them back to the lobby
 	if p.conn != nil {
 		gs.sendLobbyState(p)
@@ -863,9 +941,14 @@ func (gs *GameServer) runTicker(room *Room) {
 
 		if onlyBots {
 			// Skip the long timer; tiny pause to avoid a tight CPU loop
-			time.Sleep(150 * time.Millisecond)
+			select {
+			case <-room.closeCh:
+				return // Room is being closed, exit ticker
+			case <-time.After(150 * time.Millisecond):
+				// Continue to next iteration
+			}
 		} else {
-			// Wait for either timer or early ready signal
+			// Wait for either timer or early ready signal or close signal
 			timer := time.NewTimer(base)
 			select {
 			case <-timer.C:
@@ -875,6 +958,11 @@ func (gs *GameServer) runTicker(room *Room) {
 				if !timer.Stop() {
 					<-timer.C
 				}
+			case <-room.closeCh:
+				if !timer.Stop() {
+					<-timer.C
+				}
+				return // Room is being closed, exit ticker
 			}
 		}
 		// Process end-of-turn effects and start the next turn
@@ -1746,6 +1834,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			"currentPlanet":     pp.CurrentPlanet,
 			"destinationPlanet": pp.DestinationPlanet,
 			"ready":             pp.Ready,
+			"endGame":           pp.EndGame,
 			"bankrupt":          pp.Bankrupt,
 		})
 	}
@@ -1830,6 +1919,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"currentPlanet":     pp.CurrentPlanet,
 					"destinationPlanet": "",
 					"ready":             false,
+					"endGame":           false,
 					"fuel":              0,
 					"inTransit":         false,
 					"transitFrom":       "",
@@ -1945,6 +2035,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"currentPlanet":     pp.CurrentPlanet,
 				"destinationPlanet": pp.DestinationPlanet,
 				"ready":             pp.Ready,
+				"endGame":           pp.EndGame,
 				"fuel":              pp.Fuel,
 				"inTransit":         pp.InTransit,
 				"transitFrom":       pp.TransitFrom,
@@ -1977,6 +2068,50 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 }
 
 func (gs *GameServer) broadcastRoom(room *Room) { gs.sendRoomState(room, nil) }
+
+// closeRoom ejects all players to the lobby and deletes the room
+func (gs *GameServer) closeRoom(roomID string) {
+	room := gs.getRoom(roomID)
+	if room == nil {
+		return
+	}
+
+	// Signal the ticker to stop
+	room.mu.Lock()
+	select {
+	case room.closeCh <- struct{}{}:
+	default:
+	}
+	room.mu.Unlock()
+
+	// Snapshot players to notify after deletion
+	room.mu.Lock()
+	players := make([]*Player, 0, len(room.Players))
+	for _, pl := range room.Players {
+		players = append(players, pl)
+	}
+	room.mu.Unlock()
+
+	// Remove room from registry
+	gs.roomsMu.Lock()
+	delete(gs.rooms, roomID)
+	gs.roomsMu.Unlock()
+
+	// Reset player state and send them to lobby
+	for _, pl := range players {
+		pl.roomID = ""
+		pl.InTransit = false
+		pl.DestinationPlanet = ""
+		pl.TransitFrom = ""
+		pl.TransitRemaining = 0
+		pl.TransitTotal = 0
+		pl.Ready = false
+		pl.EndGame = false
+		if pl.conn != nil {
+			gs.sendLobbyState(pl)
+		}
+	}
+}
 
 func planetNames(m map[string]*Planet) []string {
 	keys := make([]string, 0, len(m))
