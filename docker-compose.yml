@@ -18,7 +18,7 @@ services:
       - TLS_ONLY=false
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "--spider", "-q", "https://localhost:8443/rooms"]
+      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/rooms"]
       interval: 30s
       timeout: 5s
       retries: 3
