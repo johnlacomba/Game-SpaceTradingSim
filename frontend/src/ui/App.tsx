@@ -999,7 +999,7 @@ export function App() {
               <div className="panel" style={{ 
                 position: 'absolute', 
                 top: '100%', 
-                right: isMobile ? 16 : 'auto',
+                right: isMobile ? 0 : 'auto',
                 left: isMobile ? 'auto' : 0, 
                 marginTop: 6, 
                 padding: 12, 
