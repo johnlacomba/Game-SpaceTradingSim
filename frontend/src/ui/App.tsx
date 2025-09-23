@@ -419,7 +419,7 @@ export function App() {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
     const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     const port = protocol === 'wss:' ? '8443' : '8080'
-    setUrl(`${protocol}//${host}:${port}/ws`)
+    setUrl(`${protocol}//${host}/ws`)
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
