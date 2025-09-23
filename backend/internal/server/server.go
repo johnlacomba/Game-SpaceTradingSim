@@ -299,6 +299,15 @@ func (gs *GameServer) readLoop(p *Player) {
 			return
 		}
 		switch msg.Type {
+		case "ping":
+			// Respond to ping with pong for connection keepalive
+			p.writeMu.Lock()
+			err := p.conn.WriteJSON(WSOut{Type: "pong"})
+			p.writeMu.Unlock()
+			if err != nil {
+				log.Printf("Error sending pong to player %s: %v", p.ID, err)
+				return
+			}
 		case "connect":
 			// payload: {name}
 			var data struct {

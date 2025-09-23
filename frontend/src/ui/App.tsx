@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -41,11 +41,72 @@ function useWS(url: string | null) {
   const [ready, setReady] = useState(false)
   const [messages, setMessages] = useState<WSOut[]>([])
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!url) return
+  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected')
+  
+  // Reconnection state
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  const maxReconnectAttempts = 10
+  const baseReconnectDelay = 1000 // Start with 1 second
+  const maxReconnectDelay = 30000 // Max 30 seconds
+  const shouldReconnectRef = useRef(true)
+  const lastMessageTimeRef = useRef<number>(0)
+  
+  // Heartbeat/ping mechanism
+  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  const calculateReconnectDelay = () => {
+    const delay = Math.min(
+      baseReconnectDelay * Math.pow(2, reconnectAttemptsRef.current),
+      maxReconnectDelay
+    )
+    // Add some jitter to prevent thundering herd
+    return delay + Math.random() * 1000
+  }
+  
+  const startHeartbeat = () => {
+    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current)
     
-    console.log('Attempting WebSocket connection to:', url)
+    heartbeatIntervalRef.current = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        // Send ping and expect pong within 10 seconds
+        wsRef.current.send(JSON.stringify({ type: 'ping' }))
+        
+        if (heartbeatTimeoutRef.current) clearTimeout(heartbeatTimeoutRef.current)
+        heartbeatTimeoutRef.current = setTimeout(() => {
+          console.log('Heartbeat timeout - connection appears dead, reconnecting...')
+          if (wsRef.current) {
+            wsRef.current.close()
+          }
+        }, 10000)
+      }
+    }, 30000) // Send ping every 30 seconds
+  }
+  
+  const stopHeartbeat = () => {
+    if (heartbeatIntervalRef.current) {
+      clearInterval(heartbeatIntervalRef.current)
+      heartbeatIntervalRef.current = null
+    }
+    if (heartbeatTimeoutRef.current) {
+      clearTimeout(heartbeatTimeoutRef.current)
+      heartbeatTimeoutRef.current = null
+    }
+  }
+  
+  const connect = useCallback(() => {
+    if (!url || !shouldReconnectRef.current) return
+    
+    if (wsRef.current?.readyState === WebSocket.CONNECTING || 
+        wsRef.current?.readyState === WebSocket.OPEN) {
+      return // Already connecting or connected
+    }
+    
+    console.log('Attempting WebSocket connection to:', url, 
+      reconnectAttemptsRef.current > 0 ? `(attempt ${reconnectAttemptsRef.current + 1})` : '')
+    
+    setConnectionState('connecting')
     setError(null)
     
     const ws = new WebSocket(url)
@@ -55,41 +116,211 @@ function useWS(url: string | null) {
       console.log('WebSocket connected successfully')
       setReady(true)
       setError(null)
+      setConnectionState('connected')
+      reconnectAttemptsRef.current = 0 // Reset on successful connection
+      lastMessageTimeRef.current = Date.now()
+      startHeartbeat()
     }
     
     ws.onclose = (event) => {
       console.log('WebSocket closed:', event.code, event.reason)
       setReady(false)
-      if (event.code !== 1000) { // Not a normal closure
+      setConnectionState('disconnected')
+      stopHeartbeat()
+      
+      if (shouldReconnectRef.current && event.code !== 1000) { // Not a normal closure
+        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+          const delay = calculateReconnectDelay()
+          console.log(`Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
+          
+          setConnectionState('reconnecting')
+          setError(`Connection lost. Reconnecting in ${Math.round(delay/1000)}s... (${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            reconnectAttemptsRef.current++
+            connect()
+          }, delay)
+        } else {
+          setError('Connection failed after multiple attempts. Please refresh the page.')
+          setConnectionState('disconnected')
+        }
+      } else if (event.code !== 1000) {
         setError(`Connection closed: ${event.reason || 'Unknown reason'}`)
       }
     }
     
     ws.onerror = (event) => {
       console.error('WebSocket error:', event)
-      setError('WebSocket connection failed. Check if the server is running and certificates are valid.')
+      if (reconnectAttemptsRef.current === 0) {
+        setError('WebSocket connection failed. Check if the server is running and certificates are valid.')
+      }
     }
     
     ws.onmessage = (ev) => {
-      try { 
-        setMessages(m => [...m, JSON.parse(ev.data)]) 
+      try {
+        const message = JSON.parse(ev.data)
+        lastMessageTimeRef.current = Date.now()
+        
+        // Handle pong response
+        if (message.type === 'pong') {
+          if (heartbeatTimeoutRef.current) {
+            clearTimeout(heartbeatTimeoutRef.current)
+            heartbeatTimeoutRef.current = null
+          }
+          return
+        }
+        
+        setMessages(m => [...m, message])
       } catch (err) {
         console.error('Failed to parse WebSocket message:', err)
       }
     }
-    
-    return () => { 
-      ws.close(); 
-      wsRef.current = null 
-    }
   }, [url])
+  
+  // Initial connection and cleanup
+  useEffect(() => {
+    shouldReconnectRef.current = true
+    connect()
+    
+    return () => {
+      shouldReconnectRef.current = false
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      stopHeartbeat()
+      if (wsRef.current) {
+        wsRef.current.close(1000, 'Component unmounting')
+        wsRef.current = null
+      }
+    }
+  }, [connect])
 
   const send = useMemo(() => (type: string, payload?: any) => {
-    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+      console.warn(`Cannot send message '${type}' - WebSocket not ready. State:`, 
+        wsRef.current?.readyState === WebSocket.CONNECTING ? 'connecting' :
+        wsRef.current?.readyState === WebSocket.CLOSING ? 'closing' :
+        wsRef.current?.readyState === WebSocket.CLOSED ? 'closed' : 'unknown')
+      return false
+    }
     wsRef.current.send(JSON.stringify({ type, payload }))
+    return true
   }, [])
 
-  return { ready, messages, send, error }
+  // Manual reconnect function
+  const reconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
+    }
+    reconnectAttemptsRef.current = 0
+    shouldReconnectRef.current = true
+    
+    if (wsRef.current) {
+      wsRef.current.close()
+    }
+    
+    setTimeout(connect, 100)
+  }, [connect])
+
+  return { 
+    ready, 
+    messages, 
+    send, 
+    error, 
+    connectionState,
+    reconnect,
+    isReconnecting: connectionState === 'reconnecting'
+  }
+}
+
+// Connection Status Component
+function ConnectionStatus({ 
+  connectionState, 
+  isReconnecting, 
+  error, 
+  reconnect, 
+  isMobile 
+}: { 
+  connectionState: string
+  isReconnecting: boolean
+  error: string | null
+  reconnect: () => void
+  isMobile: boolean
+}) {
+  if (connectionState === 'connected') return null
+  
+  const getStatusInfo = () => {
+    switch (connectionState) {
+      case 'connecting':
+        return { icon: '🔄', text: 'Connecting...', color: '#3b82f6' }
+      case 'reconnecting':
+        return { icon: '🔄', text: 'Reconnecting...', color: '#f59e0b' }
+      case 'disconnected':
+        return { icon: '🔴', text: 'Disconnected', color: '#ef4444' }
+      default:
+        return { icon: '❓', text: 'Unknown', color: '#6b7280' }
+    }
+  }
+  
+  const status = getStatusInfo()
+  
+  return (
+    <div style={{
+      position: 'fixed',
+      top: isMobile ? 16 : 20,
+      right: isMobile ? 16 : 20,
+      background: 'rgba(0, 0, 0, 0.8)',
+      backdropFilter: 'blur(10px)',
+      border: `1px solid ${status.color}`,
+      borderRadius: isMobile ? 12 : 8,
+      padding: isMobile ? '12px 16px' : '8px 12px',
+      zIndex: 9999,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      fontSize: isMobile ? '14px' : '12px',
+      color: 'white',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
+    }}>
+      <span style={{ 
+        fontSize: isMobile ? '16px' : '14px',
+        animation: isReconnecting ? 'spin 1s linear infinite' : 'none'
+      }}>
+        {status.icon}
+      </span>
+      <span style={{ color: status.color, fontWeight: 500 }}>
+        {status.text}
+      </span>
+      {error && connectionState === 'disconnected' && (
+        <button
+          onClick={reconnect}
+          style={{
+            marginLeft: 8,
+            padding: isMobile ? '6px 12px' : '4px 8px',
+            fontSize: isMobile ? '12px' : '11px',
+            background: status.color,
+            border: 'none',
+            borderRadius: 4,
+            color: 'white',
+            cursor: 'pointer',
+            fontWeight: 500
+          }}
+        >
+          Retry
+        </button>
+      )}
+      <style>
+        {`
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        `}
+      </style>
+    </div>
+  )
 }
 
 function NewsTicker({ items }: { items: string[] }) {
@@ -296,7 +527,7 @@ export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
-  const { ready, messages, send, error } = useWS(url)
+  const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -833,6 +1064,15 @@ export function App() {
             }
           `}
         </style>
+
+        {/* Connection Status */}
+        <ConnectionStatus 
+          connectionState={connectionState}
+          isReconnecting={isReconnecting}
+          error={error}
+          reconnect={reconnect}
+          isMobile={isMobile}
+        />
       </div>
     )
   }
@@ -1124,6 +1364,15 @@ export function App() {
             </p>
           </div>
         </div>
+
+        {/* Connection Status */}
+        <ConnectionStatus 
+          connectionState={connectionState}
+          isReconnecting={isReconnecting}
+          error={error}
+          reconnect={reconnect}
+          isMobile={isMobile}
+        />
       </div>
     )
   }
@@ -1979,6 +2228,15 @@ export function App() {
       </div>
     )}
   </div>
+
+    {/* Connection Status */}
+    <ConnectionStatus 
+      connectionState={connectionState}
+      isReconnecting={isReconnecting}
+      error={error}
+      reconnect={reconnect}
+      isMobile={isMobile}
+    />
     </div>
   )
 }
