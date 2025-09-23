@@ -16,8 +16,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o space-trader-serv
 # Final stage
 FROM alpine:latest
 
-# Install ca-certificates for SSL
-RUN apk --no-cache add ca-certificates curl
+# Install ca-certificates for SSL and wget for health checks
+RUN apk --no-cache add ca-certificates wget
 
 WORKDIR /app
 
