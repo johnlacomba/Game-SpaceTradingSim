@@ -19,17 +19,48 @@ function useWS(url: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
   const [ready, setReady] = useState(false)
   const [messages, setMessages] = useState<WSOut[]>([])
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!url) return
+    
+    console.log('Attempting WebSocket connection to:', url)
+    setError(null)
+    
     const ws = new WebSocket(url)
     wsRef.current = ws
-    ws.onopen = () => setReady(true)
-    ws.onclose = () => { setReady(false) }
-    ws.onmessage = (ev) => {
-      try { setMessages(m => [...m, JSON.parse(ev.data)]) } catch {}
+    
+    ws.onopen = () => {
+      console.log('WebSocket connected successfully')
+      setReady(true)
+      setError(null)
     }
-    return () => { ws.close(); wsRef.current = null }
+    
+    ws.onclose = (event) => {
+      console.log('WebSocket closed:', event.code, event.reason)
+      setReady(false)
+      if (event.code !== 1000) { // Not a normal closure
+        setError(`Connection closed: ${event.reason || 'Unknown reason'}`)
+      }
+    }
+    
+    ws.onerror = (event) => {
+      console.error('WebSocket error:', event)
+      setError('WebSocket connection failed. Check if the server is running and certificates are valid.')
+    }
+    
+    ws.onmessage = (ev) => {
+      try { 
+        setMessages(m => [...m, JSON.parse(ev.data)]) 
+      } catch (err) {
+        console.error('Failed to parse WebSocket message:', err)
+      }
+    }
+    
+    return () => { 
+      ws.close(); 
+      wsRef.current = null 
+    }
   }, [url])
 
   const send = useMemo(() => (type: string, payload?: any) => {
@@ -37,7 +68,7 @@ function useWS(url: string | null) {
     wsRef.current.send(JSON.stringify({ type, payload }))
   }, [])
 
-  return { ready, messages, send }
+  return { ready, messages, send, error }
 }
 
 function NewsTicker({ items }: { items: string[] }) {
@@ -243,7 +274,7 @@ export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
-  const { ready, messages, send } = useWS(url)
+  const { ready, messages, send, error } = useWS(url)
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -377,8 +408,18 @@ export function App() {
 
   // Actions
   const onConnect = () => {
-  const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-  setUrl(`ws://${host}:8080/ws`)
+    // Use environment variable if available, otherwise detect from current location
+    const wsUrl = import.meta.env.VITE_WS_URL
+    if (wsUrl) {
+      setUrl(wsUrl)
+      return
+    }
+    
+    // Fallback to automatic detection
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+    const protocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const port = protocol === 'wss:' ? '8443' : '8080'
+    setUrl(`${protocol}//${host}:${port}/ws`)
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
@@ -527,8 +568,29 @@ export function App() {
     return (
       <div style={{ padding: 24 }}>
         <h1 className="glow">Space Trader</h1>
+        
+        {import.meta.env.VITE_DEV_MODE === 'true' && (
+          <div style={{ marginBottom: 16, padding: 12, backgroundColor: '#4444ff', color: 'white', borderRadius: 4, fontSize: '0.9em' }}>
+            <strong>Development Mode:</strong> If you see certificate warnings, you may need to:
+            <br />• Visit <a href="https://localhost:8443/rooms" target="_blank" style={{ color: '#ccddff' }}>https://localhost:8443/rooms</a> and accept the self-signed certificate
+            <br />• Or run the servers with HTTP fallback for testing
+          </div>
+        )}
+        
         <input placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />
         <button onClick={onConnect} style={{ marginLeft: 8 }}>Connect</button>
+        
+        {error && (
+          <div style={{ marginTop: 16, padding: 12, backgroundColor: '#ff4444', color: 'white', borderRadius: 4 }}>
+            <strong>Connection Error:</strong> {error}
+          </div>
+        )}
+        
+        {url && (
+          <div style={{ marginTop: 8, fontSize: '0.8em', color: '#666' }}>
+            Connecting to: {url}
+          </div>
+        )}
       </div>
     )
   }

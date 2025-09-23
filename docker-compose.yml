@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # Space Trader Backend
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./backend/certs:/app/certs:ro
+    environment:
+      - TLS_ONLY=true
+      - HTTPS_PORT=8443
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:8443/rooms"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Nginx reverse proxy for frontend
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # Let's Encrypt certificate manager (optional)
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - ./ssl:/etc/letsencrypt
+      - ./frontend/dist:/var/www/html
+    command: certonly --webroot --webroot-path=/var/www/html --email your-email@domain.com --agree-tos --no-eff-email -d your-domain.com
+    profiles:
+      - ssl-setup

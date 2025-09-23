@@ -1,14 +1,26 @@
 package main
 
 import (
+	"crypto/tls"
+	"flag"
 	"log"
 	"net/http"
+	"os"
 
 	srv "github.com/example/space-trader/internal/server"
 	"github.com/gorilla/mux"
 )
 
 func main() {
+	var (
+		httpPort  = flag.String("http-port", "8080", "HTTP port")
+		httpsPort = flag.String("https-port", "8443", "HTTPS port")
+		certFile  = flag.String("cert", "", "Path to certificate file")
+		keyFile   = flag.String("key", "", "Path to private key file")
+		tlsOnly   = flag.Bool("tls-only", false, "Only serve HTTPS")
+	)
+	flag.Parse()
+
 	r := mux.NewRouter()
 
 	gs := srv.NewGameServer()
@@ -29,7 +41,92 @@ func main() {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 
-	addr := ":8080"
-	log.Printf("Space Trader backend listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, r))
+	// Add CORS headers for HTTPS
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
+
+	// Determine certificate paths
+	var certPath, keyPath string
+	if *certFile != "" && *keyFile != "" {
+		certPath = *certFile
+		keyPath = *keyFile
+	} else {
+		// Default to generated certificates relative to working directory
+		certPath = "certs/server-san.crt"
+		keyPath = "certs/server-san.key"
+	}
+
+	// Check if certificates exist
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		log.Printf("Certificate file not found at %s", certPath)
+		if !*tlsOnly {
+			log.Printf("Falling back to HTTP only on port %s", *httpPort)
+			log.Fatal(http.ListenAndServe(":"+*httpPort, r))
+		} else {
+			log.Fatal("TLS-only mode enabled but certificates not found")
+		}
+	}
+
+	// Configure TLS
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+
+	// Start HTTPS server
+	go func() {
+		httpsAddr := ":" + *httpsPort
+		log.Printf("Space Trader backend (HTTPS) listening on %s", httpsAddr)
+
+		server := &http.Server{
+			Addr:      httpsAddr,
+			Handler:   r,
+			TLSConfig: tlsConfig,
+		}
+
+		if err := server.ListenAndServeTLS(certPath, keyPath); err != nil {
+			log.Fatal("HTTPS server failed:", err)
+		}
+	}()
+
+	// Start HTTP server (redirect to HTTPS) unless TLS-only mode
+	if !*tlsOnly {
+		httpAddr := ":" + *httpPort
+		log.Printf("Space Trader backend (HTTP->HTTPS redirect) listening on %s", httpAddr)
+
+		// HTTP server that redirects to HTTPS
+		httpServer := &http.Server{
+			Addr: httpAddr,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				httpsURL := "https://" + r.Host
+				if *httpsPort != "443" {
+					httpsURL += ":" + *httpsPort
+				}
+				httpsURL += r.RequestURI
+
+				http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
+			}),
+		}
+
+		log.Fatal(httpServer.ListenAndServe())
+	} else {
+		// Block forever
+		select {}
+	}
 }
