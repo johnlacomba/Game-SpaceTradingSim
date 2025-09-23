@@ -23,20 +23,28 @@ console.log('Auth mode check:', {
 
 // Configure Amplify only in production mode or when explicitly enabled
 if (!isDevMode) {
-  Amplify.configure({
-    Auth: {
-      Cognito: {
-        userPoolId: awsConfig.userPoolId,
-        userPoolClientId: awsConfig.userPoolWebClientId,
-        identityPoolId: awsConfig.identityPoolId,
-        loginWith: {
-          oauth: awsConfig.oauth,
-          username: true,
-          email: true
+  console.log('Configuring Amplify with:', awsConfig);
+  try {
+    Amplify.configure({
+      Auth: {
+        Cognito: {
+          userPoolId: awsConfig.userPoolId,
+          userPoolClientId: awsConfig.userPoolWebClientId,
+          identityPoolId: awsConfig.identityPoolId,
+          loginWith: {
+            oauth: awsConfig.oauth,
+            username: true,
+            email: true
+          }
         }
       }
-    }
-  });
+    });
+    console.log('Amplify configured successfully');
+  } catch (error) {
+    console.error('Error configuring Amplify:', error);
+  }
+} else {
+  console.log('Using development mode - Amplify not configured');
 }
 
 interface User {
@@ -139,11 +147,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const checkAuthState = async () => {
+    console.log('Checking auth state, isDevMode:', isDevMode);
     if (isDevMode) return mockCheckAuthState();
+    
     try {
-      const currentUser = await getCurrentUser();
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Auth check timeout')), 5000)
+      );
+      
+      const authPromise = getCurrentUser();
+      const currentUser = await Promise.race([authPromise, timeoutPromise]) as any;
+      
+      console.log('Current user:', currentUser);
       if (currentUser) {
         const userAttributes = await fetchUserAttributes();
+        console.log('User attributes:', userAttributes);
         setUser({
           username: currentUser.username,
           email: userAttributes.email || '',
@@ -154,9 +173,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(null);
       }
     } catch (error) {
-      console.log('No authenticated user found');
+      console.log('No authenticated user found or auth error:', error);
       setUser(null);
     } finally {
+      console.log('Setting loading to false');
       setLoading(false);
     }
   };

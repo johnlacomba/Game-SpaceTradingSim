@@ -854,6 +854,9 @@ export function App() {
   const [showLogin, setShowLogin] = useState(false)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  
+  // Debug auth state
+  console.log('Auth state:', { user, authLoading });
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -1363,7 +1366,10 @@ export function App() {
                 </div>
                 
                 <button 
-                  onClick={() => setShowLogin(true)}
+                  onClick={() => {
+                    console.log('Sign In button clicked!');
+                    setShowLogin(true);
+                  }}
                   disabled={authLoading}
                   style={{ 
                     padding: isMobile ? '16px 32px' : '12px 24px',
