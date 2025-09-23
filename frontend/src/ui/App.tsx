@@ -393,7 +393,328 @@ function NewsTicker({ items }: { items: string[] }) {
 
 // Wealth charts: visualize player wealth over turns and recent shifts
 type WealthHistory = { roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }
-function WealthCharts({ history }: { history: WealthHistory }) {
+
+// Calculate total wealth for a player including cash and inventory value
+function calculatePlayerWealth(player: any): { cash: number; inventoryValue: number; upgradeValue: number; total: number } {
+  const cash = player.money || 0
+  
+  // Calculate inventory value using average cost
+  let inventoryValue = 0
+  if (player.inventory && player.inventoryAvgCost) {
+    Object.keys(player.inventory).forEach(good => {
+      const quantity = player.inventory[good] || 0
+      const avgCost = player.inventoryAvgCost[good] || 0
+      inventoryValue += quantity * avgCost
+    })
+  }
+  
+  // For now, upgrade value is estimated based on player progression
+  // This could be enhanced with actual upgrade tracking from the backend
+  const upgradeValue = Math.max(0, (player.capacity || 200) - 200) * 50 + 
+                      Math.max(0, (player.fuelCapacity || 100) - 100) * 30 +
+                      Math.max(0, (player.speed || 1) - 1) * 100
+  
+  const total = cash + inventoryValue + upgradeValue
+  
+  return { cash, inventoryValue, upgradeValue, total }
+}
+
+// Pie Chart Component for wealth distribution
+function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boolean }) {
+  if (!players || players.length === 0) {
+    return <div>No player data available.</div>
+  }
+
+  // Calculate wealth for all players
+  const playerWealth = players.map(player => {
+    const wealth = calculatePlayerWealth(player)
+    return {
+      id: player.id,
+      name: player.name,
+      ...wealth,
+      color: (() => {
+        let h = 0
+        for (let i = 0; i < player.id.length; i++) h = (h * 31 + player.id.charCodeAt(i)) % 360
+        return `hsl(${h},70%,45%)`
+      })()
+    }
+  }).filter(p => p.total > 0) // Only include players with wealth
+
+  if (playerWealth.length === 0) {
+    return <div>No wealth data available.</div>
+  }
+
+  const totalWealth = playerWealth.reduce((sum, p) => sum + p.total, 0)
+  
+  // Calculate pie chart segments
+  let currentAngle = 0
+  const segments = playerWealth.map(player => {
+    const percentage = (player.total / totalWealth) * 100
+    const angle = (player.total / totalWealth) * 360
+    const startAngle = currentAngle
+    const endAngle = currentAngle + angle
+    currentAngle = endAngle
+
+    // Calculate path for pie slice
+    const centerX = 150
+    const centerY = 150
+    const radius = 120
+    
+    const startAngleRad = (startAngle * Math.PI) / 180
+    const endAngleRad = (endAngle * Math.PI) / 180
+    
+    const x1 = centerX + radius * Math.cos(startAngleRad)
+    const y1 = centerY + radius * Math.sin(startAngleRad)
+    const x2 = centerX + radius * Math.cos(endAngleRad)
+    const y2 = centerY + radius * Math.sin(endAngleRad)
+    
+    const largeArcFlag = angle > 180 ? 1 : 0
+    
+    const pathData = [
+      `M ${centerX} ${centerY}`,
+      `L ${x1} ${y1}`,
+      `A ${radius} ${radius} 0 ${largeArcFlag} 1 ${x2} ${y2}`,
+      'Z'
+    ].join(' ')
+
+    return {
+      ...player,
+      percentage,
+      angle,
+      pathData,
+      startAngle,
+      endAngle
+    }
+  })
+
+  return (
+    <div style={{ 
+      display: 'flex', 
+      flexDirection: isMobile ? 'column' : 'row',
+      gap: isMobile ? 16 : 24,
+      alignItems: isMobile ? 'center' : 'flex-start'
+    }}>
+      {/* Pie Chart */}
+      <div style={{ flex: 'none' }}>
+        <svg width={isMobile ? 280 : 300} height={isMobile ? 280 : 300} viewBox="0 0 300 300">
+          {segments.map((segment, index) => (
+            <g key={segment.id}>
+              <path
+                d={segment.pathData}
+                fill={segment.color}
+                stroke="rgba(255, 255, 255, 0.1)"
+                strokeWidth="2"
+                style={{
+                  filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.filter = 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3))'
+                  e.currentTarget.style.transform = 'scale(1.02)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.filter = 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
+                  e.currentTarget.style.transform = 'scale(1)'
+                }}
+              />
+              {/* Percentage label */}
+              {segment.percentage > 5 && (
+                <text
+                  x={150 + 80 * Math.cos(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                  y={150 + 80 * Math.sin(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  fill="white"
+                  fontSize={isMobile ? "12" : "14"}
+                  fontWeight="600"
+                  style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
+                >
+                  {segment.percentage.toFixed(1)}%
+                </text>
+              )}
+            </g>
+          ))}
+          
+          {/* Center title */}
+          <text
+            x="150"
+            y="145"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="rgba(255, 255, 255, 0.8)"
+            fontSize={isMobile ? "12" : "14"}
+            fontWeight="600"
+          >
+            Total Wealth
+          </text>
+          <text
+            x="150"
+            y="160"
+            textAnchor="middle"
+            dominantBaseline="middle"
+            fill="rgba(255, 255, 255, 0.6)"
+            fontSize={isMobile ? "11" : "12"}
+          >
+            ${totalWealth.toLocaleString()}
+          </text>
+        </svg>
+      </div>
+
+      {/* Legend and Details */}
+      <div style={{ 
+        flex: 1,
+        minWidth: isMobile ? '100%' : 300
+      }}>
+        <h4 style={{
+          margin: '0 0 16px 0',
+          fontSize: isMobile ? '1.1rem' : '1.2rem',
+          color: 'white',
+          fontWeight: 600
+        }}>
+          Wealth Distribution
+        </h4>
+        
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12
+        }}>
+          {segments
+            .sort((a, b) => b.total - a.total)
+            .map((player, index) => (
+            <div
+              key={player.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: isMobile ? 12 : 16,
+                background: 'rgba(255, 255, 255, 0.05)',
+                borderRadius: 8,
+                border: '1px solid rgba(255, 255, 255, 0.1)'
+              }}
+            >
+              {/* Color indicator */}
+              <div
+                style={{
+                  width: 16,
+                  height: 16,
+                  borderRadius: '50%',
+                  backgroundColor: player.color,
+                  flexShrink: 0
+                }}
+              />
+              
+              {/* Player info */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 4
+                }}>
+                  <span style={{
+                    fontWeight: 600,
+                    color: 'white',
+                    fontSize: isMobile ? '0.9rem' : '1rem'
+                  }}>
+                    {index + 1}. {player.name}
+                  </span>
+                  <span style={{
+                    fontWeight: 700,
+                    color: player.color,
+                    fontSize: isMobile ? '0.9rem' : '1rem'
+                  }}>
+                    ${player.total.toLocaleString()}
+                  </span>
+                </div>
+                
+                {/* Wealth breakdown */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr',
+                  gap: 8,
+                  fontSize: isMobile ? '0.75rem' : '0.8rem',
+                  color: 'rgba(255, 255, 255, 0.7)'
+                }}>
+                  <div>💰 Cash: ${player.cash.toLocaleString()}</div>
+                  <div>📦 Cargo: ${player.inventoryValue.toLocaleString()}</div>
+                  {!isMobile && <div>⚡ Upgrades: ${player.upgradeValue.toLocaleString()}</div>}
+                </div>
+                
+                {isMobile && player.upgradeValue > 0 && (
+                  <div style={{
+                    fontSize: '0.75rem',
+                    color: 'rgba(255, 255, 255, 0.7)',
+                    marginTop: 4
+                  }}>
+                    ⚡ Upgrades: ${player.upgradeValue.toLocaleString()}
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        {/* Summary stats */}
+        <div style={{
+          marginTop: 16,
+          padding: isMobile ? 12 : 16,
+          background: 'rgba(255, 255, 255, 0.03)',
+          borderRadius: 8,
+          border: '1px solid rgba(255, 255, 255, 0.1)'
+        }}>
+          <div style={{
+            fontSize: isMobile ? '0.8rem' : '0.9rem',
+            color: 'rgba(255, 255, 255, 0.8)',
+            lineHeight: 1.4
+          }}>
+            <div><strong>Wealth Leaders:</strong> {segments[0]?.name} (${segments[0]?.total.toLocaleString()})</div>
+            <div><strong>Average Wealth:</strong> ${Math.round(totalWealth / segments.length).toLocaleString()}</div>
+            <div><strong>Wealth Gap:</strong> {segments.length > 1 ? 
+              `${((segments[0]?.total / segments[segments.length - 1]?.total) || 1).toFixed(1)}x` : 'N/A'}</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function WealthCharts({ history, players, isMobile }: { history: WealthHistory, players?: any[], isMobile: boolean }) {
+  const entries = Object.entries(history.series)
+  const allPoints = entries.flatMap(([, s]) => s.points)
+  
+  // If we have current players, show wealth pie chart
+  if (players && players.length > 0) {
+    return (
+      <div>
+        <WealthPieChart players={players} isMobile={isMobile} />
+        {/* Show line chart below pie chart if we have historical data */}
+        {entries.length > 0 && allPoints.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <h3 style={{ 
+              margin: '0 0 16px 0', 
+              color: 'white',
+              fontSize: isMobile ? '1.1rem' : '1.3rem'
+            }}>
+              Wealth History
+            </h3>
+            <WealthLineChart history={history} isMobile={isMobile} />
+          </div>
+        )}
+      </div>
+    )
+  }
+  
+  // Fallback to line chart only if no current players
+  if (entries.length === 0 || allPoints.length === 0) {
+    return <div>No data yet. Play a few turns to see graphs.</div>
+  }
+  
+  return <WealthLineChart history={history} isMobile={isMobile} />
+}
+
+function WealthLineChart({ history, isMobile }: { history: WealthHistory, isMobile: boolean }) {
   const entries = Object.entries(history.series)
   const allPoints = entries.flatMap(([, s]) => s.points)
   if (entries.length === 0 || allPoints.length === 0) {
@@ -2223,7 +2544,11 @@ export function App() {
       <div style={{ padding: isMobile ? 12 : 16 }}>
         <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Wealth Over Time</h3>
         <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
-          <WealthCharts history={wealthHistory} />
+          <WealthCharts 
+            history={wealthHistory} 
+            players={r.room.players}
+            isMobile={isMobile}
+          />
         </div>
       </div>
     )}
