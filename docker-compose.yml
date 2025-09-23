@@ -31,11 +31,11 @@ services:
         reservations:
           memory: 256M
 
-  # Frontend Builder (builds the React app)
+  # Frontend Builder (builds the React app and exits)
   frontend-builder:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.build
+      dockerfile: Dockerfile.build-only
       args:
         - NODE_ENV=production
     volumes:

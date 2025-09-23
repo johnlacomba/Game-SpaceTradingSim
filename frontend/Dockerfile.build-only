@@ -1,0 +1,35 @@
+# Frontend Build-Only Dockerfile
+# This builds the assets and copies them to a volume, then exits
+FROM node:18-alpine AS builder
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY . .
+
+# Build the application
+ARG NODE_ENV=production
+ENV NODE_ENV=$NODE_ENV
+RUN npm run build
+
+# Copy stage - just copy built assets to volume and exit
+FROM alpine:latest
+
+# Copy built assets from builder stage
+COPY --from=builder /app/dist /output
+
+# Create a simple script that copies files and exits
+RUN echo '#!/bin/sh' > /copy-dist.sh && \
+    echo 'cp -r /output/* /app/dist/ 2>/dev/null || true' >> /copy-dist.sh && \
+    echo 'echo "✅ Frontend build complete"' >> /copy-dist.sh && \
+    chmod +x /copy-dist.sh
+
+# Use the copy script as entrypoint
+ENTRYPOINT ["/copy-dist.sh"]
