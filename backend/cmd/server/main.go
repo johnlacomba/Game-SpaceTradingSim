@@ -5,8 +5,8 @@ import (
 	"flag"
 	"log"
 	"net/http"
-	"os"
 	"net/url"
+	"os"
 
 	"github.com/example/space-trader/internal/auth"
 	srv "github.com/example/space-trader/internal/server"
