@@ -31,7 +31,24 @@ const turnDuration = 60 * time.Second
 const shipCapacity = 200 // maximum total units a ship can carry
 const fuelCapacity = 100 // maximum fuel units (distance units)
 
+// Bot names for variety
+var botNames = []string{
+	"Captain Nova", "Admiral Stardust", "Commander Vega", "Captain Nebula", "Admiral Comet",
+	"Captain Orion", "Commander Stellar", "Admiral Cosmos", "Captain Quasar", "Commander Galaxy",
+	"Captain Aurora", "Admiral Phoenix", "Commander Astro", "Captain Meteor", "Admiral Solar",
+	"Captain Luna", "Commander Titan", "Admiral Helios", "Captain Andromeda", "Commander Pulsar",
+	"Captain Rigel", "Admiral Draco", "Commander Sirius", "Captain Vortex", "Admiral Eclipse",
+	"Captain Zenith", "Commander Nexus", "Admiral Infinity", "Captain Paradox", "Commander Flux",
+}
+
 type PlayerID string
+
+// PriceMemory stores remembered prices from visited planets
+type PriceMemory struct {
+	Prices   map[string]int `json:"prices"`   // good -> price
+	Turn     int            `json:"turn"`     // when this was recorded
+	GoodsAvg int            `json:"goodsAvg"` // average availability when recorded
+}
 
 type Player struct {
 	ID                PlayerID        `json:"id"`
@@ -60,6 +77,8 @@ type Player struct {
 	FuelCapacityBonus int    `json:"-"`
 	// Recent actions (last 10)
 	ActionHistory []ActionLog `json:"-"`
+	// Bot-specific memory (only used by bots)
+	PriceMemory map[string]*PriceMemory `json:"-"` // planet -> price data
 }
 
 // ActionLog captures a brief recent action for audit/history
@@ -230,6 +249,7 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 		Inventory:         map[string]int{},
 		InventoryAvgCost:  map[string]int{},
 		Fuel:              fuelCapacity,
+		PriceMemory:       make(map[string]*PriceMemory),
 	}
 	p.conn = conn
 	go gs.readLoop(p)
@@ -785,6 +805,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.Bankrupt = snap.Bankrupt
 		// restore per-room action history
 		p.ActionHistory = cloneActionHistory(snap.ActionHistory)
+		// Initialize price memory for bots (important for restored bots)
+		if p.PriceMemory == nil {
+			p.PriceMemory = make(map[string]*PriceMemory)
+		}
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -807,6 +831,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.Bankrupt = false
 		// fresh room: clear per-room action history
 		p.ActionHistory = nil
+		// Initialize price memory
+		p.PriceMemory = make(map[string]*PriceMemory)
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -958,9 +984,31 @@ func (gs *GameServer) addBot(roomID string) {
 	if room == nil {
 		return
 	}
+
+	// Choose a random bot name that's not already taken
+	var botName string
+	usedNames := make(map[string]bool)
+	for _, p := range room.Players {
+		usedNames[p.Name] = true
+	}
+
+	availableNames := []string{}
+	for _, name := range botNames {
+		if !usedNames[name] {
+			availableNames = append(availableNames, name)
+		}
+	}
+
+	if len(availableNames) == 0 {
+		// Fallback if all names are taken
+		botName = "Bot " + randID()[0:3]
+	} else {
+		botName = availableNames[rand.Intn(len(availableNames))]
+	}
+
 	b := &Player{
 		ID:                PlayerID(randID()),
-		Name:              "Bot " + randID()[0:3],
+		Name:              botName,
 		Money:             1000,
 		CurrentPlanet:     "Earth",
 		DestinationPlanet: "",
@@ -969,6 +1017,7 @@ func (gs *GameServer) addBot(roomID string) {
 		Fuel:              fuelCapacity,
 		Ready:             true, // bots are always ready
 		IsBot:             true,
+		PriceMemory:       make(map[string]*PriceMemory),
 	}
 	b.roomID = room.ID
 	room.mu.Lock()
@@ -1259,7 +1308,111 @@ func (gs *GameServer) runTicker(room *Room) {
 				pl.Goods[g] = pl.Goods[g] + amt
 			}
 		}
-		// simple bot AI: sell when price > 50% of max, buy when price < 46% of max, pick a new random destination
+
+		// Bot helper functions
+		updateBotPriceMemory := func(bot *Player, planet *Planet, turn int) {
+			if bot.PriceMemory == nil {
+				bot.PriceMemory = make(map[string]*PriceMemory)
+			}
+
+			// Calculate average goods availability
+			totalGoods := 0
+			goodCount := 0
+			for _, qty := range planet.Goods {
+				totalGoods += qty
+				goodCount++
+			}
+			avgGoods := 0
+			if goodCount > 0 {
+				avgGoods = totalGoods / goodCount
+			}
+
+			bot.PriceMemory[bot.CurrentPlanet] = &PriceMemory{
+				Prices:   make(map[string]int),
+				Turn:     turn,
+				GoodsAvg: avgGoods,
+			}
+
+			for good, price := range planet.Prices {
+				bot.PriceMemory[bot.CurrentPlanet].Prices[good] = price
+			}
+		}
+
+		findBestTradingRoute := func(bot *Player, room *Room) string {
+			if len(bot.PriceMemory) < 2 {
+				// Not enough price data, pick random destination
+				return ""
+			}
+
+			bestDestination := ""
+			bestProfitPotential := 0.0
+			currentPlanet := room.Planets[bot.CurrentPlanet]
+			if currentPlanet == nil {
+				return ""
+			}
+
+			// Look for profitable opportunities based on remembered prices
+			for planetName, memory := range bot.PriceMemory {
+				if planetName == bot.CurrentPlanet {
+					continue // Skip current planet
+				}
+
+				// Calculate distance and check if reachable
+				distance := distanceUnits(room, bot.CurrentPlanet, planetName)
+				if distance > bot.Fuel {
+					continue // Can't reach
+				}
+
+				// Calculate potential profit based on price differences
+				profit := 0.0
+				opportunities := 0
+
+				// Check goods we can buy here and sell there
+				for good, currentPrice := range currentPlanet.Prices {
+					if currentGoods := currentPlanet.Goods[good]; currentGoods > 0 && currentPrice > 0 {
+						if rememberedPrice, exists := memory.Prices[good]; exists && rememberedPrice > currentPrice {
+							// We remember this good being more expensive there
+							profitMargin := float64(rememberedPrice - currentPrice)
+							// Weight by availability and freshness of memory
+							staleness := float64(room.Turn - memory.Turn + 1)
+							weightedProfit := profitMargin / staleness
+							profit += weightedProfit
+							opportunities++
+						}
+					}
+				}
+
+				// Check goods we have in inventory that might sell well there
+				for good, qty := range bot.Inventory {
+					if qty > 0 {
+						if rememberedPrice, exists := memory.Prices[good]; exists {
+							currentPrice := currentPlanet.Prices[good]
+							if rememberedPrice > currentPrice {
+								profitMargin := float64(rememberedPrice - currentPrice)
+								staleness := float64(room.Turn - memory.Turn + 1)
+								weightedProfit := profitMargin / staleness * float64(qty) * 0.5 // Lower weight for existing inventory
+								profit += weightedProfit
+								opportunities++
+							}
+						}
+					}
+				}
+
+				// Prefer routes with multiple opportunities
+				if opportunities > 0 {
+					profit = profit * (1.0 + float64(opportunities)*0.1)
+				}
+
+				if profit > bestProfitPotential {
+					bestProfitPotential = profit
+					bestDestination = planetName
+				}
+			}
+
+			return bestDestination
+		}
+
+		// Enhanced bot AI: remember prices and plan routes intelligently
 		for _, bp := range room.Players {
 			if !bp.IsBot {
 				continue
@@ -1272,17 +1425,46 @@ func (gs *GameServer) runTicker(room *Room) {
 			if planet == nil {
 				continue
 			}
+
+			// Update bot's price memory for current planet
+			updateBotPriceMemory(bp, planet, room.Turn)
+
+			// Use intelligent trading logic based on memory, fall back to simple logic
+			useIntelligentTrading := len(bp.PriceMemory) >= 2
 			// reference price ranges per good
 			ranges := defaultPriceRanges()
-			// sell when price is above 50% of max
+
+			// Enhanced selling logic using price memory
 			for g, qty := range bp.Inventory {
-				price := planet.Prices[g]
-				max := 0
-				if r, ok := ranges[g]; ok {
-					max = r[1]
+				if qty <= 0 {
+					continue
 				}
-				threshold := (max * 50) / 100
-				if qty > 0 && price > threshold {
+				price := planet.Prices[g]
+				shouldSell := false
+
+				if useIntelligentTrading {
+					// Check if this is a good price compared to what we remember
+					maxRememberedPrice := 0
+					for _, memory := range bp.PriceMemory {
+						if memPrice, exists := memory.Prices[g]; exists && memPrice > maxRememberedPrice {
+							maxRememberedPrice = memPrice
+						}
+					}
+					// Sell if current price is at least 80% of the best price we remember
+					if maxRememberedPrice > 0 && price >= int(float64(maxRememberedPrice)*0.8) {
+						shouldSell = true
+					}
+				} else {
+					// Fallback to original logic
+					max := 0
+					if r, ok := ranges[g]; ok {
+						max = r[1]
+					}
+					threshold := (max * 50) / 100
+					shouldSell = price > threshold
+				}
+
+				if shouldSell {
 					bp.Inventory[g] -= qty
 					planet.Goods[g] += qty
 					proceeds := qty * price
@@ -1359,7 +1541,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 			}
-			// buy only when price is below 46% of max — skip if still below fuel reserve
+			// Enhanced buying logic using price memory — skip if still below fuel reserve
 			if bp.Fuel >= minReserve {
 				keys := make([]string, 0, len(planet.Goods))
 				for k := range planet.Goods {
@@ -1371,18 +1553,41 @@ func (gs *GameServer) runTicker(room *Room) {
 					if price <= 0 {
 						continue
 					}
-					max := 0
-					if r, ok := ranges[g]; ok {
-						max = r[1]
+
+					shouldBuy := false
+					if useIntelligentTrading {
+						// Check if this is a good price compared to what we remember at other planets
+						minRememberedPrice := 999999
+						for planetName, memory := range bp.PriceMemory {
+							if planetName == bp.CurrentPlanet {
+								continue // Skip current planet
+							}
+							if memPrice, exists := memory.Prices[g]; exists && memPrice < minRememberedPrice {
+								minRememberedPrice = memPrice
+							}
+						}
+						// Buy if current price is significantly lower than what we expect to sell for elsewhere
+						// or if we haven't seen this good elsewhere yet
+						if minRememberedPrice == 999999 || price <= int(float64(minRememberedPrice)*0.7) {
+							shouldBuy = true
+						}
+					} else {
+						// Fallback to original logic
+						max := 0
+						if r, ok := ranges[g]; ok {
+							max = r[1]
+						}
+						if max <= 0 {
+							continue
+						}
+						threshold := (max * 46) / 100
+						shouldBuy = price < threshold
 					}
-					if max <= 0 {
+
+					if !shouldBuy {
 						continue
 					}
-					threshold := (max * 46) / 100
-					// only buy when strictly less than 46% of max
-					if price >= threshold {
-						continue
-					}
+
 					avail := planet.Goods[g]
 					if avail <= 0 || bp.Money < price {
 						continue
@@ -1434,86 +1639,52 @@ func (gs *GameServer) runTicker(room *Room) {
 					gs.logAction(room, bp, fmt.Sprintf("Refueled %d units for $%d at %s", maxUnits, total, bp.CurrentPlanet))
 				}
 			}
-			// choose a new destination different from current; if out of range, try to sell cargo to afford fuel to reach it
-			pn := planetNames(room.Planets)
-			if len(pn) > 1 {
-				for tries := 0; tries < 8; tries++ {
-					dest := pn[rand.Intn(len(pn))]
-					if dest == bp.CurrentPlanet {
-						continue
-					}
-					dist := distanceUnits(room, bp.CurrentPlanet, dest)
+			// Intelligent destination selection based on price memory
+			if useIntelligentTrading {
+				// Try to find profitable route based on remembered prices
+				bestDest := findBestTradingRoute(bp, room)
+				if bestDest != "" {
+					dist := distanceUnits(room, bp.CurrentPlanet, bestDest)
 					if dist <= bp.Fuel {
-						bp.DestinationPlanet = dest
-						gs.logAction(room, bp, fmt.Sprintf("Traveling to %s (%d units)", dest, dist))
-						break
-					}
-					// Need more fuel to reach this destination
-					fuelNeeded := dist - bp.Fuel
-					// Respect fuel capacity
-					capLeft := (fuelCapacity + bp.FuelCapacityBonus) - bp.Fuel
-					if capLeft <= 0 || capLeft < fuelNeeded {
-						// Can't carry enough fuel to reach; try another destination
-						continue
-					}
-					fp := planet.FuelPrice
-					if fp <= 0 {
-						fp = 10
-					}
-					cost := fuelNeeded * fp
-					if bp.Money < cost {
-						// Try to liquidate cargo (even at a loss) to raise funds for fuel
-						short := cost - bp.Money
-						// Build goods list sorted by current price desc to sell fewer units
-						type kv struct {
-							g string
-							p int
-						}
-						goods := make([]kv, 0, len(bp.Inventory))
-						for g := range bp.Inventory {
-							goods = append(goods, kv{g: g, p: planet.Prices[g]})
-						}
-						sort.Slice(goods, func(i, j int) bool { return goods[i].p > goods[j].p })
-						for _, item := range goods {
-							if short <= 0 {
-								break
+						bp.DestinationPlanet = bestDest
+						gs.logAction(room, bp, fmt.Sprintf("Planning profitable route to %s (%d units)", bestDest, dist))
+					} else {
+						// Try to refuel for the profitable route
+						fuelNeeded := dist - bp.Fuel
+						capLeft := (fuelCapacity + bp.FuelCapacityBonus) - bp.Fuel
+						if capLeft >= fuelNeeded {
+							fp := planet.FuelPrice
+							if fp <= 0 {
+								fp = 10
 							}
-							g := item.g
-							price := planet.Prices[g]
-							if price <= 0 {
-								continue
-							}
-							qty := bp.Inventory[g]
-							if qty <= 0 {
-								continue
-							}
-							// units to sell to cover the shortfall (rounded up)
-							needUnits := (short + price - 1) / price
-							sellUnits := qty
-							if sellUnits > needUnits {
-								sellUnits = needUnits
-							}
-							// perform sale
-							bp.Inventory[g] -= sellUnits
-							planet.Goods[g] += sellUnits
-							proceeds := sellUnits * price
-							bp.Money += proceeds
-							short -= proceeds
-							if bp.Inventory[g] <= 0 {
-								delete(bp.Inventory, g)
-								delete(bp.InventoryAvgCost, g)
+							cost := fuelNeeded * fp
+							if bp.Money >= cost {
+								bp.Money -= cost
+								bp.Fuel += fuelNeeded
+								bp.DestinationPlanet = bestDest
+								gs.logAction(room, bp, fmt.Sprintf("Refueled %d units ($%d) for profitable route to %s", fuelNeeded, cost, bestDest))
 							}
 						}
 					}
-					if bp.Money >= cost {
-						// Buy the fuel now and set destination
-						bp.Money -= cost
-						bp.Fuel += fuelNeeded
-						bp.DestinationPlanet = dest
-						gs.logAction(room, bp, fmt.Sprintf("Purchased fuel %d for $%d and traveling to %s (%d units)", fuelNeeded, cost, dest, dist))
-						break
+				}
+			}
+
+			// Fallback to random destination selection if no intelligent route found
+			if bp.DestinationPlanet == "" || bp.DestinationPlanet == bp.CurrentPlanet {
+				pn := planetNames(room.Planets)
+				if len(pn) > 1 {
+					for tries := 0; tries < 8; tries++ {
+						dest := pn[rand.Intn(len(pn))]
+						if dest == bp.CurrentPlanet {
+							continue
+						}
+						dist := distanceUnits(room, bp.CurrentPlanet, dest)
+						if dist <= bp.Fuel {
+							bp.DestinationPlanet = dest
+							gs.logAction(room, bp, fmt.Sprintf("Traveling to %s (%d units)", dest, dist))
+							break
+						}
 					}
-					// Otherwise, try another candidate
 				}
 			}
 		}
