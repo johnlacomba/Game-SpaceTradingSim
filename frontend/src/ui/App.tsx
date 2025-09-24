@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { signInWithRedirect } from 'aws-amplify/auth'
+import { createPortal } from 'react-dom'
+import { useAuth } from '../contexts/AuthContext.jsx'
+import LoginForm from '../components/LoginForm.jsx'
+import awsConfig from '../aws-config.js'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -37,53 +42,21 @@ type LobbyState = { rooms: LobbyRoom[] }
 type WSOut = { type: string; payload?: any }
 
 function useWS(url: string | null) {
+  // WebSocket and connection management refs/state
   const wsRef = useRef<WebSocket | null>(null)
-  const [ready, setReady] = useState(false)
-  const [messages, setMessages] = useState<WSOut[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [connectionState, setConnectionState] = useState<'disconnected' | 'connecting' | 'connected' | 'reconnecting'>('disconnected')
-  
-  // Reconnection state
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const reconnectAttemptsRef = useRef(0)
-  const maxReconnectAttempts = 10
-  const baseReconnectDelay = 1000 // Start with 1 second
-  const maxReconnectDelay = 30000 // Max 30 seconds
-  const shouldReconnectRef = useRef(true)
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const heartbeatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const shouldReconnectRef = useRef<boolean>(true)
+  const reconnectAttemptsRef = useRef<number>(0)
   const lastMessageTimeRef = useRef<number>(0)
-  
-  // Heartbeat/ping mechanism
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  
-  const calculateReconnectDelay = () => {
-    const delay = Math.min(
-      baseReconnectDelay * Math.pow(2, reconnectAttemptsRef.current),
-      maxReconnectDelay
-    )
-    // Add some jitter to prevent thundering herd
-    return delay + Math.random() * 1000
-  }
-  
-  const startHeartbeat = () => {
-    if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current)
-    
-    heartbeatIntervalRef.current = setInterval(() => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        // Send ping and expect pong within 10 seconds
-        wsRef.current.send(JSON.stringify({ type: 'ping' }))
-        
-        if (heartbeatTimeoutRef.current) clearTimeout(heartbeatTimeoutRef.current)
-        heartbeatTimeoutRef.current = setTimeout(() => {
-          console.log('Heartbeat timeout - connection appears dead, reconnecting...')
-          if (wsRef.current) {
-            wsRef.current.close()
-          }
-        }, 10000)
-      }
-    }, 30000) // Send ping every 30 seconds
-  }
-  
+  const maxReconnectAttempts = 10
+
+  const [ready, setReady] = useState(false)
+  const [messages, setMessages] = useState<any[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [connectionState, setConnectionState] = useState<'connecting'|'connected'|'reconnecting'|'disconnected'>('disconnected')
+
   const stopHeartbeat = () => {
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current)
@@ -94,6 +67,30 @@ function useWS(url: string | null) {
       heartbeatTimeoutRef.current = null
     }
   }
+
+  const startHeartbeat = () => {
+    // Send a ping every 20s; if no pong within 10s, trigger reconnect
+    stopHeartbeat()
+  heartbeatIntervalRef.current = setInterval(() => {
+      try {
+        wsRef.current?.send(JSON.stringify({ type: 'ping' }))
+  heartbeatTimeoutRef.current = setTimeout(() => {
+          // If no pong resets the timeout, consider the connection dead
+          try { wsRef.current?.close(4000, 'Heartbeat timeout') } catch {}
+        }, 10000)
+      } catch (e) {
+        // Ignore send errors; onerror/onclose will handle
+      }
+    }, 20000)
+  }
+
+  const calculateReconnectDelay = () => {
+    const base = 1000 // 1s
+    const max = 15000 // 15s
+    const expo = Math.min(max, base * Math.pow(2, reconnectAttemptsRef.current))
+    const jitter = Math.random() * 500
+    return expo + jitter
+  }
   
   const connect = useCallback(() => {
     if (!url || !shouldReconnectRef.current) return
@@ -103,8 +100,7 @@ function useWS(url: string | null) {
       return // Already connecting or connected
     }
     
-    console.log('Attempting WebSocket connection to:', url, 
-      reconnectAttemptsRef.current > 0 ? `(attempt ${reconnectAttemptsRef.current + 1})` : '')
+  // Attempt WebSocket connection
     
     setConnectionState('connecting')
     setError(null)
@@ -113,7 +109,7 @@ function useWS(url: string | null) {
     wsRef.current = ws
     
     ws.onopen = () => {
-      console.log('WebSocket connected successfully')
+  // WebSocket connected
       setReady(true)
       setError(null)
       setConnectionState('connected')
@@ -123,7 +119,7 @@ function useWS(url: string | null) {
     }
     
     ws.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason)
+  // WebSocket closed
       setReady(false)
       setConnectionState('disconnected')
       stopHeartbeat()
@@ -131,7 +127,7 @@ function useWS(url: string | null) {
       if (shouldReconnectRef.current && event.code !== 1000) { // Not a normal closure
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = calculateReconnectDelay()
-          console.log(`Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
+          // Reconnecting
           
           setConnectionState('reconnecting')
           setError(`Connection lost. Reconnecting in ${Math.round(delay/1000)}s... (${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
@@ -150,7 +146,7 @@ function useWS(url: string | null) {
     }
     
     ws.onerror = (event) => {
-      console.error('WebSocket error:', event)
+  // WebSocket error
       if (reconnectAttemptsRef.current === 0) {
         setError('WebSocket connection failed. Check if the server is running and certificates are valid.')
       }
@@ -172,7 +168,7 @@ function useWS(url: string | null) {
         
         setMessages(m => [...m, message])
       } catch (err) {
-        console.error('Failed to parse WebSocket message:', err)
+  // Failed to parse WebSocket message
       }
     }
   }, [url])
@@ -198,10 +194,7 @@ function useWS(url: string | null) {
 
   const send = useMemo(() => (type: string, payload?: any) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn(`Cannot send message '${type}' - WebSocket not ready. State:`, 
-        wsRef.current?.readyState === WebSocket.CONNECTING ? 'connecting' :
-        wsRef.current?.readyState === WebSocket.CLOSING ? 'closing' :
-        wsRef.current?.readyState === WebSocket.CLOSED ? 'closed' : 'unknown')
+  // Cannot send message - WebSocket not ready
       return false
     }
     wsRef.current.send(JSON.stringify({ type, payload }))
@@ -848,7 +841,12 @@ export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
+  const [showLogin, setShowLogin] = useState(false)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
+  const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  
+  // Debug auth state
+  //
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -869,6 +867,13 @@ export function App() {
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
+
+  // Set name from authenticated user
+  useEffect(() => {
+    if (user && !name) {
+      setName(user.name || user.username)
+    }
+  }, [user, name])
 
   // Tick local time for countdown
   useEffect(() => {
@@ -981,11 +986,33 @@ export function App() {
   }, [inventoryOpen])
 
   // Actions
-  const onConnect = () => {
-    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
-    const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
-    const wsUrl = isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
-    setUrl(wsUrl)
+  const onConnect = async () => {
+    if (!user) {
+      setShowLogin(true)
+      return
+    }
+
+    try {
+      const token = await getAccessToken()
+      if (!token) {
+        setShowLogin(true)
+        return
+      }
+
+      const wsUrl = (() => {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost'
+        const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:'
+        // Prefer site’s own WS endpoint through Nginx to the backend
+        return isHttps ? `wss://${host}/ws` : `ws://${host}:8080/ws`
+      })()
+      
+      // Append token as query parameter for WebSocket authentication
+      const wsUrlWithAuth = `${wsUrl}?token=${encodeURIComponent(token)}`
+      setUrl(wsUrlWithAuth)
+    } catch (error) {
+  // Failed to get access token
+      setShowLogin(true)
+    }
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
 
@@ -1201,69 +1228,175 @@ export function App() {
             padding: isMobile ? 24 : 32,
             marginBottom: 24
           }}>
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: isMobile ? 'column' : 'row',
-              gap: isMobile ? 16 : 12,
-              alignItems: isMobile ? 'stretch' : 'center'
-            }}>
-              <input 
-                placeholder="Enter your commander name" 
-                value={name} 
-                onChange={e=>setName(e.target.value)}
-                style={{
-                  padding: isMobile ? '16px 20px' : '12px 16px',
-                  fontSize: isMobile ? '18px' : '16px',
-                  flex: 1,
-                  border: '2px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: isMobile ? 12 : 8,
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  color: 'white',
-                  outline: 'none',
-                  transition: 'all 0.3s ease'
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = 'rgba(102, 126, 234, 0.5)'
-                  e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)'
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                  e.target.style.boxShadow = 'none'
-                }}
-              />
-              <button 
-                onClick={onConnect} 
-                disabled={!name.trim()}
-                style={{ 
-                  padding: isMobile ? '16px 32px' : '12px 24px',
-                  fontSize: isMobile ? '18px' : '16px',
-                  fontWeight: 600,
-                  minHeight: isMobile ? '56px' : '48px',
-                  minWidth: isMobile ? 'auto' : 120,
-                  background: name.trim() 
-                    ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
-                    : 'rgba(255, 255, 255, 0.1)',
-                  border: 'none',
-                  borderRadius: isMobile ? 12 : 8,
-                  color: 'white',
-                  cursor: name.trim() ? 'pointer' : 'not-allowed',
-                  transition: 'all 0.3s ease',
-                  opacity: name.trim() ? 1 : 0.5
-                }}
-                onMouseEnter={(e) => {
-                  if (name.trim()) {
-                    e.currentTarget.style.transform = 'translateY(-2px)'
-                    e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = 'translateY(0)'
-                  e.currentTarget.style.boxShadow = 'none'
-                }}
-              >
-                Launch Mission
-              </button>
-            </div>
+            {user ? (
+              // Authenticated user interface
+              <div>
+                <div style={{ 
+                  marginBottom: 20,
+                  padding: 16,
+                  background: 'rgba(76, 175, 80, 0.1)',
+                  border: '1px solid rgba(76, 175, 80, 0.3)',
+                  borderRadius: 8,
+                  color: '#4caf50'
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    ✅ Authenticated as {user.name || user.username}
+                  </div>
+                  <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                    {user.email}
+                  </div>
+                </div>
+                
+                <div style={{ 
+                  display: 'flex', 
+                  flexDirection: isMobile ? 'column' : 'row',
+                  gap: isMobile ? 16 : 12,
+                  alignItems: isMobile ? 'stretch' : 'center'
+                }}>
+                  <input 
+                    placeholder="Enter your commander name" 
+                    value={name} 
+                    onChange={e=>setName(e.target.value)}
+                    style={{
+                      padding: isMobile ? '16px 20px' : '12px 16px',
+                      fontSize: isMobile ? '18px' : '16px',
+                      flex: 1,
+                      border: '2px solid rgba(255, 255, 255, 0.1)',
+                      borderRadius: isMobile ? 12 : 8,
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'white',
+                      outline: 'none',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onFocus={(e) => {
+                      e.target.style.borderColor = 'rgba(102, 126, 234, 0.5)'
+                      e.target.style.boxShadow = '0 0 0 3px rgba(102, 126, 234, 0.1)'
+                    }}
+                    onBlur={(e) => {
+                      e.target.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                      e.target.style.boxShadow = 'none'
+                    }}
+                  />
+                  <button 
+                    onClick={onConnect} 
+                    disabled={!name.trim() || authLoading}
+                    style={{ 
+                      padding: isMobile ? '16px 32px' : '12px 24px',
+                      fontSize: isMobile ? '18px' : '16px',
+                      fontWeight: 600,
+                      minHeight: isMobile ? '56px' : '48px',
+                      minWidth: isMobile ? 'auto' : 120,
+                      background: name.trim() && !authLoading
+                        ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                        : 'rgba(255, 255, 255, 0.1)',
+                      border: 'none',
+                      borderRadius: isMobile ? 12 : 8,
+                      color: 'white',
+                      cursor: name.trim() && !authLoading ? 'pointer' : 'not-allowed',
+                      transition: 'all 0.3s ease',
+                      opacity: name.trim() && !authLoading ? 1 : 0.5
+                    }}
+                    onMouseEnter={(e) => {
+                      if (name.trim() && !authLoading) {
+                        e.currentTarget.style.transform = 'translateY(-2px)'
+                        e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translateY(0)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  >
+                    {authLoading ? 'Loading...' : 'Launch Mission'}
+                  </button>
+                </div>
+                
+                <div style={{ marginTop: 16 }}>
+                  <button
+                    onClick={signOut}
+                    style={{
+                      padding: '8px 16px',
+                      fontSize: '14px',
+                      background: 'transparent',
+                      border: '1px solid rgba(255, 255, 255, 0.2)',
+                      borderRadius: 6,
+                      color: 'rgba(255, 255, 255, 0.7)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.1)'
+                      e.currentTarget.style.color = 'white'
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = 'transparent'
+                      e.currentTarget.style.color = 'rgba(255, 255, 255, 0.7)'
+                    }}
+                  >
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Non-authenticated interface
+              <div>
+                <div style={{ 
+                  marginBottom: 20,
+                  padding: 16,
+                  background: 'rgba(255, 193, 7, 0.1)',
+                  border: '1px solid rgba(255, 193, 7, 0.3)',
+                  borderRadius: 8,
+                  color: '#ffc107'
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    🔐 Authentication Required
+                  </div>
+                  <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
+                    Please sign in to access the space trading simulation
+                  </div>
+                </div>
+                
+                <button 
+          onClick={async () => {
+                    // Hosted UI redirect
+                    try {
+            await signInWithRedirect()
+                    } catch (e) {
+                      // Hosted UI redirect failed
+                    }
+                  }}
+                  disabled={authLoading}
+                  style={{ 
+                    padding: isMobile ? '16px 32px' : '12px 24px',
+                    fontSize: isMobile ? '18px' : '16px',
+                    fontWeight: 600,
+                    minHeight: isMobile ? '56px' : '48px',
+                    width: '100%',
+                    background: !authLoading
+                      ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' 
+                      : 'rgba(255, 255, 255, 0.1)',
+                    border: 'none',
+                    borderRadius: isMobile ? 12 : 8,
+                    color: 'white',
+                    cursor: !authLoading ? 'pointer' : 'not-allowed',
+                    transition: 'all 0.3s ease',
+                    opacity: !authLoading ? 1 : 0.5
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!authLoading) {
+                      e.currentTarget.style.transform = 'translateY(-2px)'
+                      e.currentTarget.style.boxShadow = '0 10px 25px rgba(102, 126, 234, 0.3)'
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }}
+                >
+                  {authLoading ? 'Loading...' : 'Sign In / Sign Up'}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Development Mode Warning */}
@@ -1346,7 +1479,7 @@ export function App() {
               borderRadius: 8,
               border: '1px solid rgba(255, 255, 255, 0.1)'
             }}>
-              Endpoint: {url}
+              {/* Endpoint hidden in production */}
             </div>
           )}
         </div>
@@ -2562,6 +2695,55 @@ export function App() {
       reconnect={reconnect}
       isMobile={isMobile}
     />
+    
+    {/* Login Modal (render via Portal to escape stacking contexts) */}
+    {showLogin && createPortal(
+      <div style={{ 
+        position: 'fixed', 
+        inset: 0, 
+        backgroundColor: 'rgba(0,0,0,0.8)', 
+        display: 'flex', 
+        justifyContent: 'center', 
+        alignItems: 'center',
+        zIndex: 999999
+      }}>
+        <div style={{ 
+          backgroundColor: '#1a1a2e', 
+          padding: '2rem', 
+          borderRadius: '8px', 
+          border: '1px solid #16213e',
+          minWidth: '320px',
+          maxWidth: '90vw',
+          color: '#eee'
+        }}>
+          <h2 style={{ marginTop: 0 }}>Sign In / Sign Up</h2>
+          {/* Keep the simple test to verify visibility; we’ll replace with LoginForm once visible */}
+          <p style={{ marginBottom: 12 }}>If you can see this, the modal is visible and on top.</p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => {
+              console.log('Closing test modal');
+              setShowLogin(false);
+            }}>
+              Close
+            </button>
+            <a
+              href={`${window.location.protocol}//${window.location.host}/auth/start`}
+              style={{
+                display: 'inline-block',
+                padding: '8px 12px',
+                border: '1px solid #444',
+                borderRadius: 6,
+                textDecoration: 'none',
+                color: '#fff'
+              }}
+            >
+              Use Hosted UI
+            </a>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
     </div>
   )
 }

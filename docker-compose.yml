@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Space Trader Backend
   backend:
     build:
       context: ./backend
@@ -16,13 +15,20 @@ services:
       - GIN_MODE=release
       - HTTPS_PORT=8443
       - TLS_ONLY=false
+      # Real Cognito Configuration from Terraform deployment
+      - AWS_REGION=us-east-1
+      - COGNITO_USER_POOL_ID=us-east-1_EI39ptGfg
+      - COGNITO_CLIENT_ID=67uon7lhabu3qfh6lchjru523k
+      - COGNITO_DOMAIN=space-trading-sim-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com
+      - COGNITO_CALLBACK_URL=https://space-trader.click/auth/callback
+      - COGNITO_LOGOUT_URL=https://space-trader.click/
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-check-certificate", "-qO-", "https://localhost:8443/rooms"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=5", "-O", "/dev/null", "http://localhost:8080/health"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 40s
     networks:
       - app-network
     deploy:

@@ -1,0 +1,75 @@
+#!/bin/bash
+
+echo "🔧 HTTP Health Endpoint Fix Test"
+echo "==============================="
+
+echo ""
+echo "❌ Previous Issue:"
+echo "   HTTP server was redirecting ALL requests to HTTPS"
+echo "   Health check GET /health → 301 redirect to HTTPS"
+echo "   Docker health check failed because it expects HTTP response"
+
+echo ""
+echo "✅ Fix Applied:"
+echo "   HTTP server now serves health endpoints directly"
+echo "   GET /health → 200 OK (no redirect)"
+echo "   GET /ping → 200 OK (no redirect)"
+echo "   Other requests → 301 redirect to HTTPS"
+
+echo ""
+echo "🐳 Testing Docker Health Check on Ubuntu Server:"
+echo "==============================================="
+
+echo ""
+echo "Step 1: Stop and rebuild containers"
+echo "  sudo docker-compose down"
+echo "  sudo docker-compose build --no-cache backend"
+
+echo ""
+echo "Step 2: Start backend container"
+echo "  sudo docker-compose up -d backend"
+
+echo ""
+echo "Step 3: Wait for startup (30 seconds)"
+echo "  sleep 30"
+
+echo ""
+echo "Step 4: Test health endpoints manually"
+echo "  # These should now return 200 OK, not 301 redirect:"
+echo "  sudo docker-compose exec backend wget -qO- http://localhost:8080/health"
+echo "  sudo docker-compose exec backend wget -qO- http://localhost:8080/ping"
+
+echo ""
+echo "Step 5: Check container health status"
+echo "  sudo docker-compose ps backend"
+echo "  # Should show (healthy) instead of (unhealthy)"
+
+echo ""
+echo "Step 6: Monitor health check logs"
+echo "  sudo docker-compose logs backend | grep -i health"
+
+echo ""
+echo "🎯 Expected Results:"
+echo "=================="
+echo "✅ /health returns: OK (not redirect)"
+echo "✅ /ping returns: pong (not redirect)"  
+echo "✅ Backend container status: (healthy)"
+echo "✅ Health check logs show successful requests"
+
+echo ""
+echo "🔍 Debug Commands:"
+echo "================="
+echo "If still failing, try these on your Ubuntu server:"
+echo ""
+echo "Check exact health check command:"
+echo "  sudo docker-compose exec backend sh -c 'wget --quiet --tries=1 --spider http://localhost:8080/health && echo SUCCESS || echo FAILED'"
+echo ""
+echo "Check what the endpoint actually returns:"
+echo "  sudo docker-compose exec backend curl -v http://localhost:8080/health"
+echo ""
+echo "Check if backend is listening on both ports:"
+echo "  sudo docker-compose exec backend netstat -ln | grep -E '(8080|8443)'"
+
+echo ""
+echo "✅ This should fix the HTTP redirect issue!"
+echo "The health check will now work because /health is served directly over HTTP."

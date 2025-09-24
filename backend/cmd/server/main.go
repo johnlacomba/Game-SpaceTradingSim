@@ -5,13 +5,19 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 
+	"github.com/example/space-trader/internal/auth"
 	srv "github.com/example/space-trader/internal/server"
 	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Load environment variables from .env file if it exists
+	_ = godotenv.Load()
+
 	var (
 		httpPort  = flag.String("http-port", "8080", "HTTP port")
 		httpsPort = flag.String("https-port", "8443", "HTTPS port")
@@ -23,25 +29,12 @@ func main() {
 
 	r := mux.NewRouter()
 
+	// Initialize Cognito auth
+	cognitoConfig := auth.NewCognitoConfig()
+
 	gs := srv.NewGameServer()
 
-	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		gs.HandleWS(w, r)
-	})
-	// Debug REST
-	r.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			gs.HandleListRooms(w, r)
-			return
-		}
-		if r.Method == http.MethodPost {
-			gs.HandleCreateRoom(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	})
-
-	// Add CORS headers for HTTPS
+	// Add CORS headers first (but allow health checks to bypass any issues)
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -56,6 +49,74 @@ func main() {
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	// Health check endpoint (no auth required) - after CORS middleware
+	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("Health check requested from %s", r.RemoteAddr)
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	}).Methods("GET")
+
+	// Simple ping endpoint for basic connectivity
+	r.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("pong"))
+	}).Methods("GET")
+
+	// OAuth start endpoint: redirect to Cognito Hosted UI authorize URL
+	r.HandleFunc("/auth/start", func(w http.ResponseWriter, r *http.Request) {
+		domain := os.Getenv("COGNITO_DOMAIN")
+		clientID := os.Getenv("COGNITO_CLIENT_ID")
+		callback := os.Getenv("COGNITO_CALLBACK_URL")
+		if callback == "" {
+			// Fallback to current host if not provided explicitly
+			callback = "https://" + r.Host + "/auth/callback"
+		}
+		if domain == "" || clientID == "" || callback == "" {
+			log.Printf("/auth/start missing configuration: domain=%q clientID=%q callback=%q", domain, clientID, callback)
+			http.Error(w, "Auth not configured", http.StatusServiceUnavailable)
+			return
+		}
+
+		q := url.Values{}
+		q.Set("client_id", clientID)
+		q.Set("response_type", "code")
+		q.Set("scope", "openid email profile")
+		q.Set("redirect_uri", callback)
+
+		authorizeURL := "https://" + domain + "/oauth2/authorize?" + q.Encode()
+		log.Printf("Redirecting to Cognito Hosted UI: %s", authorizeURL)
+		http.Redirect(w, r, authorizeURL, http.StatusFound)
+	}).Methods("GET")
+
+	// Protected routes that require authentication
+	protected := r.PathPrefix("/api").Subrouter()
+	protected.Use(cognitoConfig.AuthMiddleware)
+
+	// WebSocket endpoint (requires auth via query parameter or header)
+	r.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		gs.HandleWS(w, r, cognitoConfig)
+	})
+
+	// Debug REST endpoints (protected)
+	protected.HandleFunc("/rooms", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			gs.HandleListRooms(w, r)
+			return
+		}
+		if r.Method == http.MethodPost {
+			gs.HandleCreateRoom(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
+	// User profile endpoint
+	protected.HandleFunc("/profile", func(w http.ResponseWriter, r *http.Request) {
+		gs.HandleGetProfile(w, r)
+	}).Methods("GET")
 
 	// Determine certificate paths
 	var certPath, keyPath string
@@ -122,18 +183,37 @@ func main() {
 		httpAddr := ":" + *httpPort
 		log.Printf("Space Trader backend (HTTP->HTTPS redirect) listening on %s", httpAddr)
 
-		// HTTP server that redirects to HTTPS
-		httpServer := &http.Server{
-			Addr: httpAddr,
-			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				httpsURL := "https://" + r.Host
-				if *httpsPort != "443" {
-					httpsURL += ":" + *httpsPort
-				}
-				httpsURL += r.RequestURI
+		// Create a separate router for HTTP that handles health checks
+		httpRouter := mux.NewRouter()
 
-				http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
-			}),
+		// Health endpoints available on HTTP (no redirect)
+		httpRouter.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			log.Printf("HTTP Health check requested from %s", r.RemoteAddr)
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		}).Methods("GET")
+
+		httpRouter.HandleFunc("/ping", func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "text/plain")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("pong"))
+		}).Methods("GET")
+
+		// All other HTTP requests redirect to HTTPS
+		httpRouter.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			httpsURL := "https://" + r.Host
+			if *httpsPort != "443" {
+				httpsURL += ":" + *httpsPort
+			}
+			httpsURL += r.RequestURI
+
+			http.Redirect(w, r, httpsURL, http.StatusMovedPermanently)
+		})
+
+		httpServer := &http.Server{
+			Addr:    httpAddr,
+			Handler: httpRouter,
 		}
 
 		log.Fatal(httpServer.ListenAndServe())

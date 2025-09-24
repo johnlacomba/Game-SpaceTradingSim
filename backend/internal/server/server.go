@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/example/space-trader/internal/auth"
 	"github.com/gorilla/websocket"
 )
 
@@ -177,16 +178,79 @@ func NewGameServer() *GameServer {
 }
 
 // HTTP handlers
-func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request) {
+func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoConfig *auth.CognitoConfig) {
+	// Try to authenticate WebSocket connection via query parameter or header
+	var userClaims *auth.UserClaims
+	var err error
+
+	// Check for token in query parameter first (easier for WebSocket clients)
+	tokenParam := r.URL.Query().Get("token")
+	if tokenParam != "" {
+		userClaims, err = cognitoConfig.ValidateToken(tokenParam)
+		if err != nil {
+			log.Printf("WebSocket auth failed via query param: %v", err)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	} else {
+		// Check Authorization header as fallback
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "" {
+			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+			if tokenString != authHeader {
+				userClaims, err = cognitoConfig.ValidateToken(tokenString)
+				if err != nil {
+					log.Printf("WebSocket auth failed via header: %v", err)
+					http.Error(w, "Unauthorized", http.StatusUnauthorized)
+					return
+				}
+			}
+		}
+	}
+
+	if userClaims == nil {
+		log.Printf("WebSocket connection attempted without valid authentication")
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := gs.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("upgrade:", err)
 		return
 	}
-	// Create a transient player connection until they identify
-	p := &Player{ID: PlayerID(randID()), Name: "", Money: 1000, CurrentPlanet: "Earth", DestinationPlanet: "", Inventory: map[string]int{}, InventoryAvgCost: map[string]int{}, Fuel: fuelCapacity}
+
+	// Create player with authenticated user info
+	p := &Player{
+		ID:                PlayerID(userClaims.Sub), // Use Cognito user ID
+		Name:              userClaims.Name,
+		Money:             1000,
+		CurrentPlanet:     "Earth",
+		DestinationPlanet: "",
+		Inventory:         map[string]int{},
+		InventoryAvgCost:  map[string]int{},
+		Fuel:              fuelCapacity,
+	}
 	p.conn = conn
 	go gs.readLoop(p)
+}
+
+func (gs *GameServer) HandleGetProfile(w http.ResponseWriter, r *http.Request) {
+	userClaims, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	profile := map[string]interface{}{
+		"id":       userClaims.Sub,
+		"name":     userClaims.Name,
+		"email":    userClaims.Email,
+		"username": userClaims.Username,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(profile)
 }
 
 func (gs *GameServer) HandleListRooms(w http.ResponseWriter, r *http.Request) {
