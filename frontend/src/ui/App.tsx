@@ -1400,7 +1400,7 @@ export function App() {
           </div>
 
           {/* Development Mode Warning */}
-          {import.meta.env.VITE_DEV_MODE === 'true' && (
+          {(import.meta as any).env?.VITE_DEV_MODE === 'true' && (
             <div style={{ 
               marginBottom: 24, 
               padding: isMobile ? 16 : 20, 
@@ -2397,7 +2397,7 @@ export function App() {
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
               return (
-                <li key={p} ref={el => (planetRefs.current[p] = el)} style={{ 
+                <li key={p} ref={(el: HTMLLIElement | null) => { planetRefs.current[p] = el }} style={{ 
                   position:'absolute', 
                   left, 
                   top, 

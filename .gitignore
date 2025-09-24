@@ -47,3 +47,6 @@ coverage.*
 
 # Certificates
 backend/certs/
+
+# Node modules
+node_modules/
