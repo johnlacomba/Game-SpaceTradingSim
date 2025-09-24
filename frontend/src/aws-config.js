@@ -28,9 +28,7 @@ export const awsConfig = {
 };
 
 // Log configuration in non-production environments for debugging
-if (import.meta.env.DEV || import.meta.env.VITE_USE_AWS_AUTH === 'true') {
-  console.log('AWS Config:', awsConfig);
-}
+// no-op: avoid logging config in client bundles
 
 // Development fallback configuration
 if (import.meta.env.DEV && import.meta.env.VITE_USE_AWS_AUTH !== 'true') {

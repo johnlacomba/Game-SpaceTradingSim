@@ -2,6 +2,120 @@
 
 A real-time multiplayer space trading game with AWS Cognito authentication, API Gateway, and WebSocket support.
 
+## Current Architecture (Cognito + Nginx + Go backend + Vite frontend)
+
+The app is deployed as a small stack:
+
+- Frontend: Vite + React, served by Nginx (static assets). Uses AWS Amplify Auth v6 with Cognito Hosted UI (Authorization Code + PKCE).
+- Reverse Proxy: Nginx terminates TLS and proxies:
+   - /api/* → backend HTTPS (8443 inside the Docker network)
+   - /ws → backend WebSocket endpoint, with Upgrade headers
+   - /health served from Nginx for external checks
+- Backend: Go server provides REST endpoints and a WebSocket game server. Validates Cognito Access Tokens (JWT) for protected REST calls and WebSocket connections.
+- Identity: AWS Cognito User Pool, App Client and Domain handle OAuth; Terraform provisions resources.
+
+### High-level diagram
+
+```mermaid
+flowchart LR
+   User((Browser))
+   subgraph Edge [space-trader.click]
+      Nginx
+      FE[Static Frontend]
+   end
+
+   subgraph AppNet [Docker Network]
+      BE[Go Backend\nHTTPS 8443]
+   end
+
+   subgraph AWS [AWS]
+      Cognito[Cognito User Pool\nHosted UI]
+   end
+
+   User -- HTTPS GET --> Nginx
+   Nginx -- serves --> FE
+   User -- Sign In / Sign Up --> Cognito
+   Cognito -- redirect code --> User
+   User -- loads /auth/callback --> FE
+   FE -- Amplify exchanges code --> Cognito
+   FE -- REST /api/* (Bearer access token) --> Nginx --> BE
+   FE -- WebSocket /ws?token=access_token --> Nginx --> BE
+```
+
+Notes:
+- OAuth callback is https://space-trader.click/auth/callback.
+- Tokens are exchanged/stored by Amplify; REST and WebSocket connections use the access token (JWT) for auth.
+
+## How the flows work
+
+### Sign In / Sign Up
+1) Click “Sign In / Sign Up”.
+2) Frontend calls Amplify signInWithRedirect() → Cognito Hosted UI.
+3) After authentication, Cognito redirects back to /auth/callback.
+4) Frontend calls fetchAuthSession() to exchange the code for tokens and stores the session.
+5) UI updates to authenticated state.
+
+### Launch Mission (WebSocket)
+1) Frontend requests an access token via fetchAuthSession().
+2) It opens wss://space-trader.click/ws?token=ACCESS_TOKEN.
+3) Backend validates the token (Cognito JWKS) and registers the player.
+
+### REST API
+- All /api/* routes require Authorization: Bearer ACCESS_TOKEN.
+
+## Local development
+
+Prereqs: Node 18+, Go 1.22, Docker (optional).
+
+- Dev frontend:
+   - cd frontend
+   - npm ci
+   - npm run dev
+
+Backend:
+- cd backend
+- go run ./cmd/server
+
+Docker (full stack):
+- docker compose up -d --build
+
+## Environment
+
+Frontend (.env.production):
+- VITE_USE_AWS_AUTH=true
+- VITE_AWS_REGION=us-east-1
+- VITE_COGNITO_USER_POOL_ID=...
+- VITE_COGNITO_CLIENT_ID=...
+- VITE_COGNITO_IDENTITY_POOL_ID=...
+- VITE_COGNITO_DOMAIN=space-trading-sim-....auth.us-east-1.amazoncognito.com
+- VITE_COGNITO_CALLBACK_URL=https://space-trader.click/auth/callback
+- VITE_COGNITO_LOGOUT_URL=https://space-trader.click/
+
+Backend env (docker-compose.yml):
+- AWS_REGION
+- COGNITO_USER_POOL_ID
+- COGNITO_CLIENT_ID
+- COGNITO_DOMAIN
+- COGNITO_CALLBACK_URL
+- COGNITO_LOGOUT_URL
+
+## Operational notes
+
+- Nginx proxies /ws to backend over HTTPS with Upgrade headers and long timeouts.
+- Health endpoints:
+   - Nginx: GET /health → 200
+   - Backend: GET /health (HTTP on 8080 for internal checks; HTTPS 8443 for external)
+- Certificates managed via certbot containers (optional).
+
+## Troubleshooting
+
+- Hosted UI returns but app doesn’t sign in:
+   - Ensure oauth.scopes are set and redirectSignIn/redirectSignOut are arrays.
+   - Verify callback URL in Cognito app client matches.
+   - Confirm bundle built with VITE_USE_AWS_AUTH=true and the right VITE_* values.
+- WebSocket won’t connect:
+   - Check endpoint is wss://space-trader.click/ws (not API Gateway).
+   - Verify token query parameter is present and valid.
 ## 🚀 Features
 
 - **AWS Cognito Authentication** - Secure user registration and login

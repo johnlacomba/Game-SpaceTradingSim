@@ -100,8 +100,7 @@ function useWS(url: string | null) {
       return // Already connecting or connected
     }
     
-    console.log('Attempting WebSocket connection to:', url, 
-      reconnectAttemptsRef.current > 0 ? `(attempt ${reconnectAttemptsRef.current + 1})` : '')
+  // Attempt WebSocket connection
     
     setConnectionState('connecting')
     setError(null)
@@ -110,7 +109,7 @@ function useWS(url: string | null) {
     wsRef.current = ws
     
     ws.onopen = () => {
-      console.log('WebSocket connected successfully')
+  // WebSocket connected
       setReady(true)
       setError(null)
       setConnectionState('connected')
@@ -120,7 +119,7 @@ function useWS(url: string | null) {
     }
     
     ws.onclose = (event) => {
-      console.log('WebSocket closed:', event.code, event.reason)
+  // WebSocket closed
       setReady(false)
       setConnectionState('disconnected')
       stopHeartbeat()
@@ -128,7 +127,7 @@ function useWS(url: string | null) {
       if (shouldReconnectRef.current && event.code !== 1000) { // Not a normal closure
         if (reconnectAttemptsRef.current < maxReconnectAttempts) {
           const delay = calculateReconnectDelay()
-          console.log(`Reconnecting in ${Math.round(delay/1000)}s... (attempt ${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
+          // Reconnecting
           
           setConnectionState('reconnecting')
           setError(`Connection lost. Reconnecting in ${Math.round(delay/1000)}s... (${reconnectAttemptsRef.current + 1}/${maxReconnectAttempts})`)
@@ -147,7 +146,7 @@ function useWS(url: string | null) {
     }
     
     ws.onerror = (event) => {
-      console.error('WebSocket error:', event)
+  // WebSocket error
       if (reconnectAttemptsRef.current === 0) {
         setError('WebSocket connection failed. Check if the server is running and certificates are valid.')
       }
@@ -169,7 +168,7 @@ function useWS(url: string | null) {
         
         setMessages(m => [...m, message])
       } catch (err) {
-        console.error('Failed to parse WebSocket message:', err)
+  // Failed to parse WebSocket message
       }
     }
   }, [url])
@@ -195,10 +194,7 @@ function useWS(url: string | null) {
 
   const send = useMemo(() => (type: string, payload?: any) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-      console.warn(`Cannot send message '${type}' - WebSocket not ready. State:`, 
-        wsRef.current?.readyState === WebSocket.CONNECTING ? 'connecting' :
-        wsRef.current?.readyState === WebSocket.CLOSING ? 'closing' :
-        wsRef.current?.readyState === WebSocket.CLOSED ? 'closed' : 'unknown')
+  // Cannot send message - WebSocket not ready
       return false
     }
     wsRef.current.send(JSON.stringify({ type, payload }))
@@ -850,8 +846,7 @@ export function App() {
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
   
   // Debug auth state
-  console.log('Auth state:', { user, authLoading });
-  console.log('showLogin state:', showLogin);
+  //
 
   const [lobby, setLobby] = useState<LobbyState>({ rooms: [] })
   const [room, setRoom] = useState<RoomState | null>(null)
@@ -1015,7 +1010,7 @@ export function App() {
       const wsUrlWithAuth = `${wsUrl}?token=${encodeURIComponent(token)}`
       setUrl(wsUrlWithAuth)
     } catch (error) {
-      console.error('Failed to get access token:', error)
+  // Failed to get access token
       setShowLogin(true)
     }
   }
@@ -1363,11 +1358,11 @@ export function App() {
                 
                 <button 
           onClick={async () => {
-                    console.log('Sign In button clicked! Starting Amplify Hosted UI redirect...');
+                    // Hosted UI redirect
                     try {
             await signInWithRedirect()
                     } catch (e) {
-                      console.error('Hosted UI redirect failed:', e)
+                      // Hosted UI redirect failed
                     }
                   }}
                   disabled={authLoading}
@@ -1484,7 +1479,7 @@ export function App() {
               borderRadius: 8,
               border: '1px solid rgba(255, 255, 255, 0.1)'
             }}>
-              Endpoint: {url}
+              {/* Endpoint hidden in production */}
             </div>
           )}
         </div>

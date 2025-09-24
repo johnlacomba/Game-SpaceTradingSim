@@ -16,15 +16,11 @@ import awsConfig from '../aws-config.js';
 // Check if we're in development mode
 const isDevMode = process.env.NODE_ENV !== 'production' && import.meta.env.VITE_USE_AWS_AUTH !== 'true';
 
-console.log('Auth mode check:', { 
-  NODE_ENV: process.env.NODE_ENV, 
-  VITE_USE_AWS_AUTH: import.meta.env.VITE_USE_AWS_AUTH,
-  isDevMode 
-});
+//
 
 // Configure Amplify only in production mode or when explicitly enabled
 if (!isDevMode) {
-  console.log('Configuring Amplify with:', awsConfig);
+  // Configure Amplify
   try {
     Amplify.configure({
       Auth: {
@@ -40,12 +36,12 @@ if (!isDevMode) {
         }
       }
     });
-    console.log('Amplify configured successfully');
+  // Amplify configured
   } catch (error) {
     console.error('Error configuring Amplify:', error);
   }
 } else {
-  console.log('Using development mode - Amplify not configured');
+  // Dev mode: Amplify not configured
 }
 
 interface User {
@@ -92,10 +88,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const complete = async () => {
         try {
           const hasCode = /[?&]code=/.test(window.location.search)
-          console.log('[Auth] Callback detected. hasCode=', hasCode)
+          // Callback detected
           // Exchange code for tokens
           await fetchAuthSession()
-          console.log('[Auth] fetchAuthSession after callback completed')
+          // Session fetched after callback
           // Attempt to populate user immediately
           try {
             const currentUser = await getCurrentUser()
@@ -106,12 +102,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               name: attrs.name || attrs.email || currentUser.username,
               sub: attrs.sub || ''
             })
-            console.log('[Auth] User set after callback:', currentUser.username)
+            // User set after callback
           } catch (e) {
-            console.log('[Auth] getCurrentUser after callback failed (may be transient):', e)
+            // getCurrentUser after callback failed
           }
         } catch (e) {
-          console.warn('[Auth] Callback processing error:', e)
+          // Callback processing error
         } finally {
           // Clean the URL
           const target = window.location.origin + '/'
@@ -186,7 +182,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   };
 
   const checkAuthState = async () => {
-    console.log('Checking auth state, isDevMode:', isDevMode);
+  // Check auth state
     if (isDevMode) return mockCheckAuthState();
     
     try {
@@ -198,10 +194,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       const authPromise = getCurrentUser();
       const currentUser = await Promise.race([authPromise, timeoutPromise]) as any;
       
-      console.log('Current user:', currentUser);
+  // Current user fetched
       if (currentUser) {
         const userAttributes = await fetchUserAttributes();
-        console.log('User attributes:', userAttributes);
+  // User attributes fetched
         setUser({
           username: currentUser.username,
           email: userAttributes.email || '',
@@ -212,10 +208,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setUser(null);
       }
     } catch (error) {
-      console.log('No authenticated user found or auth error:', error);
+  // No authenticated user
       setUser(null);
     } finally {
-      console.log('Setting loading to false');
+  // Loading complete
       setLoading(false);
     }
   };
