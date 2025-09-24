@@ -2152,7 +2152,7 @@ export function App() {
                       padding: '4px 0' 
                     }}>
                       <span>Engine Speed:</span>
-                      <span><strong>{(r.you as any).speed ?? 1}</strong>x</span>
+                      <span><strong>{(r.you as any).speedPerTurn ?? 20}</strong> units/turn</span>
                     </div>
                   </div>
                 </div>
