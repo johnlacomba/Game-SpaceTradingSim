@@ -2350,6 +2350,10 @@ export function App() {
               0% { opacity: 1; transform: translateY(0); }
               100% { opacity: 0; transform: translateY(20vh); }
             }
+            @keyframes flowingDots {
+              0% { stroke-dashoffset: 20; }
+              100% { stroke-dashoffset: 0; }
+            }
           `}
         </style>
         <div aria-live="polite" style={{ position:'absolute', top: 42, right: 16, pointerEvents:'none', width: 280, height: 0 }}>
@@ -2465,13 +2469,6 @@ export function App() {
           </ul>
           {/* Destination arrows overlay */}
           <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-            <defs>
-              {(r.room.players as any[]).map(pl => (
-                <marker key={pl.id} id={`arrow-head-${pl.id}`} markerWidth="10" markerHeight="10" refX="10" refY="5" orient="auto">
-                  <path d="M0,0 L10,5 L0,10 z" fill={colorFor(String(pl.id))} />
-                </marker>
-              ))}
-            </defs>
             {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
               const from = planetPos[pl.currentPlanet]
               const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
@@ -2481,7 +2478,20 @@ export function App() {
               const x2 = to.x, y2 = to.y
               const d = `M ${x1},${y1} L ${x2},${y2}`
               return (
-                <path key={pl.id} d={d} fill="none" stroke={colorFor(String(pl.id))} strokeWidth={isMobile ? 3 : 2} strokeLinecap="round" markerEnd={`url(#arrow-head-${pl.id})`} opacity={0.95} />
+                <path 
+                  key={pl.id} 
+                  d={d} 
+                  fill="none" 
+                  stroke={colorFor(String(pl.id))} 
+                  strokeWidth={isMobile ? 3 : 2} 
+                  strokeLinecap="round" 
+                  strokeDasharray="5,3"
+                  strokeDashoffset="0"
+                  opacity={0.95}
+                  style={{
+                    animation: 'flowingDots 1s linear infinite'
+                  }}
+                />
               )
             })}
             {inTransit && yourTransitPos && (
