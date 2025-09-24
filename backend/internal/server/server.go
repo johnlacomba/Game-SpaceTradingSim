@@ -45,9 +45,11 @@ type PlayerID string
 
 // PriceMemory stores remembered prices from visited planets
 type PriceMemory struct {
-	Prices   map[string]int `json:"prices"`   // good -> price
-	Turn     int            `json:"turn"`     // when this was recorded
-	GoodsAvg int            `json:"goodsAvg"` // average availability when recorded
+	Prices          map[string]int `json:"prices"`          // good -> price
+	Turn            int            `json:"turn"`            // when this was recorded
+	GoodsAvg        int            `json:"goodsAvg"`        // average availability when recorded
+	LastPurchased   map[string]int `json:"lastPurchased"`   // good -> turn when last purchased here
+	PurchaseAmounts map[string]int `json:"purchaseAmounts"` // good -> amount purchased last time
 }
 
 type Player struct {
@@ -1327,14 +1329,49 @@ func (gs *GameServer) runTicker(room *Room) {
 				avgGoods = totalGoods / goodCount
 			}
 
+			// Preserve existing purchase history if it exists
+			var existingMemory *PriceMemory
+			if existing, exists := bot.PriceMemory[bot.CurrentPlanet]; exists {
+				existingMemory = existing
+			}
+
 			bot.PriceMemory[bot.CurrentPlanet] = &PriceMemory{
-				Prices:   make(map[string]int),
-				Turn:     turn,
-				GoodsAvg: avgGoods,
+				Prices:          make(map[string]int),
+				Turn:            turn,
+				GoodsAvg:        avgGoods,
+				LastPurchased:   make(map[string]int),
+				PurchaseAmounts: make(map[string]int),
+			}
+
+			// Restore purchase history if it existed
+			if existingMemory != nil {
+				for good, lastTurn := range existingMemory.LastPurchased {
+					bot.PriceMemory[bot.CurrentPlanet].LastPurchased[good] = lastTurn
+				}
+				for good, amount := range existingMemory.PurchaseAmounts {
+					bot.PriceMemory[bot.CurrentPlanet].PurchaseAmounts[good] = amount
+				}
 			}
 
 			for good, price := range planet.Prices {
 				bot.PriceMemory[bot.CurrentPlanet].Prices[good] = price
+			}
+		}
+
+		recordBotPurchase := func(bot *Player, good string, amount int, turn int) {
+			if bot.PriceMemory == nil {
+				bot.PriceMemory = make(map[string]*PriceMemory)
+			}
+
+			if memory, exists := bot.PriceMemory[bot.CurrentPlanet]; exists {
+				if memory.LastPurchased == nil {
+					memory.LastPurchased = make(map[string]int)
+				}
+				if memory.PurchaseAmounts == nil {
+					memory.PurchaseAmounts = make(map[string]int)
+				}
+				memory.LastPurchased[good] = turn
+				memory.PurchaseAmounts[good] = amount
 			}
 		}
 
@@ -1351,6 +1388,10 @@ func (gs *GameServer) runTicker(room *Room) {
 				return ""
 			}
 
+			// Constants for replenishment logic
+			const minReplenishmentTime = 3          // Minimum turns to wait before returning to buy
+			const significantPurchaseThreshold = 10 // Amount considered "significant"
+
 			// Look for profitable opportunities based on remembered prices
 			for planetName, memory := range bot.PriceMemory {
 				if planetName == bot.CurrentPlanet {
@@ -1364,25 +1405,12 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 
 				// Calculate potential profit based on price differences
-				profit := 0.0
-				opportunities := 0
+				sellingProfit := 0.0
+				buyingProfit := 0.0
+				sellingOpportunities := 0
+				buyingOpportunities := 0
 
-				// Check goods we can buy here and sell there
-				for good, currentPrice := range currentPlanet.Prices {
-					if currentGoods := currentPlanet.Goods[good]; currentGoods > 0 && currentPrice > 0 {
-						if rememberedPrice, exists := memory.Prices[good]; exists && rememberedPrice > currentPrice {
-							// We remember this good being more expensive there
-							profitMargin := float64(rememberedPrice - currentPrice)
-							// Weight by availability and freshness of memory
-							staleness := float64(room.Turn - memory.Turn + 1)
-							weightedProfit := profitMargin / staleness
-							profit += weightedProfit
-							opportunities++
-						}
-					}
-				}
-
-				// Check goods we have in inventory that might sell well there
+				// Check goods we have in inventory that might sell well there (prioritize selling)
 				for good, qty := range bot.Inventory {
 					if qty > 0 {
 						if rememberedPrice, exists := memory.Prices[good]; exists {
@@ -1390,21 +1418,58 @@ func (gs *GameServer) runTicker(room *Room) {
 							if rememberedPrice > currentPrice {
 								profitMargin := float64(rememberedPrice - currentPrice)
 								staleness := float64(room.Turn - memory.Turn + 1)
-								weightedProfit := profitMargin / staleness * float64(qty) * 0.5 // Lower weight for existing inventory
-								profit += weightedProfit
-								opportunities++
+								weightedProfit := profitMargin / staleness * float64(qty) * 0.7 // Higher weight for selling existing inventory
+								sellingProfit += weightedProfit
+								sellingOpportunities++
 							}
 						}
 					}
 				}
 
-				// Prefer routes with multiple opportunities
-				if opportunities > 0 {
-					profit = profit * (1.0 + float64(opportunities)*0.1)
+				// Check goods we can buy here and sell there (but consider market depletion)
+				for good, currentPrice := range currentPlanet.Prices {
+					if currentGoods := currentPlanet.Goods[good]; currentGoods > 0 && currentPrice > 0 {
+						if rememberedPrice, exists := memory.Prices[good]; exists && rememberedPrice > currentPrice {
+							// Check if we recently bought this good from the destination planet
+							buyingAtDestination := false
+							if lastPurchased, purchased := memory.LastPurchased[good]; purchased {
+								timeSinceLastPurchase := room.Turn - lastPurchased
+								purchaseAmount := memory.PurchaseAmounts[good]
+
+								// If we made a significant purchase recently, wait for replenishment
+								if timeSinceLastPurchase < minReplenishmentTime && purchaseAmount >= significantPurchaseThreshold {
+									buyingAtDestination = true
+								}
+							}
+
+							// Only consider this opportunity if we're not planning to buy there soon
+							if !buyingAtDestination {
+								// We remember this good being more expensive there - good for selling
+								profitMargin := float64(rememberedPrice - currentPrice)
+								// Weight by availability and freshness of memory
+								staleness := float64(room.Turn - memory.Turn + 1)
+								weightedProfit := profitMargin / staleness * 0.4 // Lower weight for buying opportunities
+								buyingProfit += weightedProfit
+								buyingOpportunities++
+							}
+						}
+					}
 				}
 
-				if profit > bestProfitPotential {
-					bestProfitPotential = profit
+				// Combine profits with selling getting priority
+				totalProfit := sellingProfit + buyingProfit
+				totalOpportunities := sellingOpportunities + buyingOpportunities
+
+				// Prefer routes with selling opportunities and multiple opportunities
+				if sellingOpportunities > 0 {
+					totalProfit = totalProfit * 1.3 // Bonus for selling opportunities
+				}
+				if totalOpportunities > 0 {
+					totalProfit = totalProfit * (1.0 + float64(totalOpportunities)*0.1)
+				}
+
+				if totalProfit > bestProfitPotential {
+					bestProfitPotential = totalProfit
 					bestDestination = planetName
 				}
 			}
@@ -1571,6 +1636,19 @@ func (gs *GameServer) runTicker(room *Room) {
 						if minRememberedPrice == 999999 || price <= int(float64(minRememberedPrice)*0.7) {
 							shouldBuy = true
 						}
+
+						// Additional check: avoid buying too much if supply is low compared to our memory
+						if shouldBuy {
+							currentMemory := bp.PriceMemory[bp.CurrentPlanet]
+							goodsAvailable := planet.Goods[g]
+							if currentMemory != nil && currentMemory.GoodsAvg > 0 {
+								// If this good's availability is much lower than the average we remember,
+								// be more conservative about buying (market might be depleted)
+								if goodsAvailable < currentMemory.GoodsAvg/3 {
+									shouldBuy = false // Skip goods that seem severely depleted
+								}
+							}
+						}
 					} else {
 						// Fallback to original logic
 						max := 0
@@ -1623,6 +1701,9 @@ func (gs *GameServer) runTicker(room *Room) {
 						delete(bp.InventoryAvgCost, g)
 					}
 					gs.logAction(room, bp, fmt.Sprintf("Bought %d %s for $%d", amount, g, cost))
+
+					// Record this purchase to avoid returning too soon to buy more of this good
+					recordBotPurchase(bp, g, amount, room.Turn)
 				}
 			}
 			// Bot refuel behavior (uses local planet fuel price)
