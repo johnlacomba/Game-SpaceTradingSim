@@ -79,7 +79,7 @@ resource "aws_cognito_user_pool_client" "main" {
   }
 
   # Ensure the Google IdP exists before updating supported identity providers
-  depends_on = [aws_cognito_identity_provider.google]
+  depends_on = var.enable_google_idp ? [aws_cognito_identity_provider.google] : []
 }
 
 # Cognito User Pool Domain
@@ -104,6 +104,11 @@ resource "aws_cognito_identity_pool" "main" {
     provider_name           = aws_cognito_user_pool.main.endpoint
     server_side_token_check = false
   }
+
+  # Enable Google as a login provider for Identity Pools when configured
+  supported_login_providers = var.enable_google_idp ? {
+    "accounts.google.com" = var.google_client_id
+  } : {}
 
   tags = local.common_tags
 }
