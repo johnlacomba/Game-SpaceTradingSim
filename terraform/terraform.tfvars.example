@@ -16,3 +16,8 @@ cognito_logout_urls = [
 
 # Set to true to enable ECS deployment
 enable_ecs = false
+
+# Enable Google Sign-In on Cognito Hosted UI (optional)
+enable_google_idp   = false
+google_client_id    = ""       # e.g. 1234567890-abcdefg.apps.googleusercontent.com
+google_client_secret = ""      # keep this secret

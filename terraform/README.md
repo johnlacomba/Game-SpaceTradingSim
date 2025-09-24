@@ -148,6 +148,17 @@ You can customize the deployment by:
 
 1. **Adding custom domain** - Set `domain_name` variable and add Route53/ACM resources
 2. **Modifying Cognito settings** - Edit `cognito.tf` for different password policies, attributes, etc.
+3. **Enable Google Sign-In (Hosted UI)**
+    - In `terraform.tfvars`, set:
+       ```hcl
+       enable_google_idp    = true
+       google_client_id     = "<your-google-oauth-client-id>"
+       google_client_secret = "<your-google-oauth-client-secret>"
+       ```
+    - In Google Cloud Console (OAuth consent + Credentials), add Authorized redirect URIs matching your Cognito Hosted UI callback, for example:
+       - `https://<your-cognito-domain>.auth.${var.aws_region}.amazoncognito.com/oauth2/idpresponse`
+       - And ensure your app callback URLs in `cognito_callback_urls` include your site, e.g. `https://space-trader.click/auth/callback`.
+    - Apply Terraform. The Hosted UI will automatically show "Continue with Google"; no frontend changes or buttons needed.
 3. **Adding API endpoints** - Create additional API Gateway resources in `api_gateway.tf`
 4. **Enhanced monitoring** - Add CloudWatch alarms and dashboards
 
@@ -156,4 +167,5 @@ You can customize the deployment by:
 - Ensure your AWS credentials have sufficient permissions
 - Check CloudWatch logs for ECS tasks if using containerized deployment
 - Verify Cognito callback URLs match your application URLs
+- If Google doesn't appear in the Hosted UI, ensure `enable_google_idp` is true and the Google client ID/secret are set; re-apply Terraform
 - API Gateway CORS settings may need adjustment for your frontend domain

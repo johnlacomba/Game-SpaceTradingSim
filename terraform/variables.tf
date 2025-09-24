@@ -49,3 +49,23 @@ variable "enable_ecs" {
   type        = bool
   default     = false
 }
+
+# --- Google Identity Provider (optional) ---
+variable "enable_google_idp" {
+  description = "Enable Google as a Cognito Identity Provider for Hosted UI"
+  type        = bool
+  default     = false
+}
+
+variable "google_client_id" {
+  description = "Google OAuth 2.0 Client ID (from Google Cloud Console)"
+  type        = string
+  default     = ""
+}
+
+variable "google_client_secret" {
+  description = "Google OAuth 2.0 Client Secret (from Google Cloud Console)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

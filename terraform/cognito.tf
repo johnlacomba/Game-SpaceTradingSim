@@ -60,7 +60,7 @@ resource "aws_cognito_user_pool_client" "main" {
   logout_urls   = var.cognito_logout_urls
 
   # Supported identity providers
-  supported_identity_providers = ["COGNITO"]
+  supported_identity_providers = var.enable_google_idp ? ["COGNITO", "Google"] : ["COGNITO"]
 
   # Token validity
   access_token_validity  = 60    # 1 hour
@@ -77,6 +77,9 @@ resource "aws_cognito_user_pool_client" "main" {
   lifecycle {
     prevent_destroy = false
   }
+
+  # Ensure the Google IdP exists before updating supported identity providers
+  depends_on = [aws_cognito_identity_provider.google]
 }
 
 # Cognito User Pool Domain
@@ -103,6 +106,29 @@ resource "aws_cognito_identity_pool" "main" {
   }
 
   tags = local.common_tags
+}
+
+# Optional: Google as Cognito User Pool Identity Provider
+resource "aws_cognito_identity_provider" "google" {
+  count        = var.enable_google_idp ? 1 : 0
+  user_pool_id = aws_cognito_user_pool.main.id
+  provider_name = "Google"
+  provider_type = "Google"
+
+  provider_details = {
+    client_id                = var.google_client_id
+    client_secret            = var.google_client_secret
+    authorize_scopes         = "profile email openid"
+  }
+
+  attribute_mapping = {
+    email = "email"
+    name  = "name"
+    given_name = "given_name"
+    family_name = "family_name"
+    picture = "picture"
+    username = "sub"
+  }
 }
 
 # IAM role for authenticated users
