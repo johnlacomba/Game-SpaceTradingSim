@@ -2351,7 +2351,7 @@ export function App() {
               100% { opacity: 0; transform: translateY(20vh); }
             }
             @keyframes flowingDots {
-              0% { stroke-dashoffset: 20; }
+              0% { stroke-dashoffset: 8; }
               100% { stroke-dashoffset: 0; }
             }
           `}
@@ -2486,10 +2486,10 @@ export function App() {
                   strokeWidth={isMobile ? 3 : 2} 
                   strokeLinecap="round" 
                   strokeDasharray="5,3"
-                  strokeDashoffset="0"
+                  strokeDashoffset="8"
                   opacity={0.95}
                   style={{
-                    animation: 'flowingDots 1s linear infinite'
+                    animation: 'flowingDots 2s linear infinite'
                   }}
                 />
               )
