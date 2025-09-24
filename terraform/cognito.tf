@@ -79,7 +79,7 @@ resource "aws_cognito_user_pool_client" "main" {
   }
 
   # Ensure the Google IdP exists before updating supported identity providers
-  depends_on = var.enable_google_idp ? [aws_cognito_identity_provider.google] : []
+  depends_on = [aws_cognito_identity_provider.google]
 }
 
 # Cognito User Pool Domain
