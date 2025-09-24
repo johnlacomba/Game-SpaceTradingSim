@@ -2111,7 +2111,7 @@ export function App() {
                 minHeight: isMobile ? 48 : 'auto'
               }}
             >
-              Ship Inventory [{usedSlots}/{capacity}] ▾
+              Ship [{usedSlots}/{capacity}] ▾
             </button>
             {inventoryOpen && (
               <div className="panel" style={{ 
@@ -2127,24 +2127,79 @@ export function App() {
                 overflow: 'auto',
                 maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none'
               }}>
-                {Object.keys(r.you.inventory).length === 0 ? (
-                  <div style={{ fontSize: isMobile ? 16 : 'inherit' }}>Empty</div>
-                ) : (
-                  <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-                    {Object.keys(r.you.inventory).sort().map(g => {
-                      const qty = r.you.inventory[g]
-                      const avg = r.you.inventoryAvgCost?.[g]
-                      return (
-                        <li key={g} style={{ 
-                          padding: isMobile ? '8px 0' : '4px 0',
-                          fontSize: isMobile ? 16 : 'inherit'
-                        }}>
-                          {g}: {qty}{typeof avg === 'number' ? ` (avg $${avg})` : ''}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
+                {/* Ship Stats Section */}
+                <div style={{ marginBottom: 16 }}>
+                  <h4 style={{ 
+                    margin: '0 0 8px 0', 
+                    fontSize: isMobile ? 16 : 14, 
+                    fontWeight: 600, 
+                    color: 'var(--accent2)' 
+                  }}>
+                    Ship Stats
+                  </h4>
+                  <div style={{ fontSize: isMobile ? 14 : 13, color: 'var(--text)' }}>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      padding: '4px 0' 
+                    }}>
+                      <span>Fuel Tank:</span>
+                      <span><strong>{(r.you as any).fuelCapacity ?? 100}</strong> units</span>
+                    </div>
+                    <div style={{ 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      padding: '4px 0' 
+                    }}>
+                      <span>Engine Speed:</span>
+                      <span><strong>{(r.you as any).speed ?? 1}</strong>x</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Ship Inventory Section */}
+                <div>
+                  <h4 style={{ 
+                    margin: '0 0 8px 0', 
+                    fontSize: isMobile ? 16 : 14, 
+                    fontWeight: 600, 
+                    color: 'var(--accent2)' 
+                  }}>
+                    Cargo Hold [{usedSlots}/{capacity}]
+                  </h4>
+                  {Object.keys(r.you.inventory).length === 0 ? (
+                    <div style={{ 
+                      fontSize: isMobile ? 14 : 13, 
+                      color: 'var(--muted)', 
+                      fontStyle: 'italic' 
+                    }}>
+                      Empty
+                    </div>
+                  ) : (
+                    <ul style={{ listStyle:'none', padding:0, margin:0 }}>
+                      {Object.keys(r.you.inventory).sort().map(g => {
+                        const qty = r.you.inventory[g]
+                        const avg = r.you.inventoryAvgCost?.[g]
+                        return (
+                          <li key={g} style={{ 
+                            padding: isMobile ? '4px 0' : '2px 0',
+                            fontSize: isMobile ? 14 : 13,
+                            display: 'flex',
+                            justifyContent: 'space-between'
+                          }}>
+                            <span>{g}:</span>
+                            <span>
+                              <strong>{qty}</strong>
+                              {typeof avg === 'number' ? (
+                                <span className="muted"> (avg ${avg})</span>
+                              ) : ''}
+                            </span>
+                          </li>
+                        )
+                      })}
+                    </ul>
+                  )}
+                </div>
               </div>
             )}
           </div>
