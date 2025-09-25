@@ -73,13 +73,15 @@ type Player struct {
 	writeMu           sync.Mutex      // guards conn writes
 	Bankrupt          bool            `json:"-"`
 	// Transit state (server-only)
-	InTransit         bool   `json:"-"`
-	TransitFrom       string `json:"-"`
-	TransitRemaining  int    `json:"-"` // units remaining to destination along straight line
-	TransitTotal      int    `json:"-"` // initial units at start of transit
-	CapacityBonus     int    `json:"-"`
-	SpeedBonus        int    `json:"-"`
-	FuelCapacityBonus int    `json:"-"`
+	InTransit          bool   `json:"-"`
+	TransitFrom        string `json:"-"`
+	TransitRemaining   int    `json:"-"` // units remaining to destination along straight line
+	TransitTotal       int    `json:"-"` // initial units at start of transit
+	CapacityBonus      int    `json:"-"`
+	SpeedBonus         int    `json:"-"`
+	FuelCapacityBonus  int    `json:"-"`
+	FacilityInvestment int    `json:"-"`
+	UpgradeInvestment  int    `json:"-"`
 	// Recent actions (last 10)
 	ActionHistory []ActionLog `json:"-"`
 	// Bot-specific memory (only used by bots)
@@ -174,10 +176,12 @@ type Planet struct {
 
 // Facility represents a player-owned facility at a planet
 type Facility struct {
-	Type         string   `json:"type"`         // e.g., "Mining Station", "Trade Hub", "Refinery"
-	Owner        PlayerID `json:"owner"`        // player who owns this facility
-	UsageCharge  int      `json:"usageCharge"`  // cost per turn for non-owners
-	AccruedMoney int      `json:"accruedMoney"` // money waiting to be collected by owner
+	Type          string   `json:"type"`  // e.g., "Mining Station", "Trade Hub", "Refinery"
+	Owner         PlayerID `json:"owner"` // player who owns this facility
+	OwnerName     string   `json:"ownerName"`
+	UsageCharge   int      `json:"usageCharge"`  // cost per turn for non-owners
+	AccruedMoney  int      `json:"accruedMoney"` // money waiting to be collected by owner
+	PurchasePrice int      `json:"purchasePrice"`
 }
 
 // FederationAuction represents an active facility auction
@@ -193,24 +197,26 @@ type FederationAuction struct {
 
 // PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
 type PersistedPlayer struct {
-	Money             int
-	CurrentPlanet     string
-	DestinationPlanet string
-	Inventory         map[string]int
-	InventoryAvgCost  map[string]int
-	Ready             bool
-	EndGame           bool
-	Modals            []ModalItem
-	Fuel              int
-	Bankrupt          bool
-	InTransit         bool
-	TransitFrom       string
-	TransitRemaining  int
-	TransitTotal      int
-	CapacityBonus     int
-	SpeedBonus        int
-	FuelCapacityBonus int
-	ActionHistory     []ActionLog
+	Money              int
+	CurrentPlanet      string
+	DestinationPlanet  string
+	Inventory          map[string]int
+	InventoryAvgCost   map[string]int
+	Ready              bool
+	EndGame            bool
+	Modals             []ModalItem
+	Fuel               int
+	Bankrupt           bool
+	InTransit          bool
+	TransitFrom        string
+	TransitRemaining   int
+	TransitTotal       int
+	CapacityBonus      int
+	SpeedBonus         int
+	FuelCapacityBonus  int
+	ActionHistory      []ActionLog
+	FacilityInvestment int
+	UpgradeInvestment  int
 }
 
 type GameServer struct {
@@ -352,24 +358,26 @@ func (gs *GameServer) readLoop(p *Player) {
 				room.mu.Lock()
 				// persist on disconnect
 				room.Persist[p.ID] = &PersistedPlayer{
-					Money:             p.Money,
-					CurrentPlanet:     p.CurrentPlanet,
-					DestinationPlanet: p.DestinationPlanet,
-					Inventory:         cloneIntMap(p.Inventory),
-					InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
-					Ready:             p.Ready,
-					EndGame:           p.EndGame,
-					Modals:            cloneModals(p.Modals),
-					Fuel:              p.Fuel,
-					Bankrupt:          p.Bankrupt,
-					InTransit:         p.InTransit,
-					TransitFrom:       p.TransitFrom,
-					TransitRemaining:  p.TransitRemaining,
-					TransitTotal:      p.TransitTotal,
-					CapacityBonus:     p.CapacityBonus,
-					SpeedBonus:        p.SpeedBonus,
-					FuelCapacityBonus: p.FuelCapacityBonus,
-					ActionHistory:     cloneActionHistory(p.ActionHistory),
+					Money:              p.Money,
+					CurrentPlanet:      p.CurrentPlanet,
+					DestinationPlanet:  p.DestinationPlanet,
+					Inventory:          cloneIntMap(p.Inventory),
+					InventoryAvgCost:   cloneIntMap(p.InventoryAvgCost),
+					Ready:              p.Ready,
+					EndGame:            p.EndGame,
+					Modals:             cloneModals(p.Modals),
+					Fuel:               p.Fuel,
+					Bankrupt:           p.Bankrupt,
+					InTransit:          p.InTransit,
+					TransitFrom:        p.TransitFrom,
+					TransitRemaining:   p.TransitRemaining,
+					TransitTotal:       p.TransitTotal,
+					CapacityBonus:      p.CapacityBonus,
+					SpeedBonus:         p.SpeedBonus,
+					FuelCapacityBonus:  p.FuelCapacityBonus,
+					ActionHistory:      cloneActionHistory(p.ActionHistory),
+					FacilityInvestment: p.FacilityInvestment,
+					UpgradeInvestment:  p.UpgradeInvestment,
 				}
 				delete(room.Players, p.ID)
 
@@ -481,6 +489,7 @@ func (gs *GameServer) readLoop(p *Player) {
 						if p.Money >= m.Price {
 							p.Money -= m.Price
 							p.CapacityBonus += m.CapacityBonus
+							p.UpgradeInvestment += m.Price
 							// Confirm
 							gs.enqueueModal(p, "Upgrade Installed", "Your cargo capacity increased by "+strconv.Itoa(m.CapacityBonus)+" to "+strconv.Itoa(shipCapacity+p.CapacityBonus)+".")
 							gs.logAction(room, p, fmt.Sprintf("Purchased cargo upgrade +%d for $%d", m.CapacityBonus, m.Price))
@@ -493,6 +502,7 @@ func (gs *GameServer) readLoop(p *Player) {
 						if p.Money >= price {
 							p.Money -= price
 							p.SpeedBonus += m.Units
+							p.UpgradeInvestment += price
 							gs.enqueueModal(p, "Engine Upgrade Installed", "Your ship speed increased by "+strconv.Itoa(m.Units)+" units/turn.")
 							gs.logAction(room, p, fmt.Sprintf("Purchased engine upgrade +%d for $%d", m.Units, price))
 						} else {
@@ -504,6 +514,7 @@ func (gs *GameServer) readLoop(p *Player) {
 						if p.Money >= price {
 							p.Money -= price
 							p.FuelCapacityBonus += m.Units
+							p.UpgradeInvestment += price
 							gs.enqueueModal(p, "Fuel Tank Expanded", "Your fuel capacity increased by "+strconv.Itoa(m.Units)+" to "+strconv.Itoa(fuelCapacity+p.FuelCapacityBonus)+".")
 							gs.logAction(room, p, fmt.Sprintf("Purchased fuel tank +%d for $%d", m.Units, price))
 						} else {
@@ -795,23 +806,25 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 			old.mu.Lock()
 			// Persist snapshot so rejoining the old room restores progress
 			old.Persist[p.ID] = &PersistedPlayer{
-				Money:             p.Money,
-				CurrentPlanet:     p.CurrentPlanet,
-				DestinationPlanet: p.DestinationPlanet,
-				Inventory:         cloneIntMap(p.Inventory),
-				InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
-				Ready:             p.Ready,
-				Modals:            cloneModals(p.Modals),
-				Fuel:              p.Fuel,
-				Bankrupt:          p.Bankrupt,
-				InTransit:         p.InTransit,
-				TransitFrom:       p.TransitFrom,
-				TransitRemaining:  p.TransitRemaining,
-				TransitTotal:      p.TransitTotal,
-				CapacityBonus:     p.CapacityBonus,
-				SpeedBonus:        p.SpeedBonus,
-				FuelCapacityBonus: p.FuelCapacityBonus,
-				ActionHistory:     cloneActionHistory(p.ActionHistory),
+				Money:              p.Money,
+				CurrentPlanet:      p.CurrentPlanet,
+				DestinationPlanet:  p.DestinationPlanet,
+				Inventory:          cloneIntMap(p.Inventory),
+				InventoryAvgCost:   cloneIntMap(p.InventoryAvgCost),
+				Ready:              p.Ready,
+				Modals:             cloneModals(p.Modals),
+				Fuel:               p.Fuel,
+				Bankrupt:           p.Bankrupt,
+				InTransit:          p.InTransit,
+				TransitFrom:        p.TransitFrom,
+				TransitRemaining:   p.TransitRemaining,
+				TransitTotal:       p.TransitTotal,
+				CapacityBonus:      p.CapacityBonus,
+				SpeedBonus:         p.SpeedBonus,
+				FuelCapacityBonus:  p.FuelCapacityBonus,
+				ActionHistory:      cloneActionHistory(p.ActionHistory),
+				FacilityInvestment: p.FacilityInvestment,
+				UpgradeInvestment:  p.UpgradeInvestment,
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -847,6 +860,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.SpeedBonus = snap.SpeedBonus
 		p.FuelCapacityBonus = snap.FuelCapacityBonus
 		p.Bankrupt = snap.Bankrupt
+		p.FacilityInvestment = snap.FacilityInvestment
+		p.UpgradeInvestment = snap.UpgradeInvestment
 		// restore per-room action history
 		p.ActionHistory = cloneActionHistory(snap.ActionHistory)
 		// Initialize price memory for bots (important for restored bots)
@@ -865,6 +880,8 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.Inventory = map[string]int{}
 		p.InventoryAvgCost = map[string]int{}
 		p.Modals = []ModalItem{}
+		p.FacilityInvestment = 0
+		p.UpgradeInvestment = 0
 		p.InTransit = false
 		p.TransitFrom = ""
 		p.TransitRemaining = 0
@@ -901,23 +918,25 @@ func (gs *GameServer) exitRoom(p *Player) {
 	}
 	room.mu.Lock()
 	room.Persist[p.ID] = &PersistedPlayer{
-		Money:             p.Money,
-		CurrentPlanet:     p.CurrentPlanet,
-		DestinationPlanet: p.DestinationPlanet,
-		Inventory:         cloneIntMap(p.Inventory),
-		InventoryAvgCost:  cloneIntMap(p.InventoryAvgCost),
-		Ready:             p.Ready,
-		EndGame:           p.EndGame,
-		Fuel:              p.Fuel,
-		Bankrupt:          p.Bankrupt,
-		InTransit:         p.InTransit,
-		TransitFrom:       p.TransitFrom,
-		TransitRemaining:  p.TransitRemaining,
-		TransitTotal:      p.TransitTotal,
-		CapacityBonus:     p.CapacityBonus,
-		SpeedBonus:        p.SpeedBonus,
-		FuelCapacityBonus: p.FuelCapacityBonus,
-		ActionHistory:     cloneActionHistory(p.ActionHistory),
+		Money:              p.Money,
+		CurrentPlanet:      p.CurrentPlanet,
+		DestinationPlanet:  p.DestinationPlanet,
+		Inventory:          cloneIntMap(p.Inventory),
+		InventoryAvgCost:   cloneIntMap(p.InventoryAvgCost),
+		Ready:              p.Ready,
+		EndGame:            p.EndGame,
+		Fuel:               p.Fuel,
+		Bankrupt:           p.Bankrupt,
+		InTransit:          p.InTransit,
+		TransitFrom:        p.TransitFrom,
+		TransitRemaining:   p.TransitRemaining,
+		TransitTotal:       p.TransitTotal,
+		CapacityBonus:      p.CapacityBonus,
+		SpeedBonus:         p.SpeedBonus,
+		FuelCapacityBonus:  p.FuelCapacityBonus,
+		ActionHistory:      cloneActionHistory(p.ActionHistory),
+		FacilityInvestment: p.FacilityInvestment,
+		UpgradeInvestment:  p.UpgradeInvestment,
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -2479,16 +2498,45 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		if pp.Bankrupt {
 			moneyField = "Bankrupt"
 		}
+		cargoValue := inventoryValue(pp.Inventory, pp.InventoryAvgCost)
+		upgradeValue := pp.UpgradeInvestment
+		facilityValue := pp.FacilityInvestment
 		players = append(players, map[string]interface{}{
-			"id":                pp.ID,
-			"name":              pp.Name,
-			"money":             moneyField,
-			"currentPlanet":     pp.CurrentPlanet,
-			"destinationPlanet": pp.DestinationPlanet,
-			"ready":             pp.Ready,
-			"endGame":           pp.EndGame,
-			"bankrupt":          pp.Bankrupt,
+			"id":                 pp.ID,
+			"name":               pp.Name,
+			"money":              moneyField,
+			"cashValue":          displayMoney,
+			"currentPlanet":      pp.CurrentPlanet,
+			"destinationPlanet":  pp.DestinationPlanet,
+			"ready":              pp.Ready,
+			"endGame":            pp.EndGame,
+			"bankrupt":           pp.Bankrupt,
+			"cargoValue":         cargoValue,
+			"upgradeValue":       upgradeValue,
+			"facilityInvestment": facilityValue,
 		})
+	}
+
+	facilityOverview := map[string]map[string]interface{}{}
+	for planetName, planet := range room.Planets {
+		if planet == nil || planet.Facility == nil {
+			continue
+		}
+		facility := planet.Facility
+		ownerName := facility.OwnerName
+		if ownerName == "" {
+			if op := room.Players[facility.Owner]; op != nil {
+				ownerName = op.Name
+			}
+		}
+		facilityOverview[planetName] = map[string]interface{}{
+			"type":          facility.Type,
+			"ownerId":       facility.Owner,
+			"ownerName":     ownerName,
+			"usageCharge":   facility.UsageCharge,
+			"accruedMoney":  facility.AccruedMoney,
+			"purchasePrice": facility.PurchasePrice,
+		}
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
 	recipients := make([]*Player, 0, len(room.Players))
@@ -2576,26 +2624,32 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 						}
 						return arr
 					}(),
+					"facilities": facilityOverview,
 				},
 				"you": map[string]interface{}{
-					"id":                pp.ID,
-					"name":              pp.Name,
-					"money":             "Bankrupt",
-					"inventory":         map[string]int{},
-					"inventoryAvgCost":  map[string]int{},
-					"currentPlanet":     pp.CurrentPlanet,
-					"destinationPlanet": "",
-					"ready":             false,
-					"endGame":           false,
-					"fuel":              0,
-					"inTransit":         false,
-					"transitFrom":       "",
-					"transitRemaining":  0,
-					"transitTotal":      0,
-					"capacity":          shipCapacity + pp.CapacityBonus,
-					"fuelCapacity":      fuelCapacity + pp.FuelCapacityBonus,
-					"speedPerTurn":      20 + pp.SpeedBonus,
-					"modal":             nm,
+					"id":                 pp.ID,
+					"name":               pp.Name,
+					"money":              "Bankrupt",
+					"cashValue":          pp.Money,
+					"inventory":          map[string]int{},
+					"inventoryAvgCost":   map[string]int{},
+					"currentPlanet":      pp.CurrentPlanet,
+					"destinationPlanet":  "",
+					"ready":              false,
+					"endGame":            false,
+					"fuel":               0,
+					"inTransit":          false,
+					"transitFrom":        "",
+					"transitRemaining":   0,
+					"transitTotal":       0,
+					"capacity":           shipCapacity + pp.CapacityBonus,
+					"fuelCapacity":       fuelCapacity + pp.FuelCapacityBonus,
+					"speedPerTurn":       20 + pp.SpeedBonus,
+					"facilityInvestment": pp.FacilityInvestment,
+					"upgradeInvestment":  pp.UpgradeInvestment,
+					"upgradeValue":       pp.UpgradeInvestment,
+					"cargoValue":         0,
+					"modal":              nm,
 				},
 				"visiblePlanet": map[string]interface{}{},
 			}
@@ -2719,26 +2773,32 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					}
 					return arr
 				}(),
+				"facilities": facilityOverview,
 			},
 			"you": map[string]interface{}{
-				"id":                pp.ID,
-				"name":              pp.Name,
-				"money":             pp.Money,
-				"inventory":         cloneIntMap(pp.Inventory),
-				"inventoryAvgCost":  cloneIntMap(pp.InventoryAvgCost),
-				"currentPlanet":     pp.CurrentPlanet,
-				"destinationPlanet": pp.DestinationPlanet,
-				"ready":             pp.Ready,
-				"endGame":           pp.EndGame,
-				"fuel":              pp.Fuel,
-				"inTransit":         pp.InTransit,
-				"transitFrom":       pp.TransitFrom,
-				"transitRemaining":  pp.TransitRemaining,
-				"transitTotal":      pp.TransitTotal,
-				"capacity":          shipCapacity + pp.CapacityBonus,
-				"fuelCapacity":      fuelCapacity + pp.FuelCapacityBonus,
-				"speedPerTurn":      20 + pp.SpeedBonus,
-				"modal":             nextModal,
+				"id":                 pp.ID,
+				"name":               pp.Name,
+				"money":              pp.Money,
+				"cashValue":          pp.Money,
+				"inventory":          cloneIntMap(pp.Inventory),
+				"inventoryAvgCost":   cloneIntMap(pp.InventoryAvgCost),
+				"currentPlanet":      pp.CurrentPlanet,
+				"destinationPlanet":  pp.DestinationPlanet,
+				"ready":              pp.Ready,
+				"endGame":            pp.EndGame,
+				"fuel":               pp.Fuel,
+				"inTransit":          pp.InTransit,
+				"transitFrom":        pp.TransitFrom,
+				"transitRemaining":   pp.TransitRemaining,
+				"transitTotal":       pp.TransitTotal,
+				"capacity":           shipCapacity + pp.CapacityBonus,
+				"fuelCapacity":       fuelCapacity + pp.FuelCapacityBonus,
+				"speedPerTurn":       20 + pp.SpeedBonus,
+				"facilityInvestment": pp.FacilityInvestment,
+				"upgradeInvestment":  pp.UpgradeInvestment,
+				"upgradeValue":       pp.UpgradeInvestment,
+				"cargoValue":         inventoryValue(pp.Inventory, pp.InventoryAvgCost),
+				"modal":              nextModal,
 			},
 			"visiblePlanet": visible,
 		}
@@ -3034,6 +3094,24 @@ func inventoryTotal(inv map[string]int) int {
 	return total
 }
 
+func inventoryValue(inv map[string]int, avg map[string]int) int {
+	if inv == nil {
+		return 0
+	}
+	value := 0
+	for good, qty := range inv {
+		if qty <= 0 {
+			continue
+		}
+		price := 0
+		if avg != nil {
+			price = avg[good]
+		}
+		value += qty * price
+	}
+	return value
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a
@@ -3290,15 +3368,18 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 		if winnerPlayer != nil && winnerPlayer.Money >= highestBid {
 			// Charge the winner
 			winnerPlayer.Money -= highestBid
+			winnerPlayer.FacilityInvestment += highestBid
 
 			// Create the facility
 			planet := room.Planets[auction.Planet]
 			if planet != nil {
 				planet.Facility = &Facility{
-					Type:         auction.FacilityType,
-					Owner:        winner,
-					UsageCharge:  auction.UsageCharge,
-					AccruedMoney: 0,
+					Type:          auction.FacilityType,
+					Owner:         winner,
+					OwnerName:     winnerPlayer.Name,
+					UsageCharge:   auction.UsageCharge,
+					AccruedMoney:  0,
+					PurchasePrice: highestBid,
 				}
 				// Determine second-highest bid (if any)
 				var secondID PlayerID

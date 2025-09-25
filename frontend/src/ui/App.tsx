@@ -30,10 +30,76 @@ function useIsMobile() {
 
 type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
 
-type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean }
+type RoomPlayer = {
+  id: string
+  name: string
+  money: number | string
+  cashValue?: number
+  currentPlanet: string
+  destinationPlanet: string
+  ready?: boolean
+  endGame?: boolean
+  bankrupt?: boolean
+  cargoValue?: number
+  upgradeValue?: number
+  facilityInvestment?: number
+}
+
+type FacilitySummary = {
+  type: string
+  ownerId: string
+  ownerName?: string
+  usageCharge: number
+  accruedMoney?: number
+  purchasePrice?: number
+}
+
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean; modal?: { id: string; title: string; body: string; kind?: string; auctionId?: string; facilityType?: string; planet?: string; usageCharge?: number; suggestedBid?: number }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
+  room: {
+    id: string
+    name: string
+    started: boolean
+    turn: number
+    players: RoomPlayer[]
+    planets: string[]
+    facilities?: Record<string, FacilitySummary>
+    planetPositions?: Record<string, { x: number; y: number }>
+    allReady?: boolean
+    turnEndsAt?: number
+    news?: { headline: string; planet: string; turnsRemaining: number }[]
+  }
+  you: {
+    id: string
+    name: string
+    money: number
+    cashValue?: number
+    fuel: number
+    inventory: Record<string, number>
+    inventoryAvgCost: Record<string, number>
+    currentPlanet: string
+    destinationPlanet: string
+    ready?: boolean
+    endGame?: boolean
+    modal?: {
+      id: string
+      title: string
+      body: string
+      kind?: string
+      auctionId?: string
+      facilityType?: string
+      planet?: string
+      usageCharge?: number
+      suggestedBid?: number
+    }
+    inTransit?: boolean
+    transitFrom?: string
+    transitRemaining?: number
+    transitTotal?: number
+    facilityInvestment?: number
+    upgradeInvestment?: number
+    upgradeValue?: number
+    cargoValue?: number
+  }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
@@ -387,29 +453,34 @@ function NewsTicker({ items }: { items: string[] }) {
 // Wealth charts: visualize player wealth over turns and recent shifts
 type WealthHistory = { roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }
 
-// Calculate total wealth for a player including cash and inventory value
-function calculatePlayerWealth(player: any): { cash: number; inventoryValue: number; upgradeValue: number; total: number } {
-  const cash = player.money || 0
-  
-  // Calculate inventory value using average cost
-  let inventoryValue = 0
-  if (player.inventory && player.inventoryAvgCost) {
-    Object.keys(player.inventory).forEach(good => {
-      const quantity = player.inventory[good] || 0
-      const avgCost = player.inventoryAvgCost[good] || 0
-      inventoryValue += quantity * avgCost
-    })
-  }
-  
-  // For now, upgrade value is estimated based on player progression
-  // This could be enhanced with actual upgrade tracking from the backend
-  const upgradeValue = Math.max(0, (player.capacity || 200) - 200) * 50 + 
-                      Math.max(0, (player.fuelCapacity || 100) - 100) * 30 +
-                      Math.max(0, (player.speed || 1) - 1) * 100
-  
-  const total = cash + inventoryValue + upgradeValue
-  
-  return { cash, inventoryValue, upgradeValue, total }
+// Calculate total wealth for a player including cash, cargo, upgrades, and facilities
+function calculatePlayerWealth(player: any): { cash: number; inventoryValue: number; upgradeValue: number; facilityValue: number; total: number } {
+  const cash = typeof player.money === 'number' ? player.money : (player.cashValue || 0)
+
+  const inventoryValue = player.cargoValue != null
+    ? player.cargoValue
+    : (() => {
+        if (player.inventory && player.inventoryAvgCost) {
+          return Object.keys(player.inventory).reduce((sum, good) => {
+            const quantity = player.inventory[good] || 0
+            const avgCost = player.inventoryAvgCost[good] || 0
+            return sum + quantity * avgCost
+          }, 0)
+        }
+        return 0
+      })()
+
+  const upgradeValue = player.upgradeValue != null
+    ? player.upgradeValue
+    : player.upgradeInvestment != null
+      ? player.upgradeInvestment
+      : 0
+
+  const facilityValue = player.facilityInvestment != null ? player.facilityInvestment : 0
+
+  const total = cash + inventoryValue + upgradeValue + facilityValue
+
+  return { cash, inventoryValue, upgradeValue, facilityValue, total }
 }
 
 // Pie Chart Component for wealth distribution
@@ -625,7 +696,7 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
                 {/* Wealth breakdown */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr',
+                  gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))',
                   gap: 8,
                   fontSize: isMobile ? '0.75rem' : '0.8rem',
                   color: 'rgba(255, 255, 255, 0.7)'
@@ -633,15 +704,20 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
                   <div>💰 Cash: ${player.cash.toLocaleString()}</div>
                   <div>📦 Cargo: ${player.inventoryValue.toLocaleString()}</div>
                   {!isMobile && <div>⚡ Upgrades: ${player.upgradeValue.toLocaleString()}</div>}
+                  {!isMobile && <div>🏭 Facilities: ${player.facilityValue.toLocaleString()}</div>}
                 </div>
-                
-                {isMobile && player.upgradeValue > 0 && (
+
+                {isMobile && (
                   <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
                     fontSize: '0.75rem',
                     color: 'rgba(255, 255, 255, 0.7)',
                     marginTop: 4
                   }}>
-                    ⚡ Upgrades: ${player.upgradeValue.toLocaleString()}
+                    {player.upgradeValue > 0 && <div>⚡ Upgrades: ${player.upgradeValue.toLocaleString()}</div>}
+                    {player.facilityValue > 0 && <div>🏭 Facilities: ${player.facilityValue.toLocaleString()}</div>}
                   </div>
                 )}
               </div>
