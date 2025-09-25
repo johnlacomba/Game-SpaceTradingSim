@@ -120,6 +120,7 @@ type Room struct {
 	News            []NewsItem            `json:"-"`
 	PlanetOrder     []string              `json:"-"`
 	PlanetPositions map[string][2]float64 `json:"-"`
+	ActiveAuction   *FederationAuction    `json:"-"`
 }
 
 // ModalItem represents a queued modal to show to a specific player
@@ -135,6 +136,12 @@ type ModalItem struct {
 	Units             int    `json:"units,omitempty"`
 	SpeedBonus        int    `json:"speedBonus,omitempty"`
 	FuelCapacityBonus int    `json:"fuelCapacityBonus,omitempty"`
+	// Auction-specific fields
+	AuctionID    string `json:"auctionId,omitempty"`
+	FacilityType string `json:"facilityType,omitempty"`
+	Planet       string `json:"planet,omitempty"`
+	UsageCharge  int    `json:"usageCharge,omitempty"`
+	SuggestedBid int    `json:"suggestedBid,omitempty"`
 }
 
 // NewsItem represents a temporary room-wide event affecting a planet's prices/production
@@ -161,6 +168,27 @@ type Planet struct {
 	// Separate ship fuel price (not a trade good)
 	FuelPrice     int `json:"-"`
 	BaseFuelPrice int `json:"-"`
+	// Facilities owned by players
+	Facility *Facility `json:"facility,omitempty"`
+}
+
+// Facility represents a player-owned facility at a planet
+type Facility struct {
+	Type         string   `json:"type"`         // e.g., "Mining Station", "Trade Hub", "Refinery"
+	Owner        PlayerID `json:"owner"`        // player who owns this facility
+	UsageCharge  int      `json:"usageCharge"`  // cost per turn for non-owners
+	AccruedMoney int      `json:"accruedMoney"` // money waiting to be collected by owner
+}
+
+// FederationAuction represents an active facility auction
+type FederationAuction struct {
+	ID           string           `json:"id"`
+	FacilityType string           `json:"facilityType"`
+	Planet       string           `json:"planet"`
+	UsageCharge  int              `json:"usageCharge"`
+	SuggestedBid int              `json:"suggestedBid"`
+	Bids         map[PlayerID]int `json:"bids"`
+	TurnsLeft    int              `json:"turnsLeft"`
 }
 
 // PersistedPlayer stores the subset of player state we want to keep per-room for rejoin
@@ -565,6 +593,15 @@ func (gs *GameServer) readLoop(p *Player) {
 					break
 				}
 				gs.handleSell(room, p, data.Good, data.Amount)
+			}
+		case "auctionBid":
+			var data struct {
+				AuctionID string `json:"auctionId"`
+				Bid       int    `json:"bid"`
+			}
+			json.Unmarshal(msg.Payload, &data)
+			if room := gs.getRoom(p.roomID); room != nil {
+				gs.handleAuctionBid(room, p, data.AuctionID, data.Bid)
 			}
 		case "getPlayer":
 			// payload: { playerId }
@@ -1224,6 +1261,10 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		// Randomly generate 0-2 news items per turn
 		gs.generateNews(room)
+
+		// Handle federation auctions
+		gs.handleFederationAuctions(room)
+
 		// resolve travel with fuel consumption
 		for _, p := range room.Players {
 			if p.Bankrupt {
@@ -1308,6 +1349,10 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 		}
+
+		// Handle facility charges and collection
+		gs.handleFacilities(room)
+
 		// accumulate per-planet production
 		for _, pl := range room.Planets {
 			for g, amt := range pl.Prod {
@@ -2374,6 +2419,33 @@ func (gs *GameServer) handleSell(room *Room, p *Player, good string, amount int)
 	gs.logAction(room, p, fmt.Sprintf("Sold %d %s for $%d", amount, good, proceeds))
 }
 
+func (gs *GameServer) handleAuctionBid(room *Room, p *Player, auctionID string, bid int) {
+	if bid <= 0 {
+		return
+	}
+	room.mu.Lock()
+	defer func() { room.mu.Unlock(); gs.sendRoomState(room, nil) }()
+
+	// Check if auction exists and is still active
+	if room.ActiveAuction == nil || room.ActiveAuction.ID != auctionID {
+		gs.enqueueModal(p, "Auction Ended", "This auction is no longer active.")
+		return
+	}
+
+	// Check if player can afford the bid
+	if p.Money < bid {
+		gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this bid.")
+		return
+	}
+
+	// Record the bid
+	room.ActiveAuction.Bids[p.ID] = bid
+	gs.logAction(room, p, fmt.Sprintf("Placed auction bid of $%d for %s on %s", bid, room.ActiveAuction.FacilityType, room.ActiveAuction.Planet))
+
+	// Confirm bid to player
+	gs.enqueueModal(p, "Bid Placed", fmt.Sprintf("Your bid of $%d for the %s on %s has been recorded.", bid, room.ActiveAuction.FacilityType, room.ActiveAuction.Planet))
+}
+
 func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	// prepare minimal view per-player (fog of goods for current planet only)
 	room.mu.Lock()
@@ -3031,4 +3103,238 @@ func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 	if amount > 0 && cost > 0 {
 		gs.logAction(room, p, fmt.Sprintf("Purchased %d fuel for $%d", amount, cost))
 	}
+}
+
+// handleFederationAuctions manages facility auctions across all turns
+func (gs *GameServer) handleFederationAuctions(room *Room) {
+	// Check if an auction is ending
+	if room.ActiveAuction != nil {
+		room.ActiveAuction.TurnsLeft--
+
+		if room.ActiveAuction.TurnsLeft <= 0 {
+			// Auction ends - determine winner and create facility
+			gs.endFederationAuction(room)
+			room.ActiveAuction = nil
+		}
+	}
+
+	// Randomly start new auctions (~2% chance per turn)
+	if room.ActiveAuction == nil && rand.Intn(50) == 0 {
+		gs.startFederationAuction(room)
+	}
+}
+
+// startFederationAuction creates a new facility auction
+func (gs *GameServer) startFederationAuction(room *Room) {
+	// Select random planet that doesn't already have a facility
+	availablePlanets := []string{}
+	for name, planet := range room.Planets {
+		if planet.Facility == nil {
+			availablePlanets = append(availablePlanets, name)
+		}
+	}
+
+	if len(availablePlanets) == 0 {
+		return // All planets have facilities
+	}
+
+	planet := availablePlanets[rand.Intn(len(availablePlanets))]
+
+	// Select random facility type with usage charge
+	facilityTypes := []struct {
+		name   string
+		charge int
+	}{
+		{"Mining Station", 25 + rand.Intn(26)}, // 25-50 per turn
+		{"Trade Hub", 15 + rand.Intn(21)},      // 15-35 per turn
+		{"Refinery", 20 + rand.Intn(31)},       // 20-50 per turn
+		{"Research Lab", 30 + rand.Intn(21)},   // 30-50 per turn
+		{"Repair Dock", 10 + rand.Intn(16)},    // 10-25 per turn
+		{"Fuel Depot", 8 + rand.Intn(13)},      // 8-20 per turn
+	}
+
+	facility := facilityTypes[rand.Intn(len(facilityTypes))]
+	suggestedBid := facility.charge * 10
+
+	// Create auction
+	auctionID := fmt.Sprintf("auction_%d_%d", room.Turn, rand.Intn(1000))
+	room.ActiveAuction = &FederationAuction{
+		ID:           auctionID,
+		FacilityType: facility.name,
+		Planet:       planet,
+		UsageCharge:  facility.charge,
+		SuggestedBid: suggestedBid,
+		Bids:         make(map[PlayerID]int),
+		TurnsLeft:    1, // Auction lasts 1 turn
+	}
+
+	// Send auction modal to all players
+	for _, p := range room.Players {
+		gs.enqueueModal(p, "Federation Facility Auction",
+			fmt.Sprintf("The Galactic Federation is auctioning a %s on %s. Non-owners will pay %d credits per turn when docking. Enter your bid below.",
+				facility.name, planet, facility.charge),
+		)
+
+		// Set modal with auction details
+		if len(p.Modals) > 0 {
+			lastModal := &p.Modals[len(p.Modals)-1]
+			lastModal.Kind = "auction"
+			lastModal.AuctionID = auctionID
+			lastModal.FacilityType = facility.name
+			lastModal.Planet = planet
+			lastModal.UsageCharge = facility.charge
+			lastModal.SuggestedBid = suggestedBid
+		}
+
+		// Auto-bid for bots
+		if p.IsBot && !p.Bankrupt {
+			// Bots bid around the suggested amount but never more than they can afford
+			maxBid := p.Money - 200 // Keep 200 credits as buffer
+			if maxBid > 0 {
+				// Bid 80-120% of suggested, capped at what they can afford
+				bidVariation := suggestedBid + rand.Intn(suggestedBid/2) - suggestedBid/4
+				bid := minInt(bidVariation, maxBid)
+				if bid > 0 {
+					room.ActiveAuction.Bids[p.ID] = bid
+					gs.logAction(room, p, fmt.Sprintf("Auto-placed auction bid of $%d for %s on %s", bid, facility.name, planet))
+				}
+			}
+		}
+	}
+
+	gs.logGeneral(room, fmt.Sprintf("Federation auction started: %s on %s", facility.name, planet))
+}
+
+// endFederationAuction determines winner and creates the facility
+func (gs *GameServer) endFederationAuction(room *Room) {
+	if room.ActiveAuction == nil {
+		return
+	}
+
+	auction := room.ActiveAuction
+
+	// Find highest bidder
+	var winner PlayerID
+	highestBid := 0
+
+	for playerID, bid := range auction.Bids {
+		if bid > highestBid {
+			winner = playerID
+			highestBid = bid
+		}
+	}
+
+	// Create facility and charge winner
+	if winner != "" && highestBid > 0 {
+		winnerPlayer := room.Players[winner]
+		if winnerPlayer != nil && winnerPlayer.Money >= highestBid {
+			// Charge the winner
+			winnerPlayer.Money -= highestBid
+
+			// Create the facility
+			planet := room.Planets[auction.Planet]
+			if planet != nil {
+				planet.Facility = &Facility{
+					Type:         auction.FacilityType,
+					Owner:        winner,
+					UsageCharge:  auction.UsageCharge,
+					AccruedMoney: 0,
+				}
+
+				// Announce winner to all players
+				for _, p := range room.Players {
+					if p.ID == winner {
+						gs.enqueueModal(p, "Auction Won!",
+							fmt.Sprintf("Congratulations! You won the %s on %s for %d credits. You'll collect %d credits per turn from other players who dock there.",
+								auction.FacilityType, auction.Planet, highestBid, auction.UsageCharge))
+					} else {
+						gs.enqueueModal(p, "Auction Results",
+							fmt.Sprintf("%s won the %s on %s for %d credits.",
+								winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid))
+					}
+				}
+
+				gs.logGeneral(room, fmt.Sprintf("%s won %s on %s for $%d", winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid))
+			}
+		}
+	} else {
+		// No valid bids
+		for _, p := range room.Players {
+			gs.enqueueModal(p, "Auction Failed",
+				fmt.Sprintf("No valid bids were received for the %s on %s. The facility remains under Federation control.",
+					auction.FacilityType, auction.Planet))
+		}
+
+		gs.logGeneral(room, fmt.Sprintf("Federation auction failed: no valid bids for %s on %s", auction.FacilityType, auction.Planet))
+	}
+}
+
+// handleFacilities processes facility usage charges and collection
+func (gs *GameServer) handleFacilities(room *Room) {
+	for planetName, planet := range room.Planets {
+		if planet.Facility == nil {
+			continue
+		}
+
+		facility := planet.Facility
+
+		// Charge all players at this location who don't own the facility
+		for _, p := range room.Players {
+			if p.Bankrupt || p.InTransit {
+				continue
+			}
+
+			// Check if player is at this planet and doesn't own the facility
+			if p.CurrentPlanet == planetName && p.ID != facility.Owner {
+				// Charge the player
+				charge := facility.UsageCharge
+				p.Money -= charge
+				facility.AccruedMoney += charge
+
+				gs.logAction(room, p, fmt.Sprintf("Facility charge: $%d at %s (%s)", charge, planetName, facility.Type))
+				if !p.IsBot {
+					gs.enqueueModal(p, "Facility Usage Fee",
+						fmt.Sprintf("You were charged %d credits for using the %s on %s.",
+							charge, facility.Type, planetName))
+				}
+
+				// Check for bankruptcy
+				if p.Money < -500 && !p.Bankrupt {
+					if !p.IsBot {
+						gs.enqueueModal(p, "Game Over", "Your ship was impounded for unpaid facility fees. You may continue watching.")
+					}
+					p.Bankrupt = true
+					room.News = append(room.News, NewsItem{
+						Headline:       p.Name + " bankrupted by facility fees at " + planetName,
+						Planet:         planetName,
+						TurnsRemaining: 3,
+					})
+				}
+			}
+
+			// If facility owner is at this location, let them collect accrued money
+			if p.CurrentPlanet == planetName && p.ID == facility.Owner && facility.AccruedMoney > 0 {
+				collected := facility.AccruedMoney
+				p.Money += collected
+				facility.AccruedMoney = 0
+
+				gs.logAction(room, p, fmt.Sprintf("Facility revenue collected: $%d from %s", collected, facility.Type))
+				if !p.IsBot {
+					gs.enqueueModal(p, "Facility Revenue",
+						fmt.Sprintf("You collected %d credits in revenue from your %s on %s.",
+							collected, facility.Type, planetName))
+				}
+			}
+		}
+	}
+}
+
+// logGeneral adds a general room-wide log entry (could be used for system messages)
+func (gs *GameServer) logGeneral(room *Room, text string) {
+	// For now, just add it as news
+	room.News = append(room.News, NewsItem{
+		Headline:       text,
+		Planet:         "",
+		TurnsRemaining: 2,
+	})
 }

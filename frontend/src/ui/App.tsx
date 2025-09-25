@@ -33,7 +33,7 @@ type LobbyRoom = { id: string; name: string; playerCount: number; started: boole
 type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean }
 type RoomState = {
   room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean; modal?: { id: string; title: string; body: string }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
+  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean; modal?: { id: string; title: string; body: string; kind?: string; auctionId?: string; facilityType?: string; planet?: string; usageCharge?: number; suggestedBid?: number }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
@@ -1054,6 +1054,31 @@ export function App() {
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
+  
+  // Auction bid state
+  const [auctionBid, setAuctionBid] = useState<string>('')
+  const submitAuctionBid = () => {
+    const modal = (room?.you as any)?.modal
+    if (!modal || modal.kind !== 'auction') return
+    
+    const bid = parseInt(auctionBid)
+    if (isNaN(bid) || bid <= 0) return
+    
+    send('auctionBid', { auctionId: modal.auctionId, bid })
+    setAuctionBid('')
+    ackModal(modal.id)
+  }
+  
+  // Reset auction bid when modal changes
+  useEffect(() => {
+    const modal = (room?.you as any)?.modal
+    if (modal?.kind === 'auction' && modal.suggestedBid) {
+      setAuctionBid(modal.suggestedBid.toString())
+    } else {
+      setAuctionBid('')
+    }
+  }, [room?.you?.modal?.id])
+  
   // Player info modal state
   const [playerInfo, setPlayerInfo] = useState<null | { id: string; name: string; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; usedSlots: number; capacity: number; history?: { turn: number; text: string }[] }>(null)
   useEffect(() => {
@@ -1934,7 +1959,79 @@ export function App() {
               fontSize: isMobile ? 16 : 'inherit',
               lineHeight: isMobile ? 1.5 : 'inherit'
             }}>{r.you.modal.body}</div>
-            { (r.you.modal as any).kind ? (
+            
+            {/* Auction bid input */}
+            {(r.you.modal as any).kind === 'auction' && (
+              <div style={{ marginBottom: isMobile ? 16 : 12 }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: isMobile ? 8 : 4, 
+                  fontSize: isMobile ? 14 : 12,
+                  color: 'var(--text-muted)'
+                }}>
+                  Your Bid (Suggested: {(r.you.modal as any).suggestedBid} credits):
+                </label>
+                <input
+                  type="number"
+                  value={auctionBid}
+                  onChange={(e) => setAuctionBid(e.target.value)}
+                  placeholder={(r.you.modal as any).suggestedBid?.toString() || '0'}
+                  min="1"
+                  max={r.you.money}
+                  style={{
+                    width: '100%',
+                    padding: isMobile ? '12px' : '8px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    background: 'var(--bg)',
+                    color: 'var(--text)'
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitAuctionBid()
+                    }
+                  }}
+                />
+                <div style={{ 
+                  fontSize: isMobile ? 12 : 10,
+                  color: 'var(--text-muted)',
+                  marginTop: isMobile ? 4 : 2
+                }}>
+                  You have {r.you.money.toLocaleString()} credits available
+                </div>
+              </div>
+            )}
+            
+            { (r.you.modal as any).kind === 'auction' ? (
+              <div style={{ display:'flex', justifyContent:'flex-end', gap: isMobile ? 12 : 8, flexDirection: isMobile ? 'column' : 'row' }}>
+                <button 
+                  onClick={()=>ackModal(r.you.modal?.id)}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 2 : 'unset'
+                  }}
+                >
+                  Skip Auction
+                </button>
+                <button 
+                  onClick={submitAuctionBid}
+                  disabled={!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? 16 : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 1 : 'unset',
+                    opacity: (!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money) ? 0.5 : 1
+                  }}
+                >
+                  Place Bid
+                </button>
+              </div>
+            ) : (r.you.modal as any).kind ? (
               <div style={{ display:'flex', justifyContent:'flex-end', gap: isMobile ? 12 : 8, flexDirection: isMobile ? 'column' : 'row' }}>
                 <button 
                   onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}
