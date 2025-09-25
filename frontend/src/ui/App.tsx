@@ -2406,7 +2406,7 @@ export function App() {
               100% { opacity: 0; transform: translateY(20vh); }
             }
             @keyframes flowingDots {
-              0% { stroke-dashoffset: 8; }
+              0% { stroke-dashoffset: 12; }
               100% { stroke-dashoffset: 0; }
             }
           `}
@@ -2538,13 +2538,14 @@ export function App() {
                   d={d} 
                   fill="none" 
                   stroke={colorFor(String(pl.id))} 
-                  strokeWidth={isMobile ? 3 : 2} 
+                  strokeWidth={isMobile ? 4 : 3} 
                   strokeLinecap="round" 
-                  strokeDasharray="5,3"
-                  strokeDashoffset="8"
-                  opacity={0.95}
+                  strokeDasharray="8,4"
+                  strokeDashoffset="12"
+                  opacity={1}
                   style={{
-                    animation: 'flowingDots 2s linear infinite'
+                    animation: 'flowingDots 0.8s linear infinite',
+                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
                   }}
                 />
               )
