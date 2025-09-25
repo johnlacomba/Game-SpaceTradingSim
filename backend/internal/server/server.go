@@ -2426,20 +2426,26 @@ func (gs *GameServer) handleAuctionBid(room *Room, p *Player, auctionID string, 
 	room.mu.Lock()
 	defer func() { room.mu.Unlock(); gs.sendRoomState(room, nil) }()
 
+	log.Printf("Room %s: Player %s attempting to bid %d for auction %s", room.ID, p.Name, bid, auctionID)
+
 	// Check if auction exists and is still active
 	if room.ActiveAuction == nil || room.ActiveAuction.ID != auctionID {
+		log.Printf("Room %s: Auction bid rejected - no active auction or ID mismatch (active: %v, requested: %s)",
+			room.ID, room.ActiveAuction != nil, auctionID)
 		gs.enqueueModal(p, "Auction Ended", "This auction is no longer active.")
 		return
 	}
 
 	// Check if player can afford the bid
 	if p.Money < bid {
+		log.Printf("Room %s: Player %s cannot afford bid %d (has %d)", room.ID, p.Name, bid, p.Money)
 		gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this bid.")
 		return
 	}
 
 	// Record the bid
 	room.ActiveAuction.Bids[p.ID] = bid
+	log.Printf("Room %s: Recorded bid %d from player %s for auction %s", room.ID, bid, p.Name, auctionID)
 	gs.logAction(room, p, fmt.Sprintf("Placed auction bid of $%d for %s on %s", bid, room.ActiveAuction.FacilityType, room.ActiveAuction.Planet))
 
 	// Confirm bid to player
@@ -3109,9 +3115,11 @@ func (gs *GameServer) handleRefuel(room *Room, p *Player, amount int) {
 func (gs *GameServer) handleFederationAuctions(room *Room) {
 	// Check if an auction is ending
 	if room.ActiveAuction != nil {
+		log.Printf("Room %s: Processing auction %s, turns left: %d", room.ID, room.ActiveAuction.ID, room.ActiveAuction.TurnsLeft)
 		room.ActiveAuction.TurnsLeft--
 
 		if room.ActiveAuction.TurnsLeft <= 0 {
+			log.Printf("Room %s: Auction %s ending with %d bids", room.ID, room.ActiveAuction.ID, len(room.ActiveAuction.Bids))
 			// Auction ends - determine winner and create facility
 			gs.endFederationAuction(room)
 			room.ActiveAuction = nil
@@ -3120,6 +3128,7 @@ func (gs *GameServer) handleFederationAuctions(room *Room) {
 
 	// Randomly start new auctions (~2% chance per turn)
 	if room.ActiveAuction == nil && rand.Intn(50) == 0 {
+		log.Printf("Room %s: Starting new federation auction", room.ID)
 		gs.startFederationAuction(room)
 	}
 }
@@ -3165,8 +3174,11 @@ func (gs *GameServer) startFederationAuction(room *Room) {
 		UsageCharge:  facility.charge,
 		SuggestedBid: suggestedBid,
 		Bids:         make(map[PlayerID]int),
-		TurnsLeft:    1, // Auction lasts 1 turn
+		TurnsLeft:    2, // Auction lasts for this turn and one more
 	}
+
+	log.Printf("Room %s: Created auction %s for %s on %s (charge: %d, suggested bid: %d)",
+		room.ID, auctionID, facility.name, planet, facility.charge, suggestedBid)
 
 	// Send auction modal to all players
 	for _, p := range room.Players {
