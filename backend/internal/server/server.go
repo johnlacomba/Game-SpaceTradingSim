@@ -1986,6 +1986,120 @@ func (gs *GameServer) runTicker(room *Room) {
 				gs.logAction(room, hp, fmt.Sprintf("Lottery winnings: +$%d", amt))
 				gs.enqueueModal(hp, "Lottery Winner!", "You won the lottery and collect "+strconv.Itoa(amt)+" credits!")
 			}
+
+			// Pirate raid: ~0.8% chance per turn - lose money but keep cargo
+			if rand.Intn(125) == 0 {
+				lossPercent := 10 + rand.Intn(21) // 10-30%
+				loss := (hp.Money * lossPercent) / 100
+				if loss > 0 {
+					hp.Money -= loss
+					gs.logAction(room, hp, fmt.Sprintf("Pirate raid: lost $%d (%d%% of credits)", loss, lossPercent))
+					gs.enqueueModal(hp, "Pirate Raid!", "Space pirates demanded tribute and took "+strconv.Itoa(loss)+" credits. Your cargo was spared.")
+				}
+			}
+
+			// Insurance payout: ~0.7% chance per turn
+			if rand.Intn(140) == 0 {
+				payout := 800 + rand.Intn(1201) // 800-2000 credits
+				hp.Money += payout
+				gs.logAction(room, hp, fmt.Sprintf("Insurance payout: +$%d", payout))
+				gs.enqueueModal(hp, "Insurance Payout", "Your ship insurance paid out "+strconv.Itoa(payout)+" credits for a previous incident.")
+			}
+
+			// Cargo spoilage: ~0.6% chance per turn - lose some random goods
+			if rand.Intn(160) == 0 && len(hp.Inventory) > 0 {
+				// Pick a random good from inventory
+				var goods []string
+				for good := range hp.Inventory {
+					goods = append(goods, good)
+				}
+				if len(goods) > 0 {
+					spoiledGood := goods[rand.Intn(len(goods))]
+					currentQty := hp.Inventory[spoiledGood]
+					if currentQty > 0 {
+						spoiledQty := 1 + rand.Intn(minInt(currentQty, 5)) // spoil 1-5 units or all if less
+						hp.Inventory[spoiledGood] -= spoiledQty
+						if hp.Inventory[spoiledGood] <= 0 {
+							delete(hp.Inventory, spoiledGood)
+							delete(hp.InventoryAvgCost, spoiledGood)
+						}
+						gs.logAction(room, hp, fmt.Sprintf("Cargo spoilage: lost %d %s", spoiledQty, spoiledGood))
+						gs.enqueueModal(hp, "Cargo Spoilage", "Storage malfunction caused "+strconv.Itoa(spoiledQty)+" "+spoiledGood+" to spoil and be jettisoned.")
+					}
+				}
+			}
+
+			// Trade route discovery bonus: ~0.5% chance per turn
+			if rand.Intn(200) == 0 {
+				bonus := 1200 + rand.Intn(1801) // 1200-3000 credits
+				hp.Money += bonus
+				gs.logAction(room, hp, fmt.Sprintf("Trade route bonus: +$%d", bonus))
+				gs.enqueueModal(hp, "Trade Route Discovery", "You discovered a lucrative trade route shortcut! Navigation data sold for "+strconv.Itoa(bonus)+" credits.")
+			}
+
+			// Equipment malfunction: ~0.4% chance per turn - repair cost based on upgrades
+			if rand.Intn(250) == 0 && hp.SpeedBonus > 0 {
+				speedLoss := 1 + rand.Intn(minInt(hp.SpeedBonus, 3)) // lose 1-3 speed worth of repairs
+				repairCost := speedLoss * 200
+				hp.Money -= repairCost
+				gs.logAction(room, hp, fmt.Sprintf("Engine malfunction: paid $%d for repairs", repairCost))
+				gs.enqueueModal(hp, "Engine Malfunction", "Your enhanced engines malfunctioned and required emergency repairs costing "+strconv.Itoa(repairCost)+" credits.")
+			}
+
+			// Salvage discovery: ~0.4% chance per turn - free goods
+			if rand.Intn(250) == 0 {
+				// Pick a random good type
+				allGoods := []string{"Water", "Food", "Minerals", "Chemicals", "Energy", "Medicine", "Electronics", "Luxury"}
+				salvageGood := allGoods[rand.Intn(len(allGoods))]
+				salvageQty := 1 + rand.Intn(8) // 1-8 units
+
+				// Check if we have capacity
+				used := inventoryTotal(hp.Inventory)
+				free := shipCapacity + hp.CapacityBonus - used
+				if salvageQty > free {
+					salvageQty = free
+				}
+
+				if salvageQty > 0 {
+					hp.Inventory[salvageGood] += salvageQty
+					// Set a reasonable average cost (market mid-range)
+					ranges := defaultPriceRanges()
+					if rng, exists := ranges[salvageGood]; exists {
+						avgPrice := (rng[0] + rng[1]) / 2
+						oldQty := hp.Inventory[salvageGood] - salvageQty
+						oldAvg := hp.InventoryAvgCost[salvageGood]
+						if oldQty > 0 {
+							newAvg := (oldQty*oldAvg + salvageQty*avgPrice) / hp.Inventory[salvageGood]
+							hp.InventoryAvgCost[salvageGood] = newAvg
+						} else {
+							hp.InventoryAvgCost[salvageGood] = avgPrice
+						}
+					}
+					gs.logAction(room, hp, fmt.Sprintf("Salvage discovered: found %d %s", salvageQty, salvageGood))
+					gs.enqueueModal(hp, "Salvage Discovery", "You found abandoned cargo: "+strconv.Itoa(salvageQty)+" "+salvageGood+" floating in space!")
+				}
+			}
+
+			// Fuel leak: ~0.3% chance per turn - lose some fuel
+			if rand.Intn(330) == 0 && hp.Fuel > 10 {
+				fuelLoss := 5 + rand.Intn(16) // lose 5-20 fuel
+				if fuelLoss > hp.Fuel-5 {     // always leave at least 5 fuel
+					fuelLoss = hp.Fuel - 5
+				}
+				if fuelLoss > 0 {
+					hp.Fuel -= fuelLoss
+					gs.logAction(room, hp, fmt.Sprintf("Fuel leak: lost %d fuel units", fuelLoss))
+					gs.enqueueModal(hp, "Fuel Leak", "A micro-meteorite punctured your fuel tank. You lost "+strconv.Itoa(fuelLoss)+" fuel units.")
+				}
+			}
+
+			// Trade guild membership offer: ~0.2% chance per turn - pay for ongoing benefits
+			if rand.Intn(500) == 0 {
+				membershipFee := 2500 + rand.Intn(2501) // 2500-5000 credits
+				// This could provide ongoing small benefits (not implemented here)
+				gs.logAction(room, hp, fmt.Sprintf("Trade guild membership offered for $%d", membershipFee))
+				gs.enqueueModal(hp, "Trade Guild Invitation", "The Galactic Traders Guild invites you to join for "+strconv.Itoa(membershipFee)+" credits. Membership provides access to exclusive routes and better fuel prices. (This is currently just flavor - no actual benefits implemented)")
+			}
 			// Asteroid collision: ~1% chance per turn
 			if rand.Intn(100) == 0 {
 				// Lose all cargo
