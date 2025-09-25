@@ -1262,9 +1262,6 @@ func (gs *GameServer) runTicker(room *Room) {
 		// Randomly generate 0-2 news items per turn
 		gs.generateNews(room)
 
-		// Handle federation auctions
-		gs.handleFederationAuctions(room)
-
 		// resolve travel with fuel consumption
 		for _, p := range room.Players {
 			if p.Bankrupt {
@@ -2180,6 +2177,10 @@ func (gs *GameServer) runTicker(room *Room) {
 				hp.Modals = append(hp.Modals, mi)
 			}
 		}
+
+		// Handle federation auctions at the end of turn processing
+		gs.handleFederationAuctions(room)
+
 		// reset human players' ready flags for the new turn
 		for _, pl := range room.Players {
 			if !pl.IsBot && !pl.Bankrupt {
@@ -2429,9 +2430,14 @@ func (gs *GameServer) handleAuctionBid(room *Room, p *Player, auctionID string, 
 	log.Printf("Room %s: Player %s attempting to bid %d for auction %s", room.ID, p.Name, bid, auctionID)
 
 	// Check if auction exists and is still active
-	if room.ActiveAuction == nil || room.ActiveAuction.ID != auctionID {
-		log.Printf("Room %s: Auction bid rejected - no active auction or ID mismatch (active: %v, requested: %s)",
-			room.ID, room.ActiveAuction != nil, auctionID)
+	if room.ActiveAuction == nil {
+		log.Printf("Room %s: Auction bid rejected - no active auction", room.ID)
+		gs.enqueueModal(p, "Auction Ended", "This auction is no longer active.")
+		return
+	}
+	if room.ActiveAuction.ID != auctionID {
+		log.Printf("Room %s: Auction bid rejected - ID mismatch (active: %s, requested: %s)",
+			room.ID, room.ActiveAuction.ID, auctionID)
 		gs.enqueueModal(p, "Auction Ended", "This auction is no longer active.")
 		return
 	}
@@ -3174,7 +3180,7 @@ func (gs *GameServer) startFederationAuction(room *Room) {
 		UsageCharge:  facility.charge,
 		SuggestedBid: suggestedBid,
 		Bids:         make(map[PlayerID]int),
-		TurnsLeft:    2, // Auction lasts for this turn and one more
+		TurnsLeft:    1, // Auction lasts for the next turn
 	}
 
 	log.Printf("Room %s: Created auction %s for %s on %s (charge: %d, suggested bid: %d)",
