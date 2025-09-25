@@ -1417,17 +1417,43 @@ func (gs *GameServer) runTicker(room *Room) {
 			const minReplenishmentTime = 3          // Minimum turns to wait before returning to buy
 			const significantPurchaseThreshold = 10 // Amount considered "significant"
 
+			// Emergency mode: if bot is very low on money, be more flexible
+			emergencyMode := bot.Money < 200
+			lowMoneyMode := bot.Money < 500
+
 			// Look for profitable opportunities based on remembered prices
 			for planetName, memory := range bot.PriceMemory {
 				if planetName == bot.CurrentPlanet {
 					continue // Skip current planet
 				}
 
-				// Check if this planet is being visited too consecutively (anti-loop logic)
-				if consecutiveVisits, exists := bot.ConsecutiveVisits[planetName]; exists && consecutiveVisits >= 3 {
-					// Skip if visiting too much, unless it's very profitable
-					if memory.LastProfit < 150 {
-						continue
+				// In emergency mode, reduce restrictions significantly
+				if !emergencyMode {
+					// Check if this planet is being visited too consecutively (anti-loop logic)
+					if consecutiveVisits, exists := bot.ConsecutiveVisits[planetName]; exists && consecutiveVisits >= 4 {
+						// Skip if visiting too much, unless it's profitable enough
+						profitThreshold := 100
+						if lowMoneyMode {
+							profitThreshold = 50 // Lower threshold when money is low
+						}
+						if memory.LastProfit < profitThreshold {
+							continue
+						}
+					}
+
+					// Check profitability trend - but be less strict in low money situations
+					if !lowMoneyMode {
+						isProfitDecreasing := false
+						if len(memory.ProfitHistory) >= 3 {
+							history := memory.ProfitHistory
+							lastThree := history[len(history)-3:]
+							if lastThree[0] > lastThree[1] && lastThree[1] > lastThree[2] && lastThree[2] < 20 {
+								isProfitDecreasing = true
+							}
+						}
+						if isProfitDecreasing {
+							continue // Skip routes showing declining profits
+						}
 					}
 				}
 
@@ -1437,23 +1463,14 @@ func (gs *GameServer) runTicker(room *Room) {
 					continue // Can't reach
 				}
 
-				// Check profitability trend - avoid routes with declining profits
-				isProfitDecreasing := false
-				if len(memory.ProfitHistory) >= 3 {
-					history := memory.ProfitHistory
-					lastThree := history[len(history)-3:]
-					if lastThree[0] > lastThree[1] && lastThree[1] > lastThree[2] && lastThree[2] < 50 {
-						isProfitDecreasing = true
-					}
-				}
-				if isProfitDecreasing {
-					continue // Skip routes showing declining profits
-				}
-
-				// Encourage exploration - reduce attractiveness of frequently visited planets
+				// Encourage exploration - but reduce penalty in emergency situations
 				explorationPenalty := 0.0
-				if memory.VisitCount > 5 {
-					explorationPenalty = float64((memory.VisitCount - 5) * 20)
+				if !emergencyMode && memory.VisitCount > 6 {
+					penalty := float64((memory.VisitCount - 6) * 15) // Reduced from 20
+					if lowMoneyMode {
+						penalty = penalty * 0.5 // Halve penalty when money is low
+					}
+					explorationPenalty = penalty
 				}
 
 				// Calculate potential profit based on price differences
@@ -1470,7 +1487,11 @@ func (gs *GameServer) runTicker(room *Room) {
 							if rememberedPrice > currentPrice {
 								profitMargin := float64(rememberedPrice - currentPrice)
 								staleness := float64(room.Turn - memory.Turn + 1)
-								weightedProfit := profitMargin / staleness * float64(qty) * 0.7 // Higher weight for selling existing inventory
+								// Reduce staleness penalty in emergency mode
+								if emergencyMode {
+									staleness = staleness * 0.5
+								}
+								weightedProfit := profitMargin / staleness * float64(qty) * 0.8 // Increased weight for selling
 								sellingProfit += weightedProfit
 								sellingOpportunities++
 							}
@@ -1484,13 +1505,15 @@ func (gs *GameServer) runTicker(room *Room) {
 						if rememberedPrice, exists := memory.Prices[good]; exists && rememberedPrice > currentPrice {
 							// Check if we recently bought this good from the destination planet
 							buyingAtDestination := false
-							if lastPurchased, purchased := memory.LastPurchased[good]; purchased {
-								timeSinceLastPurchase := room.Turn - lastPurchased
-								purchaseAmount := memory.PurchaseAmounts[good]
+							if !emergencyMode { // Skip replenishment checks in emergency mode
+								if lastPurchased, purchased := memory.LastPurchased[good]; purchased {
+									timeSinceLastPurchase := room.Turn - lastPurchased
+									purchaseAmount := memory.PurchaseAmounts[good]
 
-								// If we made a significant purchase recently, wait for replenishment
-								if timeSinceLastPurchase < minReplenishmentTime && purchaseAmount >= significantPurchaseThreshold {
-									buyingAtDestination = true
+									// If we made a significant purchase recently, wait for replenishment
+									if timeSinceLastPurchase < minReplenishmentTime && purchaseAmount >= significantPurchaseThreshold {
+										buyingAtDestination = true
+									}
 								}
 							}
 
@@ -1500,7 +1523,10 @@ func (gs *GameServer) runTicker(room *Room) {
 								profitMargin := float64(rememberedPrice - currentPrice)
 								// Weight by availability and freshness of memory
 								staleness := float64(room.Turn - memory.Turn + 1)
-								weightedProfit := profitMargin / staleness * 0.4 // Lower weight for buying opportunities
+								if emergencyMode {
+									staleness = staleness * 0.5
+								}
+								weightedProfit := profitMargin / staleness * 0.5 // Increased weight for buying opportunities
 								buyingProfit += weightedProfit
 								buyingOpportunities++
 							}
@@ -1514,25 +1540,15 @@ func (gs *GameServer) runTicker(room *Room) {
 
 				// Prefer routes with selling opportunities and multiple opportunities
 				if sellingOpportunities > 0 {
-					totalProfit = totalProfit * 1.3 // Bonus for selling opportunities
+					totalProfit = totalProfit * 1.4 // Increased bonus for selling opportunities
 				}
 				if totalOpportunities > 0 {
-					totalProfit = totalProfit * (1.0 + float64(totalOpportunities)*0.1)
+					totalProfit = totalProfit * (1.0 + float64(totalOpportunities)*0.15) // Increased opportunity bonus
 				}
 
-				// Bankruptcy prevention: if bot is low on money, prioritize sure profits
-				if bot.Money < 300 {
-					// Only consider routes with recent positive profits
-					if memory.LastProfit <= 0 && len(memory.ProfitHistory) > 0 {
-						avgProfit := 0
-						for _, profit := range memory.ProfitHistory {
-							avgProfit += profit
-						}
-						avgProfit /= len(memory.ProfitHistory)
-						if avgProfit <= 20 {
-							continue // Skip unprofitable routes when low on money
-						}
-					}
+				// In emergency mode, accept any positive profit
+				if emergencyMode && totalProfit > 5.0 {
+					totalProfit = totalProfit * 2.0 // Double profits in emergency mode to encourage any trade
 				}
 
 				if totalProfit > bestProfitPotential {
@@ -1541,7 +1557,7 @@ func (gs *GameServer) runTicker(room *Room) {
 				}
 			}
 
-			// Update consecutive visits tracking
+			// Update consecutive visits tracking only if we found a destination
 			if bestDestination != "" {
 				// Reset other planet counters
 				for planet := range bot.ConsecutiveVisits {
@@ -1579,6 +1595,9 @@ func (gs *GameServer) runTicker(room *Room) {
 			ranges := defaultPriceRanges()
 
 			// Enhanced selling logic using price memory
+			emergencyMode := bp.Money < 200
+			lowMoneyMode := bp.Money < 500
+
 			for g, qty := range bp.Inventory {
 				if qty <= 0 {
 					continue
@@ -1594,9 +1613,27 @@ func (gs *GameServer) runTicker(room *Room) {
 							maxRememberedPrice = memPrice
 						}
 					}
-					// Sell if current price is at least 80% of the best price we remember
-					if maxRememberedPrice > 0 && price >= int(float64(maxRememberedPrice)*0.8) {
+
+					// Adjust selling threshold based on financial situation
+					sellThreshold := 0.8 // Default: 80% of best remembered price
+					if emergencyMode {
+						sellThreshold = 0.5 // Emergency: sell at 50% of best price
+					} else if lowMoneyMode {
+						sellThreshold = 0.65 // Low money: sell at 65% of best price
+					}
+
+					// Sell if current price meets our threshold
+					if maxRememberedPrice > 0 && price >= int(float64(maxRememberedPrice)*sellThreshold) {
 						shouldSell = true
+					}
+
+					// Emergency selling: sell any profitable goods regardless of remembered prices
+					if emergencyMode && price > 0 {
+						// Check if we can make any profit based on average cost
+						avgCost := bp.InventoryAvgCost[g]
+						if avgCost > 0 && price > avgCost {
+							shouldSell = true
+						}
 					}
 				} else {
 					// Fallback to original logic
@@ -1605,6 +1642,9 @@ func (gs *GameServer) runTicker(room *Room) {
 						max = r[1]
 					}
 					threshold := (max * 50) / 100
+					if emergencyMode {
+						threshold = (max * 30) / 100 // Lower threshold in emergency
+					}
 					shouldSell = price > threshold
 				}
 
@@ -1701,23 +1741,37 @@ func (gs *GameServer) runTicker(room *Room) {
 					shouldBuy := false
 					if useIntelligentTrading {
 						// Check if this is a good price compared to what we remember at other planets
-						minRememberedPrice := 999999
+						maxRememberedPrice := 0
 						for planetName, memory := range bp.PriceMemory {
 							if planetName == bp.CurrentPlanet {
 								continue // Skip current planet
 							}
-							if memPrice, exists := memory.Prices[g]; exists && memPrice < minRememberedPrice {
-								minRememberedPrice = memPrice
+							if memPrice, exists := memory.Prices[g]; exists && memPrice > maxRememberedPrice {
+								maxRememberedPrice = memPrice
 							}
 						}
+
+						// Adjust buying threshold based on financial situation
+						buyThreshold := 0.7 // Default: buy if 70% cheaper than best selling price
+						if emergencyMode {
+							buyThreshold = 0.9 // Emergency: buy even if only 10% cheaper
+						} else if lowMoneyMode {
+							buyThreshold = 0.8 // Low money: buy if 20% cheaper
+						}
+
 						// Buy if current price is significantly lower than what we expect to sell for elsewhere
-						// or if we haven't seen this good elsewhere yet
-						if minRememberedPrice == 999999 || price <= int(float64(minRememberedPrice)*0.7) {
+						if maxRememberedPrice > 0 && price <= int(float64(maxRememberedPrice)*buyThreshold) {
+							shouldBuy = true
+						}
+
+						// If we haven't seen this good elsewhere yet, be more willing to buy in financial trouble
+						if maxRememberedPrice == 0 && (emergencyMode || lowMoneyMode) {
 							shouldBuy = true
 						}
 
 						// Additional check: avoid buying too much if supply is low compared to our memory
-						if shouldBuy {
+						// But skip this check in emergency mode
+						if shouldBuy && !emergencyMode {
 							currentMemory := bp.PriceMemory[bp.CurrentPlanet]
 							goodsAvailable := planet.Goods[g]
 							if currentMemory != nil && currentMemory.GoodsAvg > 0 {
@@ -1738,6 +1792,11 @@ func (gs *GameServer) runTicker(room *Room) {
 							continue
 						}
 						threshold := (max * 46) / 100
+						if emergencyMode {
+							threshold = (max * 60) / 100 // More willing to buy in emergency
+						} else if lowMoneyMode {
+							threshold = (max * 52) / 100 // Slightly more willing when low on money
+						}
 						shouldBuy = price < threshold
 					}
 
