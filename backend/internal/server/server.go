@@ -2519,6 +2519,21 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				if pp.Modals[0].FuelCapacityBonus != 0 {
 					nm["fuelCapacityBonus"] = pp.Modals[0].FuelCapacityBonus
 				}
+				if pp.Modals[0].AuctionID != "" {
+					nm["auctionId"] = pp.Modals[0].AuctionID
+				}
+				if pp.Modals[0].FacilityType != "" {
+					nm["facilityType"] = pp.Modals[0].FacilityType
+				}
+				if pp.Modals[0].Planet != "" {
+					nm["planet"] = pp.Modals[0].Planet
+				}
+				if pp.Modals[0].UsageCharge != 0 {
+					nm["usageCharge"] = pp.Modals[0].UsageCharge
+				}
+				if pp.Modals[0].SuggestedBid != 0 {
+					nm["suggestedBid"] = pp.Modals[0].SuggestedBid
+				}
 			} else {
 				nm = map[string]interface{}{}
 			}
@@ -2634,6 +2649,33 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			}
 			if pp.Modals[0].CapacityBonus != 0 {
 				nm["capacityBonus"] = pp.Modals[0].CapacityBonus
+			}
+			if pp.Modals[0].PricePerUnit != 0 {
+				nm["pricePerUnit"] = pp.Modals[0].PricePerUnit
+			}
+			if pp.Modals[0].Units != 0 {
+				nm["units"] = pp.Modals[0].Units
+			}
+			if pp.Modals[0].SpeedBonus != 0 {
+				nm["speedBonus"] = pp.Modals[0].SpeedBonus
+			}
+			if pp.Modals[0].FuelCapacityBonus != 0 {
+				nm["fuelCapacityBonus"] = pp.Modals[0].FuelCapacityBonus
+			}
+			if pp.Modals[0].AuctionID != "" {
+				nm["auctionId"] = pp.Modals[0].AuctionID
+			}
+			if pp.Modals[0].FacilityType != "" {
+				nm["facilityType"] = pp.Modals[0].FacilityType
+			}
+			if pp.Modals[0].Planet != "" {
+				nm["planet"] = pp.Modals[0].Planet
+			}
+			if pp.Modals[0].UsageCharge != 0 {
+				nm["usageCharge"] = pp.Modals[0].UsageCharge
+			}
+			if pp.Modals[0].SuggestedBid != 0 {
+				nm["suggestedBid"] = pp.Modals[0].SuggestedBid
 			}
 			nextModal = nm
 		} else {
