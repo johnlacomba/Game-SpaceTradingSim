@@ -2544,7 +2544,7 @@ export function App() {
                   strokeDashoffset="12"
                   opacity={1}
                   style={{
-                    animation: 'flowingDots 0.8s linear infinite',
+                    animation: 'flowingDots 0.4s linear infinite',
                     filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
                   }}
                 />
