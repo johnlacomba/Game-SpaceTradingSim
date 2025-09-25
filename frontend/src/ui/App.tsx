@@ -2245,52 +2245,6 @@ export function App() {
             Ready
           </button>
           <span style={{ fontSize: isMobile ? 18 : 'inherit' }}><strong>${r.you.money}</strong></span>
-          <button 
-            onClick={() => {
-              const gameUrl = `${window.location.origin}${window.location.pathname}?room=${r.room.id}`
-              const toastId = Date.now().toString()
-              navigator.clipboard.writeText(gameUrl).then(() => {
-                setToasts(prev => [...prev, { 
-                  id: toastId, 
-                  text: 'Game link copied to clipboard!',
-                  at: Date.now()
-                }])
-                setTimeout(() => {
-                  setToasts(prev => prev.filter(t => t.id !== toastId))
-                }, 2000)
-              }).catch(() => {
-                // Fallback for older browsers
-                const textArea = document.createElement('textarea')
-                textArea.value = gameUrl
-                document.body.appendChild(textArea)
-                textArea.select()
-                document.execCommand('copy')
-                document.body.removeChild(textArea)
-                setToasts(prev => [...prev, { 
-                  id: toastId, 
-                  text: 'Game link copied to clipboard!',
-                  at: Date.now()
-                }])
-                setTimeout(() => {
-                  setToasts(prev => prev.filter(t => t.id !== toastId))
-                }, 2000)
-              })
-            }}
-            style={{
-              padding: isMobile ? '8px 12px' : '4px 8px',
-              fontSize: isMobile ? 14 : 12,
-              background: 'var(--accent)',
-              border: '1px solid var(--accent2)',
-              borderRadius: 6,
-              color: 'white',
-              cursor: 'pointer',
-              fontWeight: 500,
-              minHeight: isMobile ? 40 : 'auto'
-            }}
-            title="Copy shareable link to this game"
-          >
-            📋 Share
-          </button>
           <div title="Ship fuel (price varies by planet)" style={{ 
             display: isMobile ? 'flex' : 'block',
             flexDirection: isMobile ? 'column' : 'row',
@@ -2355,6 +2309,51 @@ export function App() {
                 }}
               >
                 Add Bot
+              </button>
+              <button 
+                onClick={() => {
+                  const gameUrl = `${window.location.origin}${window.location.pathname}?room=${r.room.id}`
+                  const toastId = Date.now().toString()
+                  navigator.clipboard.writeText(gameUrl).then(() => {
+                    setToasts(prev => [...prev, { 
+                      id: toastId, 
+                      text: 'Game link copied to clipboard!',
+                      at: Date.now()
+                    }])
+                    setTimeout(() => {
+                      setToasts(prev => prev.filter(t => t.id !== toastId))
+                    }, 2000)
+                  }).catch(() => {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea')
+                    textArea.value = gameUrl
+                    document.body.appendChild(textArea)
+                    textArea.select()
+                    document.execCommand('copy')
+                    document.body.removeChild(textArea)
+                    setToasts(prev => [...prev, { 
+                      id: toastId, 
+                      text: 'Game link copied to clipboard!',
+                      at: Date.now()
+                    }])
+                    setTimeout(() => {
+                      setToasts(prev => prev.filter(t => t.id !== toastId))
+                    }, 2000)
+                  })
+                }}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none',
+                  background: 'var(--accent)',
+                  border: '1px solid var(--accent2)',
+                  color: 'white'
+                }}
+                title="Copy shareable link to this game"
+              >
+                📋 Share
               </button>
               <button 
                 onClick={exitRoom}
@@ -2446,6 +2445,51 @@ export function App() {
                 }}
               >
                 {r.you.endGame ? 'Cancel End Game' : 'End Game'}
+              </button>
+              <button 
+                onClick={() => {
+                  const gameUrl = `${window.location.origin}${window.location.pathname}?room=${r.room.id}`
+                  const toastId = Date.now().toString()
+                  navigator.clipboard.writeText(gameUrl).then(() => {
+                    setToasts(prev => [...prev, { 
+                      id: toastId, 
+                      text: 'Game link copied to clipboard!',
+                      at: Date.now()
+                    }])
+                    setTimeout(() => {
+                      setToasts(prev => prev.filter(t => t.id !== toastId))
+                    }, 2000)
+                  }).catch(() => {
+                    // Fallback for older browsers
+                    const textArea = document.createElement('textarea')
+                    textArea.value = gameUrl
+                    document.body.appendChild(textArea)
+                    textArea.select()
+                    document.execCommand('copy')
+                    document.body.removeChild(textArea)
+                    setToasts(prev => [...prev, { 
+                      id: toastId, 
+                      text: 'Game link copied to clipboard!',
+                      at: Date.now()
+                    }])
+                    setTimeout(() => {
+                      setToasts(prev => prev.filter(t => t.id !== toastId))
+                    }, 2000)
+                  })
+                }}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  fontSize: isMobile ? 16 : 'inherit',
+                  fontWeight: isMobile ? 600 : 'normal',
+                  minHeight: isMobile ? 48 : 'auto',
+                  flex: isMobile ? 1 : 'none',
+                  background: 'var(--accent)',
+                  border: '1px solid var(--accent2)',
+                  color: 'white'
+                }}
+                title="Copy shareable link to this game"
+              >
+                📋 Share
               </button>
               <button 
                 onClick={exitRoom}
