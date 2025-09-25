@@ -50,6 +50,9 @@ type PriceMemory struct {
 	GoodsAvg        int            `json:"goodsAvg"`        // average availability when recorded
 	LastPurchased   map[string]int `json:"lastPurchased"`   // good -> turn when last purchased here
 	PurchaseAmounts map[string]int `json:"purchaseAmounts"` // good -> amount purchased last time
+	VisitCount      int            `json:"visitCount"`      // how many times we've been here
+	LastProfit      int            `json:"lastProfit"`      // profit/loss from last visit
+	ProfitHistory   []int          `json:"profitHistory"`   // recent profit history (last 5 visits)
 }
 
 type Player struct {
@@ -80,7 +83,9 @@ type Player struct {
 	// Recent actions (last 10)
 	ActionHistory []ActionLog `json:"-"`
 	// Bot-specific memory (only used by bots)
-	PriceMemory map[string]*PriceMemory `json:"-"` // planet -> price data
+	PriceMemory        map[string]*PriceMemory `json:"-"` // planet -> price data
+	LastTripStartMoney int                     `json:"-"` // money at start of current trip
+	ConsecutiveVisits  map[string]int          `json:"-"` // planet -> consecutive visits to track loops
 }
 
 // ActionLog captures a brief recent action for audit/history
@@ -1009,17 +1014,19 @@ func (gs *GameServer) addBot(roomID string) {
 	}
 
 	b := &Player{
-		ID:                PlayerID(randID()),
-		Name:              botName,
-		Money:             1000,
-		CurrentPlanet:     "Earth",
-		DestinationPlanet: "",
-		Inventory:         map[string]int{},
-		InventoryAvgCost:  map[string]int{},
-		Fuel:              fuelCapacity,
-		Ready:             true, // bots are always ready
-		IsBot:             true,
-		PriceMemory:       make(map[string]*PriceMemory),
+		ID:                 PlayerID(randID()),
+		Name:               botName,
+		Money:              1000,
+		CurrentPlanet:      "Earth",
+		DestinationPlanet:  "",
+		Inventory:          map[string]int{},
+		InventoryAvgCost:   map[string]int{},
+		Fuel:               fuelCapacity,
+		Ready:              true, // bots are always ready
+		IsBot:              true,
+		PriceMemory:        make(map[string]*PriceMemory),
+		LastTripStartMoney: 1000,
+		ConsecutiveVisits:  make(map[string]int),
 	}
 	b.roomID = room.ID
 	room.mu.Lock()
@@ -1341,9 +1348,12 @@ func (gs *GameServer) runTicker(room *Room) {
 				GoodsAvg:        avgGoods,
 				LastPurchased:   make(map[string]int),
 				PurchaseAmounts: make(map[string]int),
+				VisitCount:      1,
+				LastProfit:      0,
+				ProfitHistory:   make([]int, 0),
 			}
 
-			// Restore purchase history if it existed
+			// Restore purchase history and visit data if it existed
 			if existingMemory != nil {
 				for good, lastTurn := range existingMemory.LastPurchased {
 					bot.PriceMemory[bot.CurrentPlanet].LastPurchased[good] = lastTurn
@@ -1351,6 +1361,21 @@ func (gs *GameServer) runTicker(room *Room) {
 				for good, amount := range existingMemory.PurchaseAmounts {
 					bot.PriceMemory[bot.CurrentPlanet].PurchaseAmounts[good] = amount
 				}
+				// Increment visit count and calculate profit from this trip
+				bot.PriceMemory[bot.CurrentPlanet].VisitCount = existingMemory.VisitCount + 1
+				currentProfit := bot.Money - bot.LastTripStartMoney
+				bot.PriceMemory[bot.CurrentPlanet].LastProfit = currentProfit
+
+				// Update profit history (keep last 5)
+				profitHistory := existingMemory.ProfitHistory
+				profitHistory = append(profitHistory, currentProfit)
+				if len(profitHistory) > 5 {
+					profitHistory = profitHistory[1:]
+				}
+				bot.PriceMemory[bot.CurrentPlanet].ProfitHistory = profitHistory
+
+				// Update trip start money for next trip
+				bot.LastTripStartMoney = bot.Money
 			}
 
 			for good, price := range planet.Prices {
@@ -1398,10 +1423,37 @@ func (gs *GameServer) runTicker(room *Room) {
 					continue // Skip current planet
 				}
 
+				// Check if this planet is being visited too consecutively (anti-loop logic)
+				if consecutiveVisits, exists := bot.ConsecutiveVisits[planetName]; exists && consecutiveVisits >= 3 {
+					// Skip if visiting too much, unless it's very profitable
+					if memory.LastProfit < 150 {
+						continue
+					}
+				}
+
 				// Calculate distance and check if reachable
 				distance := distanceUnits(room, bot.CurrentPlanet, planetName)
 				if distance > bot.Fuel {
 					continue // Can't reach
+				}
+
+				// Check profitability trend - avoid routes with declining profits
+				isProfitDecreasing := false
+				if len(memory.ProfitHistory) >= 3 {
+					history := memory.ProfitHistory
+					lastThree := history[len(history)-3:]
+					if lastThree[0] > lastThree[1] && lastThree[1] > lastThree[2] && lastThree[2] < 50 {
+						isProfitDecreasing = true
+					}
+				}
+				if isProfitDecreasing {
+					continue // Skip routes showing declining profits
+				}
+
+				// Encourage exploration - reduce attractiveness of frequently visited planets
+				explorationPenalty := 0.0
+				if memory.VisitCount > 5 {
+					explorationPenalty = float64((memory.VisitCount - 5) * 20)
 				}
 
 				// Calculate potential profit based on price differences
@@ -1456,8 +1508,8 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 
-				// Combine profits with selling getting priority
-				totalProfit := sellingProfit + buyingProfit
+				// Combine profits with selling getting priority, then apply exploration penalty
+				totalProfit := sellingProfit + buyingProfit - explorationPenalty
 				totalOpportunities := sellingOpportunities + buyingOpportunities
 
 				// Prefer routes with selling opportunities and multiple opportunities
@@ -1468,10 +1520,37 @@ func (gs *GameServer) runTicker(room *Room) {
 					totalProfit = totalProfit * (1.0 + float64(totalOpportunities)*0.1)
 				}
 
+				// Bankruptcy prevention: if bot is low on money, prioritize sure profits
+				if bot.Money < 300 {
+					// Only consider routes with recent positive profits
+					if memory.LastProfit <= 0 && len(memory.ProfitHistory) > 0 {
+						avgProfit := 0
+						for _, profit := range memory.ProfitHistory {
+							avgProfit += profit
+						}
+						avgProfit /= len(memory.ProfitHistory)
+						if avgProfit <= 20 {
+							continue // Skip unprofitable routes when low on money
+						}
+					}
+				}
+
 				if totalProfit > bestProfitPotential {
 					bestProfitPotential = totalProfit
 					bestDestination = planetName
 				}
+			}
+
+			// Update consecutive visits tracking
+			if bestDestination != "" {
+				// Reset other planet counters
+				for planet := range bot.ConsecutiveVisits {
+					if planet != bestDestination {
+						bot.ConsecutiveVisits[planet] = 0
+					}
+				}
+				// Increment counter for chosen planet
+				bot.ConsecutiveVisits[bestDestination]++
 			}
 
 			return bestDestination
