@@ -3300,21 +3300,55 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 					UsageCharge:  auction.UsageCharge,
 					AccruedMoney: 0,
 				}
+				// Determine second-highest bid (if any)
+				var secondID PlayerID
+				secondBid := 0
+				for playerID, bid := range auction.Bids {
+					if playerID == winner {
+						continue
+					}
+					if bid > secondBid {
+						secondBid = bid
+						secondID = playerID
+					}
+				}
+				secondName := "another bidder"
+				if secondID != "" {
+					if sp := room.Players[secondID]; sp != nil {
+						secondName = sp.Name
+					}
+				} else {
+					secondName = "no competing bids"
+				}
 
 				// Announce winner to all players
 				for _, p := range room.Players {
 					if p.ID == winner {
-						gs.enqueueModal(p, "Auction Won!",
-							fmt.Sprintf("Congratulations! You won the %s on %s for %d credits. You'll collect %d credits per turn from other players who dock there.",
-								auction.FacilityType, auction.Planet, highestBid, auction.UsageCharge))
+						msg := fmt.Sprintf("Congratulations! You won the %s on %s for %d credits. You'll collect %d credits per turn from other players who dock there.",
+							auction.FacilityType, auction.Planet, highestBid, auction.UsageCharge)
+						if secondBid > 0 {
+							msg += fmt.Sprintf(" The next highest bid was %d credits from %s.", secondBid, secondName)
+						} else {
+							msg += " There were no competing bids."
+						}
+						gs.enqueueModal(p, "Auction Won!", msg)
 					} else {
-						gs.enqueueModal(p, "Auction Results",
-							fmt.Sprintf("%s won the %s on %s for %d credits.",
-								winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid))
+						msg := fmt.Sprintf("%s won the %s on %s for %d credits.",
+							winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid)
+						if secondBid > 0 {
+							msg += fmt.Sprintf(" The next highest bid was %d credits from %s.", secondBid, secondName)
+						} else {
+							msg += " No other bids were placed."
+						}
+						gs.enqueueModal(p, "Auction Results", msg)
 					}
 				}
 
-				gs.logGeneral(room, fmt.Sprintf("%s won %s on %s for $%d", winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid))
+				detail := "no other bids"
+				if secondBid > 0 {
+					detail = fmt.Sprintf("next highest: %s at $%d", secondName, secondBid)
+				}
+				gs.logGeneral(room, fmt.Sprintf("%s won %s on %s for $%d (%s)", winnerPlayer.Name, auction.FacilityType, auction.Planet, highestBid, detail))
 			}
 		}
 	} else {
