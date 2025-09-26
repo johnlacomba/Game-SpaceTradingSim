@@ -561,6 +561,12 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
     }
   })
 
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const activeId = selectedId ?? hoveredId
+  const activeSegment = activeId ? segments.find(seg => seg.id === activeId) || null : null
+
   return (
     <div style={{ 
       display: 'flex', 
@@ -569,69 +575,126 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
       alignItems: isMobile ? 'center' : 'flex-start'
     }}>
       {/* Pie Chart */}
-      <div style={{ flex: 'none' }}>
-        <svg width={isMobile ? 280 : 300} height={isMobile ? 280 : 300} viewBox="0 0 300 300">
-          {segments.map((segment, index) => (
-            <g key={segment.id}>
-              <path
-                d={segment.pathData}
-                fill={segment.color}
-                stroke="rgba(255, 255, 255, 0.1)"
-                strokeWidth="2"
-                style={{
-                  filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.filter = 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3))'
-                  e.currentTarget.style.transform = 'scale(1.02)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.filter = 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
-                  e.currentTarget.style.transform = 'scale(1)'
-                }}
-              />
-              {/* Percentage label */}
-              {segment.percentage > 5 && (
-                <text
-                  x={150 + 80 * Math.cos(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
-                  y={150 + 80 * Math.sin(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill="white"
-                  fontSize={isMobile ? "12" : "14"}
-                  fontWeight="600"
-                  style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
-                >
-                  {segment.percentage.toFixed(1)}%
-                </text>
-              )}
-            </g>
-          ))}
+      <div style={{ flex: 'none', position: 'relative' }}>
+        <svg
+          width={isMobile ? 280 : 300}
+          height={isMobile ? 280 : 300}
+          viewBox="0 0 300 300"
+          onClick={() => setSelectedId(null)}
+        >
+          {segments.map(segment => {
+            const isActive = activeId === segment.id
+            return (
+              <g key={segment.id}>
+                <path
+                  d={segment.pathData}
+                  fill={segment.color}
+                  stroke="rgba(255, 255, 255, 0.1)"
+                  strokeWidth="2"
+                  style={{
+                    filter: isActive
+                      ? 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.4))'
+                      : 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
+                    transform: `scale(${isActive ? 1.045 : 1})`,
+                    transformOrigin: '150px 150px',
+                    transformBox: 'fill-box',
+                    transition: 'transform 0.18s ease, filter 0.18s ease',
+                    cursor: 'pointer'
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${segment.name || 'Player'} wealth share ${segment.percentage.toFixed(1)} percent`}
+                  onMouseEnter={() => setHoveredId(segment.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  onFocus={() => setHoveredId(segment.id)}
+                  onBlur={() => setHoveredId(null)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(prev => prev === segment.id ? null : segment.id)
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(prev => prev === segment.id ? null : segment.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setSelectedId(prev => prev === segment.id ? null : segment.id)
+                    }
+                  }}
+                />
+                {/* Percentage label */}
+                {segment.percentage > 5 && (
+                  <text
+                    x={150 + 80 * Math.cos(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                    y={150 + 80 * Math.sin(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="white"
+                    fontSize={isMobile ? "12" : "14"}
+                    fontWeight="600"
+                    style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
+                  >
+                    {segment.percentage.toFixed(1)}%
+                  </text>
+                )}
+              </g>
+            )
+          })}
           
           {/* Center title */}
-          <text
-            x="150"
-            y="145"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(255, 255, 255, 0.8)"
-            fontSize={isMobile ? "12" : "14"}
-            fontWeight="600"
-          >
-            Total Wealth
-          </text>
-          <text
-            x="150"
-            y="160"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(255, 255, 255, 0.6)"
-            fontSize={isMobile ? "11" : "12"}
-          >
-            ${totalWealth.toLocaleString()}
-          </text>
+          {!activeSegment && (
+            <>
+              <text
+                x="150"
+                y="145"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="rgba(255, 255, 255, 0.8)"
+                fontSize={isMobile ? "12" : "14"}
+                fontWeight="600"
+              >
+                Total Wealth
+              </text>
+              <text
+                x="150"
+                y="160"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="rgba(255, 255, 255, 0.6)"
+                fontSize={isMobile ? "11" : "12"}
+              >
+                ${totalWealth.toLocaleString()}
+              </text>
+            </>
+          )}
         </svg>
+        {activeSegment && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(10, 21, 42, 0.92)',
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              borderRadius: 10,
+              padding: '10px 14px',
+              minWidth: isMobile ? 130 : 160,
+              textAlign: 'center',
+              color: '#E0F2FE',
+              boxShadow: '0 10px 26px rgba(2, 6, 23, 0.55)',
+              pointerEvents: 'none'
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: isMobile ? '0.95rem' : '1.05rem', marginBottom: 4 }}>
+              {activeSegment.name || 'Unknown Player'}
+            </div>
+            <div style={{ fontSize: isMobile ? '0.75rem' : '0.8rem', color: 'rgba(226, 232, 240, 0.8)' }}>
+              {activeSegment.percentage.toFixed(1)}% • ${activeSegment.total.toLocaleString()}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Legend and Details */}
@@ -653,7 +716,7 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
           flexDirection: 'column',
           gap: 12
         }}>
-          {segments
+          {[...segments]
             .sort((a, b) => b.total - a.total)
             .map((player, index) => (
             <div
