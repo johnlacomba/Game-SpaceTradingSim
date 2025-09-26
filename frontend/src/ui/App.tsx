@@ -2013,22 +2013,6 @@ export function App() {
   })()
 
   const facilitiesByPlanet = r.room.facilities ?? {}
-  const playersById = useMemo(() => {
-    const obj: Record<string, any> = {}
-    ;(r.room.players as any[]).forEach((pl: any) => {
-      obj[pl.id] = pl
-    })
-    return obj
-  }, [r.room.players])
-
-  const facilityInvestmentStats = useMemo(() => {
-    const rows = (r.room.players as any[])
-      .map(pl => ({ id: pl.id, name: pl.name, investment: pl.facilityInvestment ?? 0 }))
-      .filter(row => row.investment > 0)
-      .sort((a, b) => b.investment - a.investment)
-    const total = rows.reduce((sum, row) => sum + row.investment, 0)
-    return { rows, total }
-  }, [r.room.players])
 
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
@@ -3068,7 +3052,19 @@ export function App() {
       </div>
     )}
 
-    {activeTab==='locations' && (
+    {activeTab==='locations' && (() => {
+      const playersList = Array.isArray(r.room.players) ? (r.room.players as any[]) : []
+      const playersById = playersList.reduce<Record<string, any>>((acc, pl: any) => {
+        acc[pl.id] = pl
+        return acc
+      }, {})
+      const facilityRows = playersList
+        .map(pl => ({ id: pl.id, name: pl.name, investment: pl.facilityInvestment ?? 0 }))
+        .filter(row => row.investment > 0)
+        .sort((a, b) => b.investment - a.investment)
+      const totalFacilityInvestment = facilityRows.reduce((sum, row) => sum + row.investment, 0)
+
+      return (
       <div style={{ padding: isMobile ? 12 : 16 }}>
         <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Locations &amp; Facilities</h3>
         <div style={{
@@ -3196,17 +3192,17 @@ export function App() {
           }}>
             <h4 style={{ margin: 0, fontSize: isMobile ? 16 : 18 }}>Facility Investments</h4>
             <span style={{ fontSize: isMobile ? 12 : 13, color: 'rgba(255,255,255,0.65)' }}>
-              Total Invested: ${facilityInvestmentStats.total.toLocaleString()}
+              Total Invested: ${totalFacilityInvestment.toLocaleString()}
             </span>
           </div>
 
-          {facilityInvestmentStats.rows.length === 0 ? (
+          {facilityRows.length === 0 ? (
             <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.6)' }}>
               No facility spending has been recorded yet.
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {facilityInvestmentStats.rows.map(row => (
+              {facilityRows.map(row => (
                 <div key={row.id} style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -3234,7 +3230,7 @@ export function App() {
           )}
         </div>
       </div>
-    )}
+      )})()}
 
     {activeTab==='graphs' && (
       <div style={{ padding: isMobile ? 12 : 16 }}>
