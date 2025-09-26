@@ -46,6 +46,7 @@ type RoomPlayer = {
 }
 
 type FacilitySummary = {
+  id?: string
   type: string
   ownerId: string
   ownerName?: string
@@ -71,7 +72,7 @@ type RoomState = {
     turn: number
     players: RoomPlayer[]
     planets: string[]
-    facilities?: Record<string, FacilitySummary>
+  facilities?: Record<string, FacilitySummary[]>
     planetPositions?: Record<string, { x: number; y: number }>
     allReady?: boolean
     turnEndsAt?: number
@@ -2096,7 +2097,18 @@ export function App() {
     return { x, y }
   })()
 
-  const facilitiesByPlanet = r.room.facilities ?? {}
+  const facilitiesByPlanet = useMemo(() => {
+    const raw = r.room.facilities ?? {}
+    const normalized: Record<string, FacilitySummary[]> = {}
+    Object.entries(raw as Record<string, unknown>).forEach(([planet, value]) => {
+      if (Array.isArray(value)) {
+        normalized[planet] = value as FacilitySummary[]
+      } else if (value && typeof value === 'object') {
+        normalized[planet] = [value as FacilitySummary]
+      }
+    })
+    return normalized
+  }, [r.room.facilities])
 
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
@@ -3331,8 +3343,7 @@ export function App() {
           gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))'
         }}>
           {r.room.planets.map(planet => {
-            const facility = (facilitiesByPlanet as Record<string, FacilitySummary | undefined>)[planet]
-            const owner = facility ? playersById[facility.ownerId] : undefined
+            const facilities = facilitiesByPlanet[planet] ?? []
             const docked = (r.room.players as any[]).filter((pl: any) => !pl.bankrupt && pl.currentPlanet === planet)
             const isHome = planet === r.you.currentPlanet
             const snapshot = marketMemory?.[planet]
@@ -3405,32 +3416,64 @@ export function App() {
                   </div>
                 </div>
 
-                {facility ? (
-                  <div style={{ display: 'grid', gap: 6, fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.8)' }}>
-                    <div>
-                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Facility:</strong> {facility.type}
-                    </div>
-                    <div>
-                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Owner:</strong> {facility.ownerName || owner?.name || 'Unknown commander'}
-                      {facility.ownerId === r.you.id ? ' (You)' : ''}
-                    </div>
-                    {typeof facility.purchasePrice === 'number' && (
-                      <div>
-                        <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Purchase Price:</strong> ${facility.purchasePrice.toLocaleString()}
-                      </div>
-                    )}
-                    <div>
-                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Usage Charge:</strong> ${facility.usageCharge.toLocaleString()}
-                    </div>
-                    {typeof facility.accruedMoney === 'number' && (
-                      <div>
-                        <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Accrued Revenue:</strong> ${facility.accruedMoney.toLocaleString()}
-                      </div>
-                    )}
+                {facilities.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 10 }}>
+                    {facilities.map((facility, idx) => {
+                      const owner = playersById[facility.ownerId]
+                      const ownedByYou = facility.ownerId === r.you.id
+                      const label = facilities.length > 1 ? `Facility ${idx + 1}` : 'Facility'
+                      return (
+                        <div key={facility.id ?? `${facility.ownerId}-${facility.type}-${idx}`}
+                          style={{
+                            padding: isMobile ? 10 : 12,
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            background: 'rgba(148, 163, 184, 0.06)',
+                            display: 'grid',
+                            gap: 6,
+                            fontSize: isMobile ? 12.5 : 13,
+                            color: 'rgba(255,255,255,0.82)'
+                          }}
+                        >
+                          <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.92)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{label}: {facility.type}</span>
+                            {ownedByYou && (
+                              <span style={{
+                                fontSize: isMobile ? 11 : 12,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: 'rgba(16, 185, 129, 0.22)',
+                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                color: '#34d399',
+                                fontWeight: 600
+                              }}>
+                                Yours
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Owner:</strong> {facility.ownerName || owner?.name || 'Unknown commander'}
+                          </div>
+                          {typeof facility.purchasePrice === 'number' && (
+                            <div>
+                              <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Purchase Price:</strong> ${facility.purchasePrice.toLocaleString()}
+                            </div>
+                          )}
+                          <div>
+                            <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Usage Charge:</strong> ${facility.usageCharge.toLocaleString()}
+                          </div>
+                          {typeof facility.accruedMoney === 'number' && (
+                            <div>
+                              <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Accrued Revenue:</strong> ${facility.accruedMoney.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.65)' }}>
-                    No facility has been constructed here yet.
+                    No facilities have been constructed here yet.
                   </div>
                 )}
 

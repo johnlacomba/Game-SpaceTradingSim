@@ -30,6 +30,7 @@ type WSOut struct {
 const turnDuration = 60 * time.Second
 const shipCapacity = 200 // maximum total units a ship can carry
 const fuelCapacity = 100 // maximum fuel units (distance units)
+const maxFacilitiesPerPlanet = 3
 
 // Bot names for variety
 var botNames = []string{
@@ -182,11 +183,12 @@ type Planet struct {
 	FuelPrice     int `json:"-"`
 	BaseFuelPrice int `json:"-"`
 	// Facilities owned by players
-	Facility *Facility `json:"facility,omitempty"`
+	Facilities []*Facility `json:"facilities,omitempty"`
 }
 
 // Facility represents a player-owned facility at a planet
 type Facility struct {
+	ID            string   `json:"id"`
 	Type          string   `json:"type"`  // e.g., "Mining Station", "Trade Hub", "Refinery"
 	Owner         PlayerID `json:"owner"` // player who owns this facility
 	OwnerName     string   `json:"ownerName"`
@@ -2543,25 +2545,34 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		})
 	}
 
-	facilityOverview := map[string]map[string]interface{}{}
+	facilityOverview := map[string][]map[string]interface{}{}
 	for planetName, planet := range room.Planets {
-		if planet == nil || planet.Facility == nil {
+		if planet == nil || len(planet.Facilities) == 0 {
 			continue
 		}
-		facility := planet.Facility
-		ownerName := facility.OwnerName
-		if ownerName == "" {
-			if op := room.Players[facility.Owner]; op != nil {
-				ownerName = op.Name
+		entries := make([]map[string]interface{}, 0, len(planet.Facilities))
+		for _, facility := range planet.Facilities {
+			if facility == nil {
+				continue
 			}
+			ownerName := facility.OwnerName
+			if ownerName == "" {
+				if op := room.Players[facility.Owner]; op != nil {
+					ownerName = op.Name
+				}
+			}
+			entries = append(entries, map[string]interface{}{
+				"id":            facility.ID,
+				"type":          facility.Type,
+				"ownerId":       facility.Owner,
+				"ownerName":     ownerName,
+				"usageCharge":   facility.UsageCharge,
+				"accruedMoney":  facility.AccruedMoney,
+				"purchasePrice": facility.PurchasePrice,
+			})
 		}
-		facilityOverview[planetName] = map[string]interface{}{
-			"type":          facility.Type,
-			"ownerId":       facility.Owner,
-			"ownerName":     ownerName,
-			"usageCharge":   facility.UsageCharge,
-			"accruedMoney":  facility.AccruedMoney,
-			"purchasePrice": facility.PurchasePrice,
+		if len(entries) > 0 {
+			facilityOverview[planetName] = entries
 		}
 	}
 	buildMarketPayload := func(mem map[string]*MarketSnapshot) map[string]interface{} {
@@ -3043,7 +3054,7 @@ func defaultPlanets() map[string]*Planet {
 		}
 		// Initialize separate per-planet ship fuel price (~$10 average)
 		fp := 8 + rand.Intn(5) // 8..12
-		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend, FuelPrice: fp, BaseFuelPrice: fp}
+		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend, FuelPrice: fp, BaseFuelPrice: fp, Facilities: []*Facility{}}
 	}
 	return m
 }
@@ -3368,16 +3379,27 @@ func (gs *GameServer) handleFederationAuctions(room *Room) {
 
 // startFederationAuction creates a new facility auction
 func (gs *GameServer) startFederationAuction(room *Room) {
-	// Select random planet that doesn't already have a facility
+	// Select random planet that still has capacity for additional facilities
 	availablePlanets := []string{}
+	minFacilities := math.MaxInt
 	for name, planet := range room.Planets {
-		if planet.Facility == nil {
+		if planet == nil {
+			continue
+		}
+		count := len(planet.Facilities)
+		if count >= maxFacilitiesPerPlanet {
+			continue
+		}
+		if count < minFacilities {
+			minFacilities = count
+			availablePlanets = []string{name}
+		} else if count == minFacilities {
 			availablePlanets = append(availablePlanets, name)
 		}
 	}
 
 	if len(availablePlanets) == 0 {
-		return // All planets have facilities
+		return // All planets reached facility capacity
 	}
 
 	planet := availablePlanets[rand.Intn(len(availablePlanets))]
@@ -3480,7 +3502,12 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 			// Create the facility
 			planet := room.Planets[auction.Planet]
 			if planet != nil {
-				planet.Facility = &Facility{
+				if planet.Facilities == nil {
+					planet.Facilities = []*Facility{}
+				}
+				facID := fmt.Sprintf("facility_%s_%d_%d", strings.ReplaceAll(strings.ToLower(auction.Planet), " ", "_"), room.Turn, rand.Intn(1000))
+				newFacility := &Facility{
+					ID:            facID,
 					Type:          auction.FacilityType,
 					Owner:         winner,
 					OwnerName:     winnerPlayer.Name,
@@ -3488,6 +3515,7 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 					AccruedMoney:  0,
 					PurchasePrice: highestBid,
 				}
+				planet.Facilities = append(planet.Facilities, newFacility)
 				// Determine second-highest bid (if any)
 				var secondID PlayerID
 				secondBid := 0
@@ -3554,57 +3582,57 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 // handleFacilities processes facility usage charges and collection
 func (gs *GameServer) handleFacilities(room *Room) {
 	for planetName, planet := range room.Planets {
-		if planet.Facility == nil {
+		if planet == nil || len(planet.Facilities) == 0 {
 			continue
 		}
 
-		facility := planet.Facility
-
-		// Charge all players at this location who don't own the facility
-		for _, p := range room.Players {
-			if p.Bankrupt || p.InTransit {
+		for _, facility := range planet.Facilities {
+			if facility == nil {
 				continue
 			}
 
-			// Check if player is at this planet and doesn't own the facility
-			if p.CurrentPlanet == planetName && p.ID != facility.Owner {
-				// Charge the player
-				charge := facility.UsageCharge
-				p.Money -= charge
-				facility.AccruedMoney += charge
-
-				gs.logAction(room, p, fmt.Sprintf("Facility charge: $%d at %s (%s)", charge, planetName, facility.Type))
-				if !p.IsBot {
-					gs.enqueueModal(p, "Facility Usage Fee",
-						fmt.Sprintf("You were charged %d credits for using the %s on %s.",
-							charge, facility.Type, planetName))
+			// Charge all players at this location who don't own the facility
+			for _, p := range room.Players {
+				if p.Bankrupt || p.InTransit {
+					continue
 				}
 
-				// Check for bankruptcy
-				if p.Money < -500 && !p.Bankrupt {
+				if p.CurrentPlanet == planetName && p.ID != facility.Owner {
+					charge := facility.UsageCharge
+					p.Money -= charge
+					facility.AccruedMoney += charge
+
+					gs.logAction(room, p, fmt.Sprintf("Facility charge: $%d at %s (%s)", charge, planetName, facility.Type))
 					if !p.IsBot {
-						gs.enqueueModal(p, "Game Over", "Your ship was impounded for unpaid facility fees. You may continue watching.")
+						gs.enqueueModal(p, "Facility Usage Fee",
+							fmt.Sprintf("You were charged %d credits for using the %s on %s.",
+								charge, facility.Type, planetName))
 					}
-					p.Bankrupt = true
-					room.News = append(room.News, NewsItem{
-						Headline:       p.Name + " bankrupted by facility fees at " + planetName,
-						Planet:         planetName,
-						TurnsRemaining: 3,
-					})
+
+					if p.Money < -500 && !p.Bankrupt {
+						if !p.IsBot {
+							gs.enqueueModal(p, "Game Over", "Your ship was impounded for unpaid facility fees. You may continue watching.")
+						}
+						p.Bankrupt = true
+						room.News = append(room.News, NewsItem{
+							Headline:       p.Name + " bankrupted by facility fees at " + planetName,
+							Planet:         planetName,
+							TurnsRemaining: 3,
+						})
+					}
 				}
-			}
 
-			// If facility owner is at this location, let them collect accrued money
-			if p.CurrentPlanet == planetName && p.ID == facility.Owner && facility.AccruedMoney > 0 {
-				collected := facility.AccruedMoney
-				p.Money += collected
-				facility.AccruedMoney = 0
+				if p.CurrentPlanet == planetName && p.ID == facility.Owner && facility.AccruedMoney > 0 {
+					collected := facility.AccruedMoney
+					p.Money += collected
+					facility.AccruedMoney = 0
 
-				gs.logAction(room, p, fmt.Sprintf("Facility revenue collected: $%d from %s", collected, facility.Type))
-				if !p.IsBot {
-					gs.enqueueModal(p, "Facility Revenue",
-						fmt.Sprintf("You collected %d credits in revenue from your %s on %s.",
-							collected, facility.Type, planetName))
+					gs.logAction(room, p, fmt.Sprintf("Facility revenue collected: $%d from %s", collected, facility.Type))
+					if !p.IsBot {
+						gs.enqueueModal(p, "Facility Revenue",
+							fmt.Sprintf("You collected %d credits in revenue from your %s on %s.",
+								collected, facility.Type, planetName))
+					}
 				}
 			}
 		}
