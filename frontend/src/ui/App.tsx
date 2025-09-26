@@ -1286,6 +1286,17 @@ export function App() {
     return `hsl(${h},70%,45%)`
   }
 
+  const stationKeywords = useMemo(() => [
+    'station',
+    'outpost',
+    'base',
+    'port',
+    'dock',
+    'hub',
+    'colony',
+    'depot'
+  ], [])
+
   // UI
   if (stage === 'title') {
     return (
@@ -2778,6 +2789,117 @@ export function App() {
               const need = travelUnits(r.you.currentPlanet, p)
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
+              const lowerName = p.toLowerCase()
+              const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
+              const mobileScale = isMobile ? 0.8 : 1
+              const iconSize = isMobile ? Math.round(58 * mobileScale) : 68
+              const stationBodyHeight = Math.max(28, Math.round(iconSize * 0.62))
+              const disabled = p === r.you.currentPlanet || !canReach
+              const labelFontSize = isMobile ? `${Math.max(11, Math.round(14 * mobileScale))}px` : '14px'
+              const playerTokenSize = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
+              const playerFontSize = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
+              const buttonGap = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
+              const windowCount = isStationLocation ? (isMobile ? 2 : 3) : 0
+
+              const planetIcon = (
+                <div
+                  style={{
+                    width: iconSize,
+                    height: iconSize,
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.85) 0%, rgba(147,197,253,0.55) 35%, rgba(59,130,246,0.45) 60%, rgba(29,78,216,0.3) 78%, rgba(15,23,42,0.2) 100%)',
+                    border: '1px solid rgba(147, 197, 253, 0.6)',
+                    boxShadow: '0 0 18px rgba(96,165,250,0.55), inset -6px -10px 18px rgba(15,23,42,0.35)',
+                    position: 'relative'
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: iconSize * 0.18,
+                      left: iconSize * 0.22,
+                      width: iconSize * 0.42,
+                      height: iconSize * 0.42,
+                      borderRadius: '50%',
+                      background: 'rgba(255,255,255,0.45)',
+                      filter: 'blur(0.5px)',
+                      opacity: 0.9
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: iconSize * 0.18,
+                      right: iconSize * 0.16,
+                      width: iconSize * 0.4,
+                      height: iconSize * 0.12,
+                      borderRadius: iconSize * 0.06,
+                      background: 'rgba(59,130,246,0.35)',
+                      filter: 'blur(0.5px)',
+                      opacity: 0.75
+                    }}
+                  />
+                </div>
+              )
+
+              const stationIcon = (
+                <div
+                  style={{
+                    width: iconSize,
+                    height: stationBodyHeight,
+                    borderRadius: stationBodyHeight / 2,
+                    background: 'linear-gradient(135deg, rgba(56,189,248,0.9) 0%, rgba(59,130,246,0.8) 40%, rgba(14,116,144,0.65) 100%)',
+                    border: '1px solid rgba(59,130,246,0.55)',
+                    boxShadow: '0 0 18px rgba(56,189,248,0.55), inset 0 0 12px rgba(14,116,144,0.4)',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: Math.max(4, Math.round(stationBodyHeight * 0.18)),
+                    overflow: 'hidden'
+                  }}
+                >
+                  {windowCount > 0 && (
+                    <div
+                      style={{
+                        display: 'flex',
+                        gap: Math.max(2, Math.round(iconSize * 0.08)),
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '100%'
+                      }}
+                    >
+                      {Array.from({ length: windowCount }).map((_, idx) => (
+                        <span
+                          key={idx}
+                          style={{
+                            width: Math.max(6, Math.round(iconSize * 0.12)),
+                            height: Math.max(10, Math.round(stationBodyHeight * 0.55)),
+                            borderRadius: 3,
+                            background: 'rgba(226,232,240,0.92)',
+                            boxShadow: '0 0 8px rgba(226,232,240,0.4)'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: -Math.max(12, Math.round(stationBodyHeight * 0.55)),
+                      width: Math.max(20, Math.round(iconSize * 0.55)),
+                      height: Math.max(20, Math.round(iconSize * 0.55)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(165,243,252,0.95) 0%, rgba(34,211,238,0.65) 35%, rgba(8,145,178,0.3) 70%, rgba(56,189,248,0) 100%)',
+                      border: '1px solid rgba(165,243,252,0.6)',
+                      boxShadow: '0 0 16px rgba(125,211,252,0.45)'
+                    }}
+                  />
+                </div>
+              )
+
+              const outerPadding = isMobile ? Math.max(8, Math.round(12 * mobileScale)) : 8
+
               return (
                 <li key={p} ref={(el: HTMLLIElement | null) => { planetRefs.current[p] = el }} style={{ 
                   position:'absolute', 
@@ -2787,35 +2909,50 @@ export function App() {
                   display:'flex', 
                   flexDirection:'column', 
                   alignItems:'center', 
-                  gap: isMobile ? 6 : 4, 
-                  padding: isMobile ? 12 : 8, 
+                  gap: buttonGap, 
+                  padding: outerPadding, 
                   border: isHere ? '2px solid transparent' : '1px solid transparent', 
-                  borderRadius: isMobile ? 12 : 8, 
+                  borderRadius: isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10, 
                   background:'transparent'
                 }}>
                   <button
-                    disabled={p===r.you.currentPlanet || !canReach}
+                    disabled={disabled}
                     onClick={()=>selectPlanet(p)}
                     style={{ 
-                      textAlign:'center', 
-                      background:'var(--panelElevated)', 
-                      border:'1px solid var(--border)',
-                      padding: isMobile ? '12px 16px' : '8px 12px',
-                      fontSize: isMobile ? 16 : 'inherit',
-                      minHeight: isMobile ? 48 : 'auto',
-                      minWidth: isMobile ? 80 : 'auto',
-                      borderRadius: isMobile ? 8 : 4,
-                      cursor: 'pointer',
-                      touchAction: 'manipulation'
+                      background:'transparent', 
+                      border:'none',
+                      display:'flex',
+                      flexDirection:'column',
+                      alignItems:'center',
+                      gap: buttonGap,
+                      cursor: disabled ? 'default' : 'pointer',
+                      touchAction: 'manipulation',
+                      opacity: disabled ? 0.55 : 1,
+                      padding: 0,
+                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80
                     }}
                     title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
-                    {p}
+                    {isStationLocation ? stationIcon : planetIcon}
+                    <span
+                      style={{
+                        fontSize: labelFontSize,
+                        fontWeight: 600,
+                        letterSpacing: 0.4,
+                        color: 'var(--text)',
+                        textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                    >
+                      {isStationLocation ? '🛰️' : '🪐'} {p}
+                    </span>
                   </button>
                   <div style={{ 
                     display:'flex', 
-                    gap: isMobile ? 6 : 4, 
-                    marginTop: isMobile ? 6 : 4, 
+                    gap: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
+                    marginTop: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
                     justifyContent:'center',
                     flexWrap: 'wrap'
                   }}>
@@ -2824,16 +2961,16 @@ export function App() {
                         key={pl.id}
                         title={pl.name}
                         style={{ 
-                          width: isMobile ? 18 : 14, 
-                          height: isMobile ? 18 : 14, 
-                          borderRadius: isMobile ? 9 : 7, 
+                          width: playerTokenSize, 
+                          height: playerTokenSize, 
+                          borderRadius: playerTokenSize / 2, 
                           background: colorFor(String(pl.id)), 
                           color:'#fff', 
                           display:'inline-flex', 
                           alignItems:'center', 
                           justifyContent:'center', 
-                          fontSize: isMobile ? 12 : 10, 
-                          boxShadow:'0 0 0 1px rgba(0,0,0,0.15)',
+                          fontSize: playerFontSize, 
+                          boxShadow:'0 0 0 1px rgba(0,0,0,0.2)',
                           fontWeight: isMobile ? 600 : 'normal'
                         }}
                       >
