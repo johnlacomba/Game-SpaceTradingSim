@@ -936,8 +936,8 @@ export function App() {
   const [playersOpen, setPlayersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
-  // Tabs: map | market | graphs
-  const [activeTab, setActiveTab] = useState<'map'|'market'|'graphs'>('map')
+  // Tabs: map | market | locations | graphs
+  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
@@ -2012,6 +2012,24 @@ export function App() {
     return { x, y }
   })()
 
+  const facilitiesByPlanet = r.room.facilities ?? {}
+  const playersById = useMemo(() => {
+    const obj: Record<string, any> = {}
+    ;(r.room.players as any[]).forEach((pl: any) => {
+      obj[pl.id] = pl
+    })
+    return obj
+  }, [r.room.players])
+
+  const facilityInvestmentStats = useMemo(() => {
+    const rows = (r.room.players as any[])
+      .map(pl => ({ id: pl.id, name: pl.name, investment: pl.facilityInvestment ?? 0 }))
+      .filter(row => row.investment > 0)
+      .sort((a, b) => b.investment - a.investment)
+    const total = rows.reduce((sum, row) => sum + row.investment, 0)
+    return { rows, total }
+  }, [r.room.players])
+
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
   {/* News ticker below header (blue-hued) */}
@@ -2203,6 +2221,17 @@ export function App() {
               fontSize: isMobile ? 16 : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Market</button>
+            <button onClick={()=>setActiveTab('locations')} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='locations' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? 16 : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Locations</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ 
               padding: isMobile ? '12px 16px' : '4px 8px', 
               background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
@@ -2690,6 +2719,11 @@ export function App() {
               0% { stroke-dashoffset: 12; }
               100% { stroke-dashoffset: 0; }
             }
+            @keyframes solarPulse {
+              0% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+              50% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
+              100% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+            }
           `}
         </style>
         <div aria-live="polite" style={{ position:'absolute', top: 42, right: 16, pointerEvents:'none', width: 280, height: 0 }}>
@@ -2727,7 +2761,21 @@ export function App() {
           backgroundRepeat:'no-repeat',
           touchAction: isMobile ? 'pan-x pan-y' : 'auto'
         }}>
-          <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
+          <div aria-hidden style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: isMobile ? 160 : 220,
+            height: isMobile ? 160 : 220,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle at 50% 50%, rgba(255, 220, 160, 0.95) 0%, rgba(255, 196, 120, 0.75) 45%, rgba(255, 160, 60, 0.45) 70%, rgba(255, 140, 40, 0) 100%)',
+            boxShadow: '0 0 45px rgba(255, 200, 120, 0.35), 0 0 120px rgba(255, 170, 80, 0.25)',
+            pointerEvents: 'none',
+            zIndex: 0,
+            animation: 'solarPulse 6s ease-in-out infinite'
+          }} />
+          <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0, zIndex:1 }}>
             {r.room.planets.map(p => {
               const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
               const center = planetPos[p]
@@ -3015,6 +3063,174 @@ export function App() {
                 })}
               </tbody>
             </table>
+          )}
+        </div>
+      </div>
+    )}
+
+    {activeTab==='locations' && (
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Locations &amp; Facilities</h3>
+        <div style={{
+          display: 'grid',
+          gap: isMobile ? 12 : 16,
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))'
+        }}>
+          {r.room.planets.map(planet => {
+            const facility = (facilitiesByPlanet as Record<string, FacilitySummary | undefined>)[planet]
+            const owner = facility ? playersById[facility.ownerId] : undefined
+            const docked = (r.room.players as any[]).filter((pl: any) => !pl.bankrupt && pl.currentPlanet === planet)
+            const isHome = planet === r.you.currentPlanet
+            return (
+              <div key={planet} className="panel" style={{
+                padding: isMobile ? 14 : 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: isMobile ? 10 : 12
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12
+                }}>
+                  <span style={{ fontWeight: 600, fontSize: isMobile ? 16 : 18 }}>{planet}</span>
+                  {isHome && (
+                    <span style={{
+                      fontSize: isMobile ? 11 : 12,
+                      padding: '4px 8px',
+                      borderRadius: 999,
+                      background: 'rgba(56, 189, 248, 0.18)',
+                      border: '1px solid rgba(56, 189, 248, 0.35)',
+                      color: '#38bdf8',
+                      fontWeight: 600
+                    }}>
+                      You are here
+                    </span>
+                  )}
+                </div>
+
+                {facility ? (
+                  <div style={{ display: 'grid', gap: 6, fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.8)' }}>
+                    <div>
+                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Facility:</strong> {facility.type}
+                    </div>
+                    <div>
+                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Owner:</strong> {facility.ownerName || owner?.name || 'Unknown commander'}
+                      {facility.ownerId === r.you.id ? ' (You)' : ''}
+                    </div>
+                    {typeof facility.purchasePrice === 'number' && (
+                      <div>
+                        <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Purchase Price:</strong> ${facility.purchasePrice.toLocaleString()}
+                      </div>
+                    )}
+                    <div>
+                      <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Usage Charge:</strong> ${facility.usageCharge.toLocaleString()}
+                    </div>
+                    {typeof facility.accruedMoney === 'number' && (
+                      <div>
+                        <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Accrued Revenue:</strong> ${facility.accruedMoney.toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.65)' }}>
+                    No facility has been constructed here yet.
+                  </div>
+                )}
+
+                <div>
+                  <div style={{
+                    fontSize: isMobile ? 11 : 12,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,0.45)',
+                    marginBottom: 6
+                  }}>
+                    Docked Commanders
+                  </div>
+                  {docked.length === 0 ? (
+                    <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>No ships currently docked.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {docked.map((pl: any) => (
+                        <span key={pl.id} style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 999,
+                          fontSize: isMobile ? 12 : 12.5
+                        }}>
+                          <span style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            background: colorFor(String(pl.id)),
+                            boxShadow: '0 0 0 1px rgba(0,0,0,0.25)'
+                          }} />
+                          {pl.name}{pl.id === r.you.id ? ' (You)' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="panel" style={{
+          marginTop: isMobile ? 16 : 20,
+          padding: isMobile ? 14 : 18
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 8 : 12,
+            marginBottom: isMobile ? 12 : 16
+          }}>
+            <h4 style={{ margin: 0, fontSize: isMobile ? 16 : 18 }}>Facility Investments</h4>
+            <span style={{ fontSize: isMobile ? 12 : 13, color: 'rgba(255,255,255,0.65)' }}>
+              Total Invested: ${facilityInvestmentStats.total.toLocaleString()}
+            </span>
+          </div>
+
+          {facilityInvestmentStats.rows.length === 0 ? (
+            <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.6)' }}>
+              No facility spending has been recorded yet.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {facilityInvestmentStats.rows.map(row => (
+                <div key={row.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  paddingBottom: 8
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
+                      background: colorFor(String(row.id)),
+                      boxShadow: '0 0 0 1px rgba(0,0,0,0.28)'
+                    }} />
+                    <span style={{ fontWeight: 600 }}>{row.name}</span>
+                  </div>
+                  <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                    ${row.investment.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       </div>
