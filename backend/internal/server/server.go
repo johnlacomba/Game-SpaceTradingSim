@@ -55,6 +55,16 @@ type PriceMemory struct {
 	ProfitHistory   []int          `json:"profitHistory"`   // recent profit history (last 5 visits)
 }
 
+// MarketSnapshot captures the last known market state for a planet when a player visited
+type MarketSnapshot struct {
+	Turn        int               `json:"turn"`
+	UpdatedAt   int64             `json:"updatedAt"`
+	Goods       map[string]int    `json:"goods"`
+	Prices      map[string]int    `json:"prices"`
+	PriceRanges map[string][2]int `json:"priceRanges"`
+	FuelPrice   int               `json:"fuelPrice"`
+}
+
 type Player struct {
 	ID                PlayerID        `json:"id"`
 	Name              string          `json:"name"`
@@ -86,8 +96,9 @@ type Player struct {
 	ActionHistory []ActionLog `json:"-"`
 	// Bot-specific memory (only used by bots)
 	PriceMemory        map[string]*PriceMemory `json:"-"` // planet -> price data
-	LastTripStartMoney int                     `json:"-"` // money at start of current trip
-	ConsecutiveVisits  map[string]int          `json:"-"` // planet -> consecutive visits to track loops
+	MarketMemory       map[string]*MarketSnapshot
+	LastTripStartMoney int            `json:"-"` // money at start of current trip
+	ConsecutiveVisits  map[string]int `json:"-"` // planet -> consecutive visits to track loops
 }
 
 // ActionLog captures a brief recent action for audit/history
@@ -217,6 +228,7 @@ type PersistedPlayer struct {
 	ActionHistory      []ActionLog
 	FacilityInvestment int
 	UpgradeInvestment  int
+	MarketMemory       map[string]*MarketSnapshot
 }
 
 type GameServer struct {
@@ -291,6 +303,7 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 		InventoryAvgCost:  map[string]int{},
 		Fuel:              fuelCapacity,
 		PriceMemory:       make(map[string]*PriceMemory),
+		MarketMemory:      make(map[string]*MarketSnapshot),
 	}
 	p.conn = conn
 	go gs.readLoop(p)
@@ -378,6 +391,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					ActionHistory:      cloneActionHistory(p.ActionHistory),
 					FacilityInvestment: p.FacilityInvestment,
 					UpgradeInvestment:  p.UpgradeInvestment,
+					MarketMemory:       cloneMarketMemory(p.MarketMemory),
 				}
 				delete(room.Players, p.ID)
 
@@ -825,6 +839,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				ActionHistory:      cloneActionHistory(p.ActionHistory),
 				FacilityInvestment: p.FacilityInvestment,
 				UpgradeInvestment:  p.UpgradeInvestment,
+				MarketMemory:       cloneMarketMemory(p.MarketMemory),
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -868,6 +883,11 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		if p.PriceMemory == nil {
 			p.PriceMemory = make(map[string]*PriceMemory)
 		}
+		if snap.MarketMemory != nil {
+			p.MarketMemory = cloneMarketMemory(snap.MarketMemory)
+		} else if p.MarketMemory == nil {
+			p.MarketMemory = make(map[string]*MarketSnapshot)
+		}
 		delete(room.Persist, p.ID)
 	} else {
 		// New room without a snapshot: start with fresh per-room state
@@ -894,6 +914,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.ActionHistory = nil
 		// Initialize price memory
 		p.PriceMemory = make(map[string]*PriceMemory)
+		p.MarketMemory = make(map[string]*MarketSnapshot)
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -903,6 +924,9 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	}
 	if p.Modals == nil {
 		p.Modals = []ModalItem{}
+	}
+	if p.MarketMemory == nil {
+		p.MarketMemory = make(map[string]*MarketSnapshot)
 	}
 	room.Players[p.ID] = p
 	room.mu.Unlock()
@@ -937,6 +961,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		ActionHistory:      cloneActionHistory(p.ActionHistory),
 		FacilityInvestment: p.FacilityInvestment,
 		UpgradeInvestment:  p.UpgradeInvestment,
+		MarketMemory:       cloneMarketMemory(p.MarketMemory),
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
@@ -1081,6 +1106,7 @@ func (gs *GameServer) addBot(roomID string) {
 		Ready:              true, // bots are always ready
 		IsBot:              true,
 		PriceMemory:        make(map[string]*PriceMemory),
+		MarketMemory:       make(map[string]*MarketSnapshot),
 		LastTripStartMoney: 1000,
 		ConsecutiveVisits:  make(map[string]int),
 	}
@@ -2538,6 +2564,36 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			"purchasePrice": facility.PurchasePrice,
 		}
 	}
+	buildMarketPayload := func(mem map[string]*MarketSnapshot) map[string]interface{} {
+		if len(mem) == 0 {
+			return map[string]interface{}{}
+		}
+		out := make(map[string]interface{}, len(mem))
+		for planetName, snap := range mem {
+			if snap == nil {
+				continue
+			}
+			entry := map[string]interface{}{
+				"turn":      snap.Turn,
+				"updatedAt": snap.UpdatedAt,
+				"fuelPrice": snap.FuelPrice,
+				"goods":     cloneIntMap(snap.Goods),
+				"prices":    cloneIntMap(snap.Prices),
+			}
+			if len(snap.PriceRanges) > 0 {
+				rangeCopy := make(map[string][2]int, len(snap.PriceRanges))
+				for g, rng := range snap.PriceRanges {
+					rangeCopy[g] = rng
+				}
+				entry["priceRanges"] = rangeCopy
+			}
+			out[planetName] = entry
+		}
+		if len(out) == 0 {
+			return map[string]interface{}{}
+		}
+		return out
+	}
 	payloadByPlayer := map[PlayerID]interface{}{}
 	recipients := make([]*Player, 0, len(room.Players))
 	for id, pp := range room.Players {
@@ -2650,6 +2706,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"upgradeValue":       pp.UpgradeInvestment,
 					"cargoValue":         0,
 					"modal":              nm,
+					"marketMemory":       buildMarketPayload(pp.MarketMemory),
 				},
 				"visiblePlanet": map[string]interface{}{},
 			}
@@ -2683,6 +2740,23 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				if r, ok := ranges[g]; ok {
 					visRanges[g] = r
 				}
+			}
+			if pp.MarketMemory == nil {
+				pp.MarketMemory = make(map[string]*MarketSnapshot)
+			}
+			goodsCopy := cloneIntMap(visGoods)
+			pricesCopy := cloneIntMap(visPrices)
+			rangeCopy := make(map[string][2]int, len(visRanges))
+			for g, rng := range visRanges {
+				rangeCopy[g] = rng
+			}
+			pp.MarketMemory[planet.Name] = &MarketSnapshot{
+				Turn:        room.Turn,
+				UpdatedAt:   time.Now().UnixMilli(),
+				Goods:       goodsCopy,
+				Prices:      pricesCopy,
+				PriceRanges: rangeCopy,
+				FuelPrice:   planet.FuelPrice,
 			}
 			visible = map[string]interface{}{
 				"name":        planet.Name,
@@ -2799,6 +2873,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"upgradeValue":       pp.UpgradeInvestment,
 				"cargoValue":         inventoryValue(pp.Inventory, pp.InventoryAvgCost),
 				"modal":              nextModal,
+				"marketMemory":       buildMarketPayload(pp.MarketMemory),
 			},
 			"visiblePlanet": visible,
 		}
@@ -3049,6 +3124,38 @@ func cloneIntMap(m map[string]int) map[string]int {
 	out := make(map[string]int, len(m))
 	for k, v := range m {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneMarketMemory(in map[string]*MarketSnapshot) map[string]*MarketSnapshot {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*MarketSnapshot, len(in))
+	for planet, snap := range in {
+		if snap == nil {
+			continue
+		}
+		copySnap := &MarketSnapshot{
+			Turn:      snap.Turn,
+			UpdatedAt: snap.UpdatedAt,
+			FuelPrice: snap.FuelPrice,
+		}
+		if snap.Goods != nil {
+			copySnap.Goods = cloneIntMap(snap.Goods)
+		}
+		if snap.Prices != nil {
+			copySnap.Prices = cloneIntMap(snap.Prices)
+		}
+		if snap.PriceRanges != nil {
+			ranges := make(map[string][2]int, len(snap.PriceRanges))
+			for g, rng := range snap.PriceRanges {
+				ranges[g] = rng
+			}
+			copySnap.PriceRanges = ranges
+		}
+		out[planet] = copySnap
 	}
 	return out
 }

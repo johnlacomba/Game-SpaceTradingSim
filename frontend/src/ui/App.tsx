@@ -54,6 +54,15 @@ type FacilitySummary = {
   purchasePrice?: number
 }
 
+type MarketSnapshot = {
+  turn: number
+  updatedAt?: number
+  goods: Record<string, number>
+  prices: Record<string, number>
+  priceRanges?: Record<string, [number, number]>
+  fuelPrice?: number
+}
+
 type RoomState = {
   room: {
     id: string
@@ -99,6 +108,7 @@ type RoomState = {
     upgradeInvestment?: number
     upgradeValue?: number
     cargoValue?: number
+    marketMemory?: Record<string, MarketSnapshot>
   }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
@@ -3063,6 +3073,7 @@ export function App() {
         .filter(row => row.investment > 0)
         .sort((a, b) => b.investment - a.investment)
       const totalFacilityInvestment = facilityRows.reduce((sum, row) => sum + row.investment, 0)
+      const marketMemory = ((r.you as any)?.marketMemory ?? {}) as Record<string, MarketSnapshot>
 
       return (
       <div style={{ padding: isMobile ? 12 : 16 }}>
@@ -3077,6 +3088,15 @@ export function App() {
             const owner = facility ? playersById[facility.ownerId] : undefined
             const docked = (r.room.players as any[]).filter((pl: any) => !pl.bankrupt && pl.currentPlanet === planet)
             const isHome = planet === r.you.currentPlanet
+            const snapshot = marketMemory?.[planet]
+            const goodsKeys = snapshot
+              ? Array.from(new Set([
+                  ...Object.keys(snapshot.goods ?? {}),
+                  ...Object.keys(snapshot.prices ?? {})
+                ])).sort((a, b) => a.localeCompare(b))
+              : []
+            const intelTimestamp = snapshot?.updatedAt ? new Date(snapshot.updatedAt).toLocaleString() : null
+            const gridTemplate = isMobile ? 'minmax(0,1fr) 70px 90px' : 'minmax(0,1fr) 80px 90px 110px'
             return (
               <div key={planet} className="panel" style={{
                 padding: isMobile ? 14 : 16,
@@ -3091,19 +3111,51 @@ export function App() {
                   gap: 12
                 }}>
                   <span style={{ fontWeight: 600, fontSize: isMobile ? 16 : 18 }}>{planet}</span>
-                  {isHome && (
-                    <span style={{
-                      fontSize: isMobile ? 11 : 12,
-                      padding: '4px 8px',
-                      borderRadius: 999,
-                      background: 'rgba(56, 189, 248, 0.18)',
-                      border: '1px solid rgba(56, 189, 248, 0.35)',
-                      color: '#38bdf8',
-                      fontWeight: 600
-                    }}>
-                      You are here
-                    </span>
-                  )}
+                  <div style={{
+                    display: 'flex',
+                    gap: 6,
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end'
+                  }}>
+                    {snapshot ? (
+                      <span style={{
+                        fontSize: isMobile ? 11 : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(139, 92, 246, 0.18)',
+                        border: '1px solid rgba(139, 92, 246, 0.35)',
+                        color: '#a855f7',
+                        fontWeight: 600
+                      }}>
+                        Intel turn {snapshot.turn}{intelTimestamp ? ` · ${intelTimestamp}` : ''}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: isMobile ? 11 : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(148, 163, 184, 0.18)',
+                        border: '1px solid rgba(148, 163, 184, 0.3)',
+                        color: 'rgba(226, 232, 240, 0.75)',
+                        fontWeight: 600
+                      }}>
+                        No intel yet
+                      </span>
+                    )}
+                    {isHome && (
+                      <span style={{
+                        fontSize: isMobile ? 11 : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(56, 189, 248, 0.18)',
+                        border: '1px solid rgba(56, 189, 248, 0.35)',
+                        color: '#38bdf8',
+                        fontWeight: 600
+                      }}>
+                        You are here
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {facility ? (
@@ -3173,6 +3225,78 @@ export function App() {
                     </div>
                   )}
                 </div>
+
+                  <div>
+                    <div style={{
+                      fontSize: isMobile ? 11 : 12,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      color: 'rgba(255,255,255,0.45)',
+                      marginBottom: 6
+                    }}>
+                      Your Market Intel
+                    </div>
+                    {snapshot ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.7)' }}>
+                          Last seen turn {snapshot.turn}
+                          {intelTimestamp ? ` · ${intelTimestamp}` : ''}
+                        </div>
+                        <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.7)' }}>
+                          Fuel price: {typeof snapshot.fuelPrice === 'number' ? `$${snapshot.fuelPrice}` : '—'}
+                        </div>
+                        {goodsKeys.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: gridTemplate,
+                              gap: isMobile ? 6 : 8,
+                              fontSize: isMobile ? 11.5 : 12.5,
+                              color: 'rgba(255,255,255,0.75)',
+                              fontWeight: 600
+                            }}>
+                              <span>Good</span>
+                              <span style={{ textAlign: 'right' }}>Qty</span>
+                              <span style={{ textAlign: 'right' }}>Price</span>
+                              {!isMobile && <span style={{ textAlign: 'right' }}>Range</span>}
+                            </div>
+                            {goodsKeys.map(good => {
+                              const qty = snapshot.goods?.[good]
+                              const price = snapshot.prices?.[good]
+                              const range = snapshot.priceRanges?.[good]
+                              const rangeText = Array.isArray(range) ? `${range[0]}–${range[1]}` : '—'
+                              return (
+                                <div key={good} style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: gridTemplate,
+                                  gap: isMobile ? 6 : 8,
+                                  fontSize: isMobile ? 11.5 : 12.5,
+                                  color: 'rgba(255,255,255,0.75)',
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: '1px solid rgba(255,255,255,0.08)',
+                                  borderRadius: 6,
+                                  padding: '6px 8px'
+                                }}>
+                                  <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{good}</span>
+                                  <span style={{ textAlign: 'right' }}>{typeof qty === 'number' ? qty.toLocaleString() : '—'}</span>
+                                  <span style={{ textAlign: 'right' }}>{typeof price === 'number' ? `$${price}` : '—'}</span>
+                                  {!isMobile && <span style={{ textAlign: 'right', color: 'rgba(255,255,255,0.6)' }}>{rangeText}</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>
+                            No goods data recorded yet.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>
+                        Visit this planet to log current market prices.
+                      </div>
+                    )}
+                  </div>
               </div>
             )
           })}
