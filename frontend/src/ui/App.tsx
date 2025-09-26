@@ -2793,13 +2793,12 @@ export function App() {
               const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
               const mobileScale = isMobile ? 0.8 : 1
               const iconSize = isMobile ? Math.round(58 * mobileScale) : 68
-              const stationBodyHeight = Math.max(28, Math.round(iconSize * 0.62))
+              const stationBodyHeight = Math.max(30, Math.round(iconSize * 0.68))
               const disabled = p === r.you.currentPlanet || !canReach
               const labelFontSize = isMobile ? `${Math.max(11, Math.round(14 * mobileScale))}px` : '14px'
               const playerTokenSize = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
               const playerFontSize = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
               const buttonGap = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
-              const windowCount = isStationLocation ? (isMobile ? 2 : 3) : 0
 
               const planetIcon = (
                 <div
@@ -2847,52 +2846,85 @@ export function App() {
                   style={{
                     width: iconSize,
                     height: stationBodyHeight,
-                    borderRadius: stationBodyHeight / 2,
-                    background: 'linear-gradient(135deg, rgba(56,189,248,0.9) 0%, rgba(59,130,246,0.8) 40%, rgba(14,116,144,0.65) 100%)',
-                    border: '1px solid rgba(59,130,246,0.55)',
-                    boxShadow: '0 0 18px rgba(56,189,248,0.55), inset 0 0 12px rgba(14,116,144,0.4)',
+                    borderRadius: stationBodyHeight,
+                    background: 'linear-gradient(145deg, rgba(14,116,144,0.85), rgba(34,197,246,0.85))',
+                    border: '1px solid rgba(148, 197, 255, 0.5)',
+                    boxShadow: '0 12px 24px rgba(13,148,136,0.25), inset 0 0 18px rgba(59,130,246,0.45)',
                     position: 'relative',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    padding: Math.max(4, Math.round(stationBodyHeight * 0.18)),
-                    overflow: 'hidden'
+                    justifyContent: 'center'
                   }}
                 >
-                  {windowCount > 0 && (
-                    <div
-                      style={{
-                        display: 'flex',
-                        gap: Math.max(2, Math.round(iconSize * 0.08)),
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: '100%'
-                      }}
-                    >
-                      {Array.from({ length: windowCount }).map((_, idx) => (
-                        <span
-                          key={idx}
-                          style={{
-                            width: Math.max(6, Math.round(iconSize * 0.12)),
-                            height: Math.max(10, Math.round(stationBodyHeight * 0.55)),
-                            borderRadius: 3,
-                            background: 'rgba(226,232,240,0.92)',
-                            boxShadow: '0 0 8px rgba(226,232,240,0.4)'
-                          }}
-                        />
-                      ))}
-                    </div>
-                  )}
                   <div
                     style={{
                       position: 'absolute',
-                      top: -Math.max(12, Math.round(stationBodyHeight * 0.55)),
-                      width: Math.max(20, Math.round(iconSize * 0.55)),
-                      height: Math.max(20, Math.round(iconSize * 0.55)),
+                      inset: Math.max(6, Math.round(stationBodyHeight * 0.14)),
                       borderRadius: '50%',
-                      background: 'radial-gradient(circle, rgba(165,243,252,0.95) 0%, rgba(34,211,238,0.65) 35%, rgba(8,145,178,0.3) 70%, rgba(56,189,248,0) 100%)',
-                      border: '1px solid rgba(165,243,252,0.6)',
-                      boxShadow: '0 0 16px rgba(125,211,252,0.45)'
+                      background: 'radial-gradient(circle, rgba(224,242,254,0.95) 0%, rgba(125,211,252,0.75) 45%, rgba(14,116,144,0.4) 75%, rgba(2,132,199,0.2) 100%)',
+                      boxShadow: '0 0 22px rgba(165,243,252,0.35)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '50%',
+                      left: '50%',
+                      transform: 'translate(-50%, -50%)',
+                      width: Math.max(12, Math.round(iconSize * 0.32)),
+                      height: Math.max(12, Math.round(iconSize * 0.32)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(226,232,240,1) 0%, rgba(94,234,212,0.65) 55%, rgba(56,189,248,0.45) 100%)',
+                      boxShadow: '0 0 12px rgba(94,234,212,0.55)'
+                    }}
+                  />
+                  {['-50%', '50%'].map((offset, idx) => (
+                    <div
+                      key={idx}
+                      style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: offset,
+                        transform: 'translate(-50%, -50%)',
+                        width: Math.max(12, Math.round(iconSize * 0.2)),
+                        height: Math.max(6, Math.round(stationBodyHeight * 0.25)),
+                        borderRadius: 999,
+                        background: 'linear-gradient(90deg, rgba(45,212,191,0.65), rgba(59,130,246,0.85))',
+                        boxShadow: '0 0 10px rgba(34,211,238,0.4)'
+                      }}
+                    />
+                  ))}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: -Math.max(8, Math.round(stationBodyHeight * 0.22)),
+                      width: Math.max(18, Math.round(iconSize * 0.42)),
+                      height: Math.max(18, Math.round(iconSize * 0.42)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(125,211,252,0.95) 0%, rgba(34,211,238,0.6) 40%, rgba(12,74,110,0.25) 75%, rgba(59,130,246,0) 100%)',
+                      border: '1px solid rgba(186,230,253,0.55)',
+                      boxShadow: '0 0 16px rgba(103,232,249,0.45)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: -Math.max(8, Math.round(stationBodyHeight * 0.22)),
+                      width: Math.max(16, Math.round(iconSize * 0.36)),
+                      height: Math.max(16, Math.round(iconSize * 0.36)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(59,130,246,0.9) 0%, rgba(30,64,175,0.4) 75%, rgba(30,64,175,0) 100%)',
+                      border: '1px solid rgba(191,219,254,0.4)',
+                      boxShadow: '0 0 14px rgba(59,130,246,0.4)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: Math.max(4, Math.round(stationBodyHeight * 0.1)),
+                      borderRadius: stationBodyHeight,
+                      border: '1px dashed rgba(226,232,240,0.45)',
+                      opacity: 0.7
                     }}
                   />
                 </div>
