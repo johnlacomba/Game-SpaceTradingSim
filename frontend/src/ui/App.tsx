@@ -1005,10 +1005,8 @@ export function App() {
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
-  const inventoryMenuRef = useRef<HTMLDivElement | null>(null)
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
-  const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
   // Tabs: map | market | locations | players | ship | graphs
   const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'ship'|'graphs'>('map')
@@ -1121,24 +1119,6 @@ export function App() {
   }, [room?.room?.id, room?.room?.turn, room?.room?.players])
 
   // Close Ship Inventory menu on outside click
-  useEffect(() => {
-    if (!inventoryOpen) return
-    const onDocDown = (e: MouseEvent) => {
-      const el = inventoryMenuRef.current
-      if (!el) return
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        setInventoryOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    return () => document.removeEventListener('mousedown', onDocDown)
-  }, [inventoryOpen])
-
-  useEffect(() => {
-    if (activeTab === 'ship' && inventoryOpen) {
-      setInventoryOpen(false)
-    }
-  }, [activeTab, inventoryOpen])
 
   // Actions
   const onConnect = async () => {
@@ -2431,7 +2411,7 @@ export function App() {
               fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Players</button>
-            <button onClick={()=>{ setActiveTab('ship'); setInventoryOpen(false) }} style={{ 
+            <button onClick={()=>setActiveTab('ship')} style={{ 
               padding: isMobile ? '12px 16px' : '4px 8px', 
               background: activeTab==='ship' ? 'rgba(167,139,250,0.18)' : 'transparent', 
               borderLeft: '1px solid var(--border)', 
@@ -2453,37 +2433,6 @@ export function App() {
               fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Graphs</button>
-          </div>
-          <div ref={inventoryMenuRef} style={{ position: 'relative' }}>
-            <button 
-              onClick={() => setInventoryOpen(v=>!v)} 
-              aria-expanded={inventoryOpen} 
-              aria-haspopup="menu"
-              style={{
-                padding: isMobile ? '12px 16px' : '6px 12px',
-                fontSize: isMobile ? shrinkFont(16) : 'inherit',
-                minHeight: isMobile ? 48 : 'auto'
-              }}
-            >
-              Ship [{usedSlots}/{capacity}] ▾
-            </button>
-            {inventoryOpen && (
-              <div className="panel" style={{ 
-                position: isMobile ? 'fixed' : 'absolute', 
-                top: isMobile ? '120px' : '100%', 
-                right: isMobile ? 16 : 'auto',
-                left: isMobile ? 16 : 0, 
-                marginTop: isMobile ? 0 : 6, 
-                padding: 12, 
-                zIndex: 1000, 
-                minWidth: isMobile ? 'auto' : 300, 
-                maxHeight: isMobile ? '60vh' : 360, 
-                overflow: 'auto',
-                maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none'
-              }}>
-                {renderShipSections()}
-              </div>
-            )}
           </div>
         </div>
     <div style={{ 
@@ -2509,6 +2458,9 @@ export function App() {
             Ready
           </button>
           <span style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}><strong>${r.you.money}</strong></span>
+          <span style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', color: 'var(--muted)' }}>
+            Cargo: <strong>{usedSlots}</strong>/{capacity}
+          </span>
           <div title="Ship fuel (price varies by planet)" style={{ 
             display: isMobile ? 'flex' : 'block',
             flexDirection: isMobile ? 'column' : 'row',
