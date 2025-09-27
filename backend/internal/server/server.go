@@ -3647,8 +3647,18 @@ func (gs *GameServer) handleFacilities(room *Room) {
 						if total <= 0 {
 							continue
 						}
+						if len(player.Modals) > 0 {
+							filtered := player.Modals[:0]
+							for _, modal := range player.Modals {
+								if modal.Title == "Facility Usage Fee" && strings.Contains(modal.Body, planetName) {
+									continue
+								}
+								filtered = append(filtered, modal)
+							}
+							player.Modals = append([]ModalItem(nil), filtered...)
+						}
 						gs.enqueueModal(player, "Facility Usage Fee",
-							fmt.Sprintf("The facilities at %s have charged you %d credits for your visit.", planetName, total))
+							fmt.Sprintf("The facilities at %s have charged you $%d for your visit.", planetName, total))
 					}
 				}
 			}
