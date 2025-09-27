@@ -1010,8 +1010,8 @@ export function App() {
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
-  // Tabs: map | market | locations | graphs
-  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'graphs'>('map')
+  // Tabs: map | market | locations | players | ship | graphs
+  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'ship'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
@@ -1133,6 +1133,12 @@ export function App() {
     document.addEventListener('mousedown', onDocDown)
     return () => document.removeEventListener('mousedown', onDocDown)
   }, [inventoryOpen])
+
+  useEffect(() => {
+    if (activeTab === 'ship' && inventoryOpen) {
+      setInventoryOpen(false)
+    }
+  }, [activeTab, inventoryOpen])
 
   // Actions
   const onConnect = async () => {
@@ -2058,6 +2064,107 @@ export function App() {
   const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
+  const renderShipSections = () => {
+    const inventory = r.you.inventory || {}
+    const inventoryKeys = Object.keys(inventory).sort()
+    const fuelCapacityValue = (r.you as any).fuelCapacity ?? 100
+    const speedPerTurn = (r.you as any).speedPerTurn ?? 20
+
+    return (
+      <>
+        <div style={{ marginBottom: isMobile ? 16 : 12 }}>
+          <h4
+            style={{
+              margin: '0 0 8px 0',
+              fontSize: isMobile ? shrinkFont(16) : 14,
+              fontWeight: 600,
+              color: 'var(--accent2)'
+            }}
+          >
+            Ship Stats
+          </h4>
+          <div style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--text)' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '4px 0'
+              }}
+            >
+              <span>Fuel Tank:</span>
+              <span>
+                <strong>{fuelCapacityValue}</strong> units
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '4px 0'
+              }}
+            >
+              <span>Engine Speed:</span>
+              <span>
+                <strong>{speedPerTurn}</strong> units/turn
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4
+            style={{
+              margin: '0 0 8px 0',
+              fontSize: isMobile ? shrinkFont(16) : 14,
+              fontWeight: 600,
+              color: 'var(--accent2)'
+            }}
+          >
+            Cargo Hold [{usedSlots}/{capacity}]
+          </h4>
+          {inventoryKeys.length === 0 ? (
+            <div
+              style={{
+                fontSize: isMobile ? shrinkFont(14) : 13,
+                color: 'var(--muted)',
+                fontStyle: 'italic'
+              }}
+            >
+              Empty
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {inventoryKeys.map((g) => {
+                const qty = inventory[g]
+                const avg = r.you.inventoryAvgCost?.[g]
+                return (
+                  <li
+                    key={g}
+                    style={{
+                      padding: isMobile ? '4px 0' : '2px 0',
+                      fontSize: isMobile ? shrinkFont(14) : 13,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8
+                    }}
+                  >
+                    <span>{g}:</span>
+                    <span>
+                      <strong>{qty}</strong>
+                      {typeof avg === 'number' ? (
+                        <span className="muted"> (avg ${avg})</span>
+                      ) : null}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </>
+    )
+  }
   // Compute map distance between current and selected destination using normalized positions
   const getNormPos = (name?: string): { x: number; y: number } | undefined => {
     if (!name) return undefined
@@ -2324,6 +2431,17 @@ export function App() {
               fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Players</button>
+            <button onClick={()=>{ setActiveTab('ship'); setInventoryOpen(false) }} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='ship' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Ship</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ 
               padding: isMobile ? '12px 16px' : '4px 8px', 
               background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
@@ -2363,79 +2481,7 @@ export function App() {
                 overflow: 'auto',
                 maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none'
               }}>
-                {/* Ship Stats Section */}
-                <div style={{ marginBottom: 16 }}>
-                  <h4 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: isMobile ? shrinkFont(16) : 14, 
-                    fontWeight: 600, 
-                    color: 'var(--accent2)' 
-                  }}>
-                    Ship Stats
-                  </h4>
-                  <div style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--text)' }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      padding: '4px 0' 
-                    }}>
-                      <span>Fuel Tank:</span>
-                      <span><strong>{(r.you as any).fuelCapacity ?? 100}</strong> units</span>
-                    </div>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      padding: '4px 0' 
-                    }}>
-                      <span>Engine Speed:</span>
-                      <span><strong>{(r.you as any).speedPerTurn ?? 20}</strong> units/turn</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ship Inventory Section */}
-                <div>
-                  <h4 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: isMobile ? shrinkFont(16) : 14, 
-                    fontWeight: 600, 
-                    color: 'var(--accent2)' 
-                  }}>
-                    Cargo Hold [{usedSlots}/{capacity}]
-                  </h4>
-                  {Object.keys(r.you.inventory).length === 0 ? (
-                    <div style={{ 
-                      fontSize: isMobile ? 14 : 13, 
-                      color: 'var(--muted)', 
-                      fontStyle: 'italic' 
-                    }}>
-                      Empty
-                    </div>
-                  ) : (
-                    <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-                      {Object.keys(r.you.inventory).sort().map(g => {
-                        const qty = r.you.inventory[g]
-                        const avg = r.you.inventoryAvgCost?.[g]
-                        return (
-                          <li key={g} style={{ 
-                            padding: isMobile ? '4px 0' : '2px 0',
-                            fontSize: isMobile ? 14 : 13,
-                            display: 'flex',
-                            justifyContent: 'space-between'
-                          }}>
-                            <span>{g}:</span>
-                            <span>
-                              <strong>{qty}</strong>
-                              {typeof avg === 'number' ? (
-                                <span className="muted"> (avg ${avg})</span>
-                              ) : ''}
-                            </span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
+                {renderShipSections()}
               </div>
             )}
           </div>
@@ -3213,6 +3259,42 @@ export function App() {
         </div>
       )
     })()}
+
+    {activeTab==='ship' && (
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Ship</h3>
+        <div
+          className="panel"
+          style={{
+            padding: isMobile ? 12 : 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: isMobile ? 12 : 16
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              justifyContent: 'space-between',
+              gap: isMobile ? 8 : 16
+            }}
+          >
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Credits: <strong>${r.you.money.toLocaleString()}</strong>
+            </span>
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100} @ ${fuelPrice}/unit
+            </span>
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Free Slots: <strong>{freeSlots}</strong>
+            </span>
+          </div>
+          {renderShipSections()}
+        </div>
+      </div>
+    )}
 
     {activeTab==='market' && (() => {
       const inventory = r.you.inventory || {}
