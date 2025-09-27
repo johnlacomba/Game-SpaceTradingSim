@@ -3343,7 +3343,7 @@ export function App() {
                 <span>Avg —</span>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifySelf: 'center', alignItems: 'flex-start', maxWidth: 88 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'center', alignItems: 'flex-start', maxWidth: 88 }}>
               <label htmlFor={qtyId} style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Qty</label>
               <input
                 id={qtyId}
@@ -3371,7 +3371,6 @@ export function App() {
                   setAmountsByGood(s => ({ ...s, [g]: capped }))
                 }}
               />
-              <span style={{ fontSize: shrinkFont(10), color: 'var(--muted)' }}>Max {maxBuy}</span>
             </div>
             <button
               disabled={disabledTrade || amt <= 0}
