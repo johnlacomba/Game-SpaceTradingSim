@@ -3277,7 +3277,7 @@ export function App() {
       const otherGoods = allGoods
         .filter(g => (inventory[g] ?? 0) <= 0)
         .sort((a, b) => a.localeCompare(b))
-  const mobileGridTemplate = 'minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) auto minmax(0,1fr) minmax(0,1fr)'
+  const mobileGridTemplate = 'minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) min-content minmax(0,1fr) minmax(0,1fr)'
 
   const renderMobileCard = (g: string) => {
         const price = prices[g]
@@ -3319,7 +3319,7 @@ export function App() {
               background: 'rgba(4,7,21,0.7)',
               display: 'grid',
               gridTemplateColumns: mobileGridTemplate,
-              alignItems: 'center',
+              alignItems: 'stretch',
               gap: 8
             }}
           >
@@ -3343,16 +3343,15 @@ export function App() {
                 <span>Avg —</span>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'center', alignItems: 'flex-start', maxWidth: 88 }}>
-              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Qty</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'center', alignItems: 'center' }}>
+              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(10), color: 'var(--muted)', letterSpacing: 0.4 }}>Qty</label>
               <input
                 id={qtyId}
                 style={{
-                  width: '100%',
-                  maxWidth: 80,
-                  padding: '8px 8px',
+                  width: 56,
+                  padding: '8px 6px',
                   fontSize: shrinkFont(13),
-                  minHeight: 34,
+                  minHeight: 36,
                   borderRadius: 6,
                   border: '1px solid var(--border)',
                   background: 'rgba(12,18,38,0.95)',
@@ -3382,6 +3381,10 @@ export function App() {
                 fontSize: shrinkFont(13),
                 fontWeight: 600,
                 minHeight: 46,
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 borderRadius: 6,
                 background: disabledTrade || amt <= 0 ? 'rgba(59,130,246,0.35)' : 'var(--accent)',
                 color: '#fff',
@@ -3400,6 +3403,10 @@ export function App() {
                 fontSize: shrinkFont(13),
                 fontWeight: 600,
                 minHeight: 46,
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
                 borderRadius: 6,
                 cursor: disabledTrade || owned <= 0 ? 'not-allowed' : 'pointer',
                 border: '1px solid transparent',
