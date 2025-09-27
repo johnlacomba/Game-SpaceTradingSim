@@ -1003,15 +1003,13 @@ export function App() {
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
-  const playersMenuRef = useRef<HTMLDivElement | null>(null)
   const inventoryMenuRef = useRef<HTMLDivElement | null>(null)
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
-  const [playersOpen, setPlayersOpen] = useState(false)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
   // Tabs: map | market | locations | graphs
-  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'graphs'>('map')
+  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
@@ -1106,20 +1104,6 @@ export function App() {
       return next
     })
   }, [room?.room?.id, room?.room?.turn, room?.room?.players])
-
-  // Close Players menu on outside click
-  useEffect(() => {
-    if (!playersOpen) return
-    const onDocDown = (e: MouseEvent) => {
-      const el = playersMenuRef.current
-      if (!el) return
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        setPlayersOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    return () => document.removeEventListener('mousedown', onDocDown)
-  }, [playersOpen])
 
   // Close Ship Inventory menu on outside click
   useEffect(() => {
@@ -2059,6 +2043,22 @@ export function App() {
   const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
+  const goodsOrdering = useMemo(() => {
+    const inventory = r.you.inventory || {}
+    const allGoods = Object.keys(goods)
+    const goodsInCargo = allGoods
+      .filter(g => (inventory[g] ?? 0) > 0)
+      .sort((a, b) => a.localeCompare(b))
+    const otherGoods = allGoods
+      .filter(g => (inventory[g] ?? 0) <= 0)
+      .sort((a, b) => a.localeCompare(b))
+    return {
+      goodsInCargo,
+      otherGoods,
+      orderedGoods: [...goodsInCargo, ...otherGoods]
+    }
+  }, [goods, r.you.inventory])
+  const { goodsInCargo, otherGoods } = goodsOrdering
   // Compute map distance between current and selected destination using normalized positions
   const getNormPos = (name?: string): { x: number; y: number } | undefined => {
     if (!name) return undefined
@@ -2314,6 +2314,17 @@ export function App() {
               fontSize: isMobile ? 16 : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Locations</button>
+            <button onClick={()=>setActiveTab('players')} style={{ 
+              padding: isMobile ? '12px 16px' : '4px 8px', 
+              background: activeTab==='players' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? 16 : 'inherit',
+              minHeight: isMobile ? 48 : 'auto'
+            }}>Players</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ 
               padding: isMobile ? '12px 16px' : '4px 8px', 
               background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
@@ -2325,82 +2336,6 @@ export function App() {
               fontSize: isMobile ? 16 : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Graphs</button>
-          </div>
-          <div ref={playersMenuRef} style={{ position: 'relative' }}>
-            <button 
-              onClick={() => setPlayersOpen(v=>!v)} 
-              aria-expanded={playersOpen} 
-              aria-haspopup="menu"
-              style={{
-                padding: isMobile ? '12px 16px' : '6px 12px',
-                fontSize: isMobile ? 16 : 'inherit',
-                minHeight: isMobile ? 48 : 'auto'
-              }}
-            >
-              Players ▾
-            </button>
-            {playersOpen && (
-              <div className="panel" style={{ 
-                position: 'absolute', 
-                top: '100%', 
-                left: isMobile ? -200 : 0, 
-                marginTop: 6, 
-                padding: 8, 
-                zIndex: 1000, 
-                minWidth: isMobile ? 320 : 280,
-                maxWidth: isMobile ? '90vw' : 'none'
-              }}>
-                <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-          {r.room.players.map((pl)=> (
-                    <li key={pl.id} style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: isMobile ? 12 : 8, 
-                      fontSize: isMobile ? 14 : 12, 
-                      lineHeight: 1.2, 
-                      padding: isMobile ? '10px 12px' : '6px 8px', 
-                      borderRadius: 6 
-                    }}>
-                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ 
-                        width: isMobile ? 10 : 8, 
-                        height: isMobile ? 10 : 8, 
-                        borderRadius: isMobile ? 5 : 4, 
-                        background: pl.ready ? 'var(--good)' : 'var(--bad)' 
-                      }} />
-                      <span style={{ 
-                        width: isMobile ? 12 : 10, 
-                        height: isMobile ? 12 : 10, 
-                        borderRadius: isMobile ? 6 : 5, 
-                        background: colorFor(String(pl.id)), 
-                        boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' 
-                      }} />
-            <button 
-              onClick={()=>requestPlayerInfo(pl.id)} 
-              style={{ 
-                flex: 1, 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap', 
-                textAlign: 'left', 
-                background: 'transparent', 
-                border: 'none', 
-                padding: isMobile ? '8px 0' : 0, 
-                cursor: 'pointer', 
-                color: 'var(--accent2)',
-                fontSize: isMobile ? 16 : 'inherit',
-                minHeight: isMobile ? 44 : 'auto'
-              }} 
-              title="View inventory"
-            >
-              {pl.name}
-            </button>
-                      <span style={{ fontSize: isMobile ? 14 : 'inherit' }}>${pl.money}</span>
-                      <span className="muted" style={{ fontSize: isMobile ? 12 : 'inherit' }}>@ {pl.currentPlanet}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
           </div>
           <div ref={inventoryMenuRef} style={{ position: 'relative' }}>
             <button 
@@ -3023,6 +2958,7 @@ export function App() {
               )
 
               const outerPadding = isMobile ? Math.max(8, Math.round(12 * mobileScale)) : 8
+              const highlightSize = iconSize + (isMobile ? 22 : 28)
 
               return (
                 <li key={p} ref={(el: HTMLLIElement | null) => { planetRefs.current[p] = el }} style={{ 
@@ -3039,6 +2975,25 @@ export function App() {
                   borderRadius: isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10, 
                   background:'transparent'
                 }}>
+                  {isHere && (
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: highlightSize,
+                        height: highlightSize,
+                        borderRadius: '50%',
+                        border: '2px solid rgba(59,130,246,0.85)',
+                        boxShadow: '0 0 16px rgba(59,130,246,0.45)',
+                        background: 'rgba(59,130,246,0.12)',
+                        pointerEvents: 'none',
+                        zIndex: 0
+                      }}
+                    />
+                  )}
                   <button
                     disabled={disabled}
                     onClick={()=>selectPlanet(p)}
@@ -3051,9 +3006,11 @@ export function App() {
                       gap: buttonGap,
                       cursor: disabled ? 'default' : 'pointer',
                       touchAction: 'manipulation',
-                      opacity: disabled ? 0.55 : 1,
+                      opacity: disabled && !isHere ? 0.55 : 1,
                       padding: 0,
-                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80
+                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80,
+                      position: 'relative',
+                      zIndex: 1
                     }}
                     title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
@@ -3142,186 +3099,354 @@ export function App() {
       </div>
     )}
 
-    {activeTab==='market' && (
-      <div style={{ padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
-        <div className="panel" style={{ overflowX: 'auto' }}>
-          {isMobile ? (
-            // Mobile card layout for better usability
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {Object.keys(goods).map(g => {
-                const price = prices[g]
-                const range = priceRanges[g]
-                const available = goods[g]
-                const owned = r.you.inventory[g] || 0
-                const youPaid = r.you.inventoryAvgCost?.[g]
-                const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
-                const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
-                const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
-                const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
-                  ? (price > youPaid
-                      ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
-                      : price < youPaid
-                        ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
-                        : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
-                  : undefined
-                const disabledTrade = inTransit
-                const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-                const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
-                
-                return (
-                  <div key={g} style={{ 
-                    padding: 16, 
-                    border: '1px solid var(--border)', 
-                    borderRadius: 8,
-                    background: 'rgba(255,255,255,0.02)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <h4 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g}</h4>
-                      <div style={{ fontSize: 16, fontWeight: 600 }}>${price}</div>
-                    </div>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12, fontSize: 14 }}>
-                      <div>Available: {available}</div>
-                      <div>Range: {rangeText}</div>
-                      <div>Owned: {owned}{owned>0 && typeof youPaid === 'number' ? ` (avg $${youPaid})` : ''}</div>
-                      <div>% of Max: {pctText}</div>
-                    </div>
-                    
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>Buy Quantity:</label>
-                      <input 
-                        style={{ 
-                          width: '100%', 
-                          padding: '12px 16px',
-                          fontSize: 16,
-                          minHeight: 48,
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg)'
-                        }} 
-                        type="number" 
-                        value={amt} 
-                        min={0} 
-                        max={maxBuy} 
-                        disabled={disabledTrade}
-                        onChange={e=>{
-                          const v = Number(e.target.value)
-                          const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
-                          setAmountsByGood(s => ({ ...s, [g]: capped }))
-                        }} 
-                      />
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      <button 
-                        disabled={disabledTrade || amt<=0} 
-                        onClick={()=>buy(g, amt)} 
-                        title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} 
-                        style={{ 
-                          flex: 1,
-                          padding: '16px 24px',
-                          fontSize: 18,
-                          fontWeight: 600,
-                          minHeight: 56,
-                          borderRadius: 8,
-                          background: 'var(--accent)',
-                          color: 'white',
-                          border: 'none',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Buy
-                      </button>
-                      <button 
-                        disabled={disabledTrade || owned<=0} 
-                        onClick={()=>sell(g, owned)} 
-                        style={{ 
-                          flex: 1,
-                          padding: '16px 24px',
-                          fontSize: 18,
-                          fontWeight: 600,
-                          minHeight: 56,
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          ...sellStyle
-                        }} 
-                        title={disabledTrade ? 'Unavailable while in transit' : undefined}
-                      >
-                        Sell All
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+    {activeTab==='players' && (() => {
+      const playersList = Array.isArray(r.room.players) ? (r.room.players as any[]) : []
+      const readyCount = playersList.filter(pl => pl.ready).length
+      const totalCredits = playersList.reduce((sum: number, pl: any) => (
+        typeof pl.money === 'number' ? sum + pl.money : sum
+      ), 0)
+
+      return (
+        <div style={{ padding: isMobile ? 12 : 16 }}>
+          <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Players</h3>
+          <div className="panel" style={{ padding: isMobile ? 12 : 16 }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: 8,
+              marginBottom: playersList.length > 0 ? (isMobile ? 12 : 10) : 0
+            }}>
+              <span style={{ fontSize: isMobile ? 14 : 13, color: 'var(--muted)' }}>
+                Ready {readyCount}/{playersList.length}
+              </span>
+              {playersList.length > 0 && (
+                <span style={{ fontSize: isMobile ? 14 : 13, color: 'var(--muted)' }}>
+                  Total Credits: ${totalCredits.toLocaleString()}
+                </span>
+              )}
             </div>
-          ) : (
-            // Desktop table layout
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead>
-                <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
-                  <th style={{ padding:'6px 8px' }}>Good</th>
-                  <th style={{ padding:'6px 8px' }}>Available</th>
-                  <th style={{ padding:'6px 8px' }}>Price</th>
-                  <th style={{ padding:'6px 8px' }}>Range</th>
-                  <th style={{ padding:'6px 8px' }}>% of Max</th>
-                  <th style={{ padding:'6px 8px' }}>Owned</th>
-                  <th style={{ padding:'6px 8px' }}>Buy Qty</th>
-                  <th style={{ padding:'6px 8px' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(goods).map(g => {
-                  const price = prices[g]
-                  const range = priceRanges[g]
-                  const available = goods[g]
-                  const owned = r.you.inventory[g] || 0
-                  const youPaid = r.you.inventoryAvgCost?.[g]
-                  const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
-                  const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
-                  const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
-                  const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
-                    ? (price > youPaid
-                        ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
-                        : price < youPaid
-                          ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
-                          : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
-                    : undefined
-                  const disabledTrade = inTransit
-                  const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-                  const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
+            {playersList.length === 0 ? (
+              <div style={{ padding: isMobile ? 12 : 16, textAlign: 'center', color: 'var(--muted)' }}>
+                No players are currently in this room.
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : 8 }}>
+                {playersList.map(pl => {
+                  const moneyDisplay = typeof pl.money === 'number' ? pl.money.toLocaleString() : pl.money
                   return (
-                    <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
-                      <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
-                      <td style={{ padding:'6px 8px' }}>{available}</td>
-                      <td style={{ padding:'6px 8px' }}>${price}</td>
-                      <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
-                      <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
-                      <td style={{ padding:'6px 8px' }}>
-                        {owned}
-                        {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
-                      </td>
-                      <td style={{ padding:'6px 8px' }}>
-                        <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
-                          onChange={e=>{
-                            const v = Number(e.target.value)
-                            const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
-                            setAmountsByGood(s => ({ ...s, [g]: capped }))
-                          }} />
-                      </td>
-                      <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
-                        <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
-                        <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
-                      </td>
-                    </tr>
+                    <li
+                      key={pl.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile
+                          ? 'auto auto minmax(0,1fr) auto'
+                          : 'auto auto minmax(0,240px) auto auto',
+                        alignItems: 'center',
+                        gap: isMobile ? 10 : 12,
+                        padding: isMobile ? '12px 10px' : '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'rgba(255,255,255,0.02)'
+                      }}
+                    >
+                      <span
+                        title={pl.ready ? 'Ready' : 'Not Ready'}
+                        style={{
+                          width: isMobile ? 10 : 8,
+                          height: isMobile ? 10 : 8,
+                          borderRadius: '50%',
+                          background: pl.ready ? 'var(--good)' : 'var(--bad)'
+                        }}
+                      />
+                      <span
+                        style={{
+                          width: isMobile ? 14 : 12,
+                          height: isMobile ? 14 : 12,
+                          borderRadius: '50%',
+                          background: colorFor(String(pl.id)),
+                          boxShadow: '0 0 0 1px rgba(0,0,0,0.15)'
+                        }}
+                      />
+                      <button
+                        onClick={() => requestPlayerInfo(pl.id)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 4,
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          color: 'var(--accent2)',
+                          fontSize: isMobile ? 16 : 14,
+                          fontWeight: 600,
+                          textAlign: 'left'
+                        }}
+                        title="View inventory"
+                      >
+                        <span>{pl.name}</span>
+                        <span style={{ fontSize: isMobile ? 12 : 11, color: 'var(--muted)', fontWeight: 400 }}>View inventory</span>
+                      </button>
+                      <span style={{ fontWeight: 600, fontSize: isMobile ? 15 : 13 }}>${moneyDisplay}</span>
+                      <span className="muted" style={{ fontSize: isMobile ? 13 : 12 }}>@ {pl.currentPlanet}</span>
+                    </li>
                   )
                 })}
-              </tbody>
-            </table>
-          )}
+              </ul>
+            )}
+          </div>
         </div>
-      </div>
-    )}
+      )
+    })()}
+
+    {activeTab==='market' && (() => {
+      const renderMobileCard = (g: string) => {
+        const price = prices[g]
+        const range = priceRanges[g]
+        const available = goods[g]
+        const owned = r.you.inventory[g] || 0
+        const youPaid = r.you.inventoryAvgCost?.[g]
+        const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+        const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+        const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+        const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+          ? (price > youPaid
+              ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
+              : price < youPaid
+                ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
+          : undefined
+        const disabledTrade = inTransit
+        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+        const pctText = range ? (() => {
+          const max = range[1]
+          const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+          return `${pct}%`
+        })() : '—'
+
+        return (
+          <div key={g} style={{ 
+            padding: 16, 
+            border: '1px solid var(--border)', 
+            borderRadius: 8,
+            background: 'rgba(255,255,255,0.02)'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h4 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g}</h4>
+              <div style={{ fontSize: 16, fontWeight: 600 }}>${price}</div>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12, fontSize: 14 }}>
+              <div>Available: {available}</div>
+              <div>Range: {rangeText}</div>
+              <div>Owned: {owned}{owned>0 && typeof youPaid === 'number' ? ` (avg $${youPaid})` : ''}</div>
+              <div>% of Max: {pctText}</div>
+            </div>
+            
+            <div style={{ marginBottom: 12 }}>
+              <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>Buy Quantity:</label>
+              <input 
+                style={{ 
+                  width: '100%', 
+                  padding: '12px 16px',
+                  fontSize: 16,
+                  minHeight: 48,
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'var(--bg)'
+                }} 
+                type="number" 
+                value={amt} 
+                min={0} 
+                max={maxBuy} 
+                disabled={disabledTrade}
+                onChange={e=>{
+                  const v = Number(e.target.value)
+                  const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                  setAmountsByGood(s => ({ ...s, [g]: capped }))
+                }} 
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: 12 }}>
+              <button 
+                disabled={disabledTrade || amt<=0} 
+                onClick={()=>buy(g, amt)} 
+                title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} 
+                style={{ 
+                  flex: 1,
+                  padding: '16px 24px',
+                  fontSize: 18,
+                  fontWeight: 600,
+                  minHeight: 56,
+                  borderRadius: 8,
+                  background: 'var(--accent)',
+                  color: 'white',
+                  border: 'none',
+                  cursor: 'pointer'
+                }}
+              >
+                Buy
+              </button>
+              <button 
+                disabled={disabledTrade || owned<=0} 
+                onClick={()=>sell(g, owned)} 
+                style={{ 
+                  flex: 1,
+                  padding: '16px 24px',
+                  fontSize: 18,
+                  fontWeight: 600,
+                  minHeight: 56,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  ...sellStyle
+                }} 
+                title={disabledTrade ? 'Unavailable while in transit' : undefined}
+              >
+                Sell All
+              </button>
+            </div>
+          </div>
+        )
+      }
+
+      const renderTableRow = (g: string) => {
+        const price = prices[g]
+        const range = priceRanges[g]
+        const available = goods[g]
+        const owned = r.you.inventory[g] || 0
+        const youPaid = r.you.inventoryAvgCost?.[g]
+        const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+        const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+        const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+        const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+          ? (price > youPaid
+              ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
+              : price < youPaid
+                ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
+          : undefined
+        const disabledTrade = inTransit
+        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+        const pctText = range ? (() => {
+          const max = range[1]
+          const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+          return `${pct}%`
+        })() : '—'
+
+        return (
+          <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
+            <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
+            <td style={{ padding:'6px 8px' }}>{available}</td>
+            <td style={{ padding:'6px 8px' }}>${price}</td>
+            <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
+            <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
+            <td style={{ padding:'6px 8px' }}>
+              {owned}
+              {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
+            </td>
+            <td style={{ padding:'6px 8px' }}>
+              <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                onChange={e=>{
+                  const v = Number(e.target.value)
+                  const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                  setAmountsByGood(s => ({ ...s, [g]: capped }))
+                }} />
+            </td>
+            <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
+              <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
+              <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
+            </td>
+          </tr>
+        )
+      }
+
+      const hasCargoGoods = goodsInCargo.length > 0
+      const hasOtherGoods = otherGoods.length > 0
+      const noGoods = !hasCargoGoods && !hasOtherGoods
+
+      return (
+        <div style={{ padding: isMobile ? 12 : 16 }}>
+          <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
+          <div className="panel" style={{ overflowX: 'auto' }}>
+            {noGoods ? (
+              <div style={{ padding: isMobile ? 16 : 24, textAlign: 'center', color: 'var(--muted)' }}>
+                No goods available at this location.
+              </div>
+            ) : isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {hasCargoGoods && (
+                  <>
+                    <div style={{
+                      margin: '4px 0 4px',
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.6,
+                      color: 'var(--muted)',
+                      fontWeight: 600
+                    }}>In Cargo</div>
+                    {goodsInCargo.map(renderMobileCard)}
+                  </>
+                )}
+                {hasOtherGoods && (
+                  <>
+                    {hasCargoGoods && (
+                      <div style={{
+                        margin: '8px 0 4px',
+                        fontSize: 12,
+                        textTransform: 'uppercase',
+                        letterSpacing: 0.6,
+                        color: 'var(--muted)',
+                        fontWeight: 600
+                      }}>Marketplace</div>
+                    )}
+                    {otherGoods.map(renderMobileCard)}
+                  </>
+                )}
+              </div>
+            ) : (
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
+                    <th style={{ padding:'6px 8px' }}>Good</th>
+                    <th style={{ padding:'6px 8px' }}>Available</th>
+                    <th style={{ padding:'6px 8px' }}>Price</th>
+                    <th style={{ padding:'6px 8px' }}>Range</th>
+                    <th style={{ padding:'6px 8px' }}>% of Max</th>
+                    <th style={{ padding:'6px 8px' }}>Owned</th>
+                    <th style={{ padding:'6px 8px' }}>Buy Qty</th>
+                    <th style={{ padding:'6px 8px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hasCargoGoods && (
+                    <>
+                      <tr key="cargo-heading" style={{ background:'rgba(148,163,184,0.12)' }}>
+                        <td colSpan={8} style={{ padding:'8px 10px', fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:0.6, color:'var(--muted)' }}>In Cargo</td>
+                      </tr>
+                      {goodsInCargo.map(renderTableRow)}
+                    </>
+                  )}
+                  {hasOtherGoods && (
+                    <>
+                      {hasCargoGoods && (
+                        <tr key="market-heading" style={{ background:'rgba(148,163,184,0.08)' }}>
+                          <td colSpan={8} style={{ padding:'8px 10px', fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:0.6, color:'var(--muted)' }}>Marketplace</td>
+                        </tr>
+                      )}
+                      {otherGoods.map(renderTableRow)}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )
+    })()}
 
     {activeTab==='locations' && (() => {
       const playersList = Array.isArray(r.room.players) ? (r.room.players as any[]) : []
