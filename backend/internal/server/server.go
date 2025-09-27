@@ -108,6 +108,16 @@ type ActionLog struct {
 	Text string `json:"text"`
 }
 
+// BlackOpsContract tracks a covert action purchased by a player that will
+// trigger setbacks for other players on a future turn.
+type BlackOpsContract struct {
+	ID          string
+	Instigator  PlayerID
+	TriggerTurn int
+	Applied     map[PlayerID]bool
+	Price       int
+}
+
 func (gs *GameServer) logAction(room *Room, p *Player, text string) {
 	if room == nil || p == nil {
 		return
@@ -135,6 +145,7 @@ type Room struct {
 	PlanetOrder     []string              `json:"-"`
 	PlanetPositions map[string][2]float64 `json:"-"`
 	ActiveAuction   *FederationAuction    `json:"-"`
+	PendingBlackOps []*BlackOpsContract   `json:"-"`
 }
 
 // ModalItem represents a queued modal to show to a specific player
@@ -535,6 +546,43 @@ func (gs *GameServer) readLoop(p *Player) {
 							gs.logAction(room, p, fmt.Sprintf("Purchased fuel tank +%d for $%d", m.Units, price))
 						} else {
 							gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits for this upgrade.")
+						}
+					}
+					if m.Kind == "shady-contract" {
+						if data.Accept {
+							price := m.Price
+							if price <= 0 {
+								price = 3000 + rand.Intn(3001)
+							}
+							if p.Money < price {
+								gs.enqueueModal(p, "Insufficient Funds", "You don't have enough credits to pay the fixer.")
+							} else {
+								p.Money -= price
+								// Small chance the deal is a Federation sting operation
+								if rand.Intn(20) == 0 { // ~5%
+									fine := 1000
+									p.Money -= fine
+									if len(p.Inventory) > 0 {
+										p.Inventory = map[string]int{}
+										p.InventoryAvgCost = map[string]int{}
+									}
+									gs.enqueueModal(p, "Federation Sting!", fmt.Sprintf("Federation agents confiscate your %d-credit payment, fine you an additional %d credits, and impound your cargo.", price, fine))
+									gs.logAction(room, p, fmt.Sprintf("Federation sting seized shady contract funds ($%d) and cargo", price+fine))
+								} else {
+									contract := &BlackOpsContract{
+										ID:          randID(),
+										Instigator:  p.ID,
+										TriggerTurn: room.Turn + 1,
+										Applied:     make(map[PlayerID]bool),
+										Price:       price,
+									}
+									room.PendingBlackOps = append(room.PendingBlackOps, contract)
+									gs.enqueueModal(p, "Underhanded Deal", "The fixer vanishes into the crowd. Expect your rivals to experience setbacks next turn.")
+									gs.logAction(room, p, fmt.Sprintf("Funded a shady contract for $%d", price))
+								}
+							}
+						} else {
+							gs.logAction(room, p, "Declined a shady contract offer")
 						}
 					}
 				}
@@ -1998,6 +2046,13 @@ func (gs *GameServer) runTicker(room *Room) {
 		}
 		// Rare per-player events; bots are impacted too. Humans receive modals; bots auto-resolve.
 		for _, hp := range room.Players {
+			if len(room.PendingBlackOps) > 0 {
+				for _, contract := range room.PendingBlackOps {
+					if room.Turn >= contract.TriggerTurn && hp.ID != contract.Instigator && !hp.Bankrupt {
+						gs.applyBlackOpsHit(room, contract, hp)
+					}
+				}
+			}
 			if hp.Bankrupt {
 				// Ensure no destination/arrow for bankrupt players
 				hp.DestinationPlanet = ""
@@ -2189,6 +2244,16 @@ func (gs *GameServer) runTicker(room *Room) {
 				gs.logAction(room, hp, fmt.Sprintf("Trade guild membership offered for $%d", membershipFee))
 				gs.enqueueModal(hp, "Trade Guild Invitation", "The Galactic Traders Guild invites you to join for "+strconv.Itoa(membershipFee)+" credits. Membership provides access to exclusive routes and better fuel prices. (This is currently just flavor - no actual benefits implemented)")
 			}
+
+			if !hp.IsBot && len(room.Players) > 1 && !playerHasModalOfKind(hp, "shady-contract") && !roomHasPendingBlackOps(room, hp.ID) {
+				if rand.Intn(400) == 0 { // ~0.25% chance per turn
+					price := 3000 + rand.Intn(3001)
+					body := fmt.Sprintf("A shady character offers to \"take care\" of your competition for %d credits.\nRumors whisper that some of these deals are Federation stings. Pay them?", price)
+					mi := ModalItem{ID: randID(), Title: "Shadowy Proposition", Body: body, Kind: "shady-contract", Price: price}
+					hp.Modals = append(hp.Modals, mi)
+					gs.logAction(room, hp, fmt.Sprintf("Received shady contract offer for $%d", price))
+				}
+			}
 			// Asteroid collision: ~1% chance per turn
 			if rand.Intn(100) == 0 {
 				// Lose all cargo
@@ -2223,6 +2288,39 @@ func (gs *GameServer) runTicker(room *Room) {
 				gs.logAction(room, hp, fmt.Sprintf("Offer: +%d fuel capacity for $%d total", units, price))
 				hp.Modals = append(hp.Modals, mi)
 			}
+		}
+
+		if len(room.PendingBlackOps) > 0 {
+			remaining := make([]*BlackOpsContract, 0, len(room.PendingBlackOps))
+			for _, contract := range room.PendingBlackOps {
+				if contract == nil {
+					continue
+				}
+				resolved := true
+				for pid, pl := range room.Players {
+					if pid == contract.Instigator {
+						continue
+					}
+					if pl == nil || pl.Bankrupt {
+						continue
+					}
+					if contract.Applied == nil || !contract.Applied[pid] {
+						resolved = false
+						break
+					}
+				}
+				if resolved {
+					if inst := room.Players[contract.Instigator]; inst != nil && !inst.IsBot && !inst.Bankrupt {
+						gs.enqueueModal(inst, "Satisfied Whisper", "Your rivals suffered a streak of unexplained setbacks. No one traced it back to you.")
+					}
+					if inst := room.Players[contract.Instigator]; inst != nil {
+						gs.logAction(room, inst, "Shady contract resolved without exposure")
+					}
+				} else {
+					remaining = append(remaining, contract)
+				}
+			}
+			room.PendingBlackOps = remaining
 		}
 
 		// Handle federation auctions at the end of turn processing
@@ -3243,6 +3341,146 @@ func minInt(a, b int) int {
 	return b
 }
 func clampInt(v, lo, hi int) int { return maxInt(lo, minInt(v, hi)) }
+
+func playerHasModalOfKind(p *Player, kind string) bool {
+	if p == nil {
+		return false
+	}
+	for _, m := range p.Modals {
+		if m.Kind == kind {
+			return true
+		}
+	}
+	return false
+}
+
+func roomHasPendingBlackOps(room *Room, instigator PlayerID) bool {
+	if room == nil {
+		return false
+	}
+	for _, contract := range room.PendingBlackOps {
+		if contract == nil {
+			continue
+		}
+		if contract.Instigator == instigator {
+			return true
+		}
+	}
+	return false
+}
+
+func (gs *GameServer) applyBlackOpsHit(room *Room, contract *BlackOpsContract, target *Player) {
+	if room == nil || contract == nil || target == nil {
+		return
+	}
+	if contract.Applied == nil {
+		contract.Applied = make(map[PlayerID]bool)
+	}
+	if contract.Applied[target.ID] {
+		return
+	}
+
+	var (
+		desc    string
+		title   string
+		body    string
+		applied bool
+	)
+
+	tryCargo := func() bool {
+		if len(target.Inventory) == 0 {
+			return false
+		}
+		goods := make([]string, 0, len(target.Inventory))
+		for g, qty := range target.Inventory {
+			if qty > 0 {
+				goods = append(goods, g)
+			}
+		}
+		if len(goods) == 0 {
+			return false
+		}
+		good := goods[rand.Intn(len(goods))]
+		qty := target.Inventory[good]
+		if qty <= 0 {
+			return false
+		}
+		maxLoss := minInt(qty, 6)
+		if maxLoss <= 0 {
+			return false
+		}
+		lost := 1 + rand.Intn(maxLoss)
+		target.Inventory[good] -= lost
+		if target.Inventory[good] <= 0 {
+			delete(target.Inventory, good)
+			delete(target.InventoryAvgCost, good)
+		}
+		desc = fmt.Sprintf("lost %d %s cargo", lost, good)
+		title = "Cargo Ransacked"
+		body = fmt.Sprintf("Dock crews report %d units of %s vanished overnight. No witnesses were found.", lost, good)
+		return true
+	}
+
+	tryFuel := func() bool {
+		if target.Fuel <= 10 {
+			return false
+		}
+		maxLoss := target.Fuel - 5
+		if maxLoss <= 0 {
+			return false
+		}
+		loss := 10 + rand.Intn(16) // 10-25 units
+		if loss > maxLoss {
+			loss = maxLoss
+		}
+		if loss <= 0 {
+			return false
+		}
+		target.Fuel -= loss
+		desc = fmt.Sprintf("lost %d fuel units", loss)
+		title = "Fuel Sabotage"
+		body = fmt.Sprintf("Maintenance crews discover %d units of fuel contaminated overnight. Sabotage is suspected, but no culprit was identified.", loss)
+		return true
+	}
+
+	tryCredits := func() bool {
+		loss := 800 + rand.Intn(1601) // 800-2400 credits
+		target.Money -= loss
+		desc = fmt.Sprintf("bled %d credits to mysterious mishaps", loss)
+		title = "Costly Mishap"
+		body = fmt.Sprintf("A cascade of unfortunate incidents drains %d credits from your accounts. Authorities have no leads.", loss)
+		return true
+	}
+
+	for _, choice := range rand.Perm(3) {
+		switch choice {
+		case 0:
+			applied = tryCargo()
+		case 1:
+			applied = tryFuel()
+		case 2:
+			applied = tryCredits()
+		}
+		if applied {
+			break
+		}
+	}
+	if !applied {
+		applied = tryCredits()
+	}
+	if !applied {
+		return
+	}
+
+	contract.Applied[target.ID] = true
+	gs.logAction(room, target, fmt.Sprintf("Mysterious setback: %s", desc))
+	if !target.IsBot {
+		gs.enqueueModal(target, title, body)
+	}
+	if inst := room.Players[contract.Instigator]; inst != nil {
+		gs.logAction(room, inst, fmt.Sprintf("Black ops impacted %s (%s)", target.Name, desc))
+	}
+}
 
 // generatePlanetPositions returns normalized positions in [0,1]x[0,1] with a minimal spacing
 func generatePlanetPositions(names []string) map[string][2]float64 {
