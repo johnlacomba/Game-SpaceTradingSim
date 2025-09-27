@@ -2158,18 +2158,6 @@ export function App() {
   }
   const destName = r.you.destinationPlanet
   const inTransit = Boolean((r.you as any).inTransit)
-  let mapTitle = 'Map'
-  if (destName && destName !== r.you.currentPlanet) {
-    const a = getNormPos(r.you.currentPlanet)
-    const b = getNormPos(destName)
-    if (a && b) {
-      const dx = a.x - b.x
-      const dy = a.y - b.y
-      const d = Math.sqrt(dx*dx + dy*dy)
-      const units = Math.max(1, Math.ceil(d * 40)) // match server scaling
-      mapTitle = `Map — ${units} units`
-    }
-  }
   // Helper to compute fuel cost between two planets (server-aligned scaling)
   const travelUnits = (from?: string, to?: string) => {
     if (!from || !to || from === to) return 0
@@ -2363,7 +2351,8 @@ export function App() {
           {/* Tabs */}
           <div style={{ 
             marginLeft: isMobile ? 0 : 8, 
-            display: 'inline-flex', 
+            display: isMobile ? 'grid' : 'inline-flex', 
+            gridTemplateColumns: isMobile ? 'repeat(6, minmax(0, 1fr))' : undefined,
             border: '1px solid var(--border)', 
             borderRadius: 8, 
             overflow: 'hidden',
@@ -2371,67 +2360,67 @@ export function App() {
             order: isMobile ? 1 : 'unset'
           }}>
             <button onClick={()=>setActiveTab('map')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', 
               border: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Map</button>
             <button onClick={()=>setActiveTab('market')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
               borderRight: 'none', 
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Market</button>
             <button onClick={()=>setActiveTab('locations')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='locations' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
               borderRight: 'none', 
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Locations</button>
             <button onClick={()=>setActiveTab('players')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='players' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
               borderRight: 'none', 
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Players</button>
             <button onClick={()=>setActiveTab('ship')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='ship' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
               borderRight: 'none', 
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Ship</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
               borderRight: 'none', 
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(16) : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Graphs</button>
           </div>
         </div>
@@ -2761,8 +2750,7 @@ export function App() {
   {/* Content area fills window below header/ticker */}
   <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
     {activeTab==='map' && (
-      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? 12 : 16 }}>
-  <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>{mapTitle}</h3>
+      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? '0 12px 12px' : '0 16px 16px' }}>
         <div ref={planetsContainerRef} className="panel" style={{ 
           position:'relative', 
           flex:1, 
@@ -3083,22 +3071,50 @@ export function App() {
               const x1 = from.x, y1 = from.y
               const x2 = to.x, y2 = to.y
               const d = `M ${x1},${y1} L ${x2},${y2}`
+              const dx = x2 - x1
+              const dy = y2 - y1
+              const midX = x1 + dx * 0.5
+              const midY = y1 + dy * 0.5
+              const isYou = String(pl.id) === String(r.you.id)
+              const pathUnits = isYou && pl.destinationPlanet ? travelUnits(pl.currentPlanet, pl.destinationPlanet) : 0
+              let angle = Math.atan2(dy, dx) * 180 / Math.PI
+              if (angle > 90 || angle < -90) {
+                angle += 180
+              }
               return (
-                <path 
-                  key={pl.id} 
-                  d={d} 
-                  fill="none" 
-                  stroke={colorFor(String(pl.id))} 
-                  strokeWidth={isMobile ? 4 : 3} 
-                  strokeLinecap="round" 
-                  strokeDasharray="8,4"
-                  strokeDashoffset="12"
-                  opacity={1}
-                  style={{
-                    animation: 'flowingDots 0.4s linear infinite',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
-                  }}
-                />
+                <g key={pl.id}>
+                  <path 
+                    d={d} 
+                    fill="none" 
+                    stroke={colorFor(String(pl.id))} 
+                    strokeWidth={isMobile ? 4 : 3} 
+                    strokeLinecap="round" 
+                    strokeDasharray="8,4"
+                    strokeDashoffset="12"
+                    opacity={1}
+                    style={{
+                      animation: 'flowingDots 0.4s linear infinite',
+                      filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
+                    }}
+                  />
+                  {isYou && pathUnits > 0 && (
+                    <text
+                      x={midX}
+                      y={midY}
+                      fill="#fff"
+                      fontSize={isMobile ? 12 : 14}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      transform={`rotate(${angle}, ${midX}, ${midY})`}
+                      stroke="rgba(15,23,42,0.65)"
+                      strokeWidth={isMobile ? 1.4 : 1}
+                      paintOrder="stroke"
+                      letterSpacing="0.5"
+                    >
+                      {`${pathUnits} units`}
+                    </text>
+                  )}
+                </g>
               )
             })}
             {inTransit && yourTransitPos && (
