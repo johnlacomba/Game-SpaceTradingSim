@@ -26,6 +26,8 @@ function useIsMobile() {
   return isMobile
 }
 
+const shrinkFont = (size: number) => Math.max(10, size - 4)
+
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
 type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
@@ -349,13 +351,13 @@ function ConnectionStatus({
       zIndex: 9999,
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
-      fontSize: isMobile ? '14px' : '12px',
+  gap: 8,
+  fontSize: isMobile ? `${shrinkFont(14)}px` : '12px',
       color: 'white',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
     }}>
       <span style={{ 
-        fontSize: isMobile ? '16px' : '14px',
+        fontSize: isMobile ? `${shrinkFont(16)}px` : '14px',
         animation: isReconnecting ? 'spin 1s linear infinite' : 'none'
       }}>
         {status.icon}
@@ -369,7 +371,7 @@ function ConnectionStatus({
           style={{
             marginLeft: 8,
             padding: isMobile ? '6px 12px' : '4px 8px',
-            fontSize: isMobile ? '12px' : '11px',
+            fontSize: isMobile ? `${shrinkFont(12)}px` : '11px',
             background: status.color,
             border: 'none',
             borderRadius: 4,
@@ -1016,6 +1018,19 @@ export function App() {
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
 
+  useEffect(() => {
+    const root = document.documentElement
+    const previous = root.style.fontSize
+    if (isMobile) {
+      root.style.fontSize = '12px'
+    } else {
+      root.style.fontSize = previous || ''
+    }
+    return () => {
+      root.style.fontSize = previous
+    }
+  }, [isMobile])
+
   // Set name from authenticated user
   useEffect(() => {
     if (user && !name) {
@@ -1462,7 +1477,7 @@ export function App() {
                     onChange={e=>setName(e.target.value)}
                     style={{
                       padding: isMobile ? '16px 20px' : '12px 16px',
-                      fontSize: isMobile ? '18px' : '16px',
+                      fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                       flex: 1,
                       border: '2px solid rgba(255, 255, 255, 0.1)',
                       borderRadius: isMobile ? 12 : 8,
@@ -1485,7 +1500,7 @@ export function App() {
                     disabled={!name.trim() || authLoading}
                     style={{ 
                       padding: isMobile ? '16px 32px' : '12px 24px',
-                      fontSize: isMobile ? '18px' : '16px',
+                      fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                       fontWeight: 600,
                       minHeight: isMobile ? '56px' : '48px',
                       minWidth: isMobile ? 'auto' : 120,
@@ -1571,7 +1586,7 @@ export function App() {
                   disabled={authLoading}
                   style={{ 
                     padding: isMobile ? '16px 32px' : '12px 24px',
-                    fontSize: isMobile ? '18px' : '16px',
+                    fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                     fontWeight: 600,
                     minHeight: isMobile ? '56px' : '48px',
                     width: '100%',
@@ -1610,7 +1625,7 @@ export function App() {
               background: 'rgba(68, 68, 255, 0.1)',
               border: '1px solid rgba(68, 68, 255, 0.3)',
               borderRadius: isMobile ? 12 : 16,
-              fontSize: isMobile ? '14px' : '15px',
+              fontSize: isMobile ? `${shrinkFont(14)}px` : '15px',
               lineHeight: 1.5,
               textAlign: 'left'
             }}>
@@ -1651,7 +1666,7 @@ export function App() {
               background: 'rgba(248, 113, 113, 0.1)',
               border: '1px solid rgba(248, 113, 113, 0.3)',
               borderRadius: isMobile ? 12 : 16,
-              fontSize: isMobile ? '14px' : '15px'
+              fontSize: isMobile ? `${shrinkFont(14)}px` : '15px'
             }}>
               <div style={{ 
                 fontWeight: 600, 
@@ -1673,7 +1688,7 @@ export function App() {
           {/* Connection Info */}
           {url && (
             <div style={{ 
-              fontSize: isMobile ? '12px' : '13px', 
+              fontSize: isMobile ? `${shrinkFont(12)}px` : '13px', 
               color: 'rgba(255, 255, 255, 0.4)',
               fontFamily: 'monospace',
               wordBreak: 'break-all',
@@ -2111,12 +2126,12 @@ export function App() {
             <div style={{ 
               fontWeight: 700, 
               marginBottom: isMobile ? 12 : 8,
-              fontSize: isMobile ? 18 : 'inherit'
+              fontSize: isMobile ? shrinkFont(18) : 'inherit'
             }}>{r.you.modal.title}</div>
             <div style={{ 
               whiteSpace: 'pre-wrap', 
               marginBottom: isMobile ? 16 : 12,
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               lineHeight: isMobile ? 1.5 : 'inherit'
             }}>{r.you.modal.body}</div>
             
@@ -2126,7 +2141,7 @@ export function App() {
                 <label style={{ 
                   display: 'block', 
                   marginBottom: isMobile ? 8 : 4, 
-                  fontSize: isMobile ? 14 : 12,
+                  fontSize: isMobile ? shrinkFont(14) : 12,
                   color: 'var(--text-muted)'
                 }}>
                   Your Bid (Suggested: {(r.you.modal as any).suggestedBid} credits):
@@ -2141,7 +2156,7 @@ export function App() {
                   style={{
                     width: '100%',
                     padding: isMobile ? '12px' : '8px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     border: '1px solid var(--border)',
                     borderRadius: '4px',
                     background: 'var(--bg)',
@@ -2155,7 +2170,7 @@ export function App() {
                   }}
                 />
                 <div style={{ 
-                  fontSize: isMobile ? 12 : 10,
+                  fontSize: isMobile ? shrinkFont(12) : 10,
                   color: 'var(--text-muted)',
                   marginTop: isMobile ? 4 : 2
                 }}>
@@ -2170,7 +2185,7 @@ export function App() {
                   onClick={()=>ackModal(r.you.modal?.id)}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 2 : 'unset'
                   }}
@@ -2182,7 +2197,7 @@ export function App() {
                   disabled={!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 1 : 'unset',
                     opacity: (!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money) ? 0.5 : 1
@@ -2197,7 +2212,7 @@ export function App() {
                   onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 2 : 'unset'
                   }}
@@ -2208,7 +2223,7 @@ export function App() {
                   onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 1 : 'unset'
                   }}
@@ -2222,7 +2237,7 @@ export function App() {
                   onClick={()=>ackModal(r.you.modal?.id)}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto'
                   }}
                 >
@@ -2251,10 +2266,10 @@ export function App() {
     flexWrap: isMobile ? 'wrap' : 'nowrap',
     width: isMobile ? '100%' : 'auto'
   }}>
-          <strong className="glow" style={{ fontSize: isMobile ? 16 : 'inherit' }}>{r.room.name}</strong>
-          <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>Turn: {r.room.turn}</span>
+          <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(16) : 'inherit' }}>{r.room.name}</strong>
+          <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>Turn: {r.room.turn}</span>
           {typeof r.room.turnEndsAt === 'number' && (
-            <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>
+            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
           )}
@@ -2273,7 +2288,7 @@ export function App() {
               background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', 
               border: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Map</button>
             <button onClick={()=>setActiveTab('market')} style={{ 
@@ -2284,7 +2299,7 @@ export function App() {
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Market</button>
             <button onClick={()=>setActiveTab('locations')} style={{ 
@@ -2295,7 +2310,7 @@ export function App() {
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Locations</button>
             <button onClick={()=>setActiveTab('players')} style={{ 
@@ -2306,7 +2321,7 @@ export function App() {
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Players</button>
             <button onClick={()=>setActiveTab('graphs')} style={{ 
@@ -2317,7 +2332,7 @@ export function App() {
               borderTop: 'none', 
               borderBottom: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               minHeight: isMobile ? 48 : 'auto'
             }}>Graphs</button>
           </div>
@@ -2328,7 +2343,7 @@ export function App() {
               aria-haspopup="menu"
               style={{
                 padding: isMobile ? '12px 16px' : '6px 12px',
-                fontSize: isMobile ? 16 : 'inherit',
+                fontSize: isMobile ? shrinkFont(16) : 'inherit',
                 minHeight: isMobile ? 48 : 'auto'
               }}
             >
@@ -2352,13 +2367,13 @@ export function App() {
                 <div style={{ marginBottom: 16 }}>
                   <h4 style={{ 
                     margin: '0 0 8px 0', 
-                    fontSize: isMobile ? 16 : 14, 
+                    fontSize: isMobile ? shrinkFont(16) : 14, 
                     fontWeight: 600, 
                     color: 'var(--accent2)' 
                   }}>
                     Ship Stats
                   </h4>
-                  <div style={{ fontSize: isMobile ? 14 : 13, color: 'var(--text)' }}>
+                  <div style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--text)' }}>
                     <div style={{ 
                       display: 'flex', 
                       justifyContent: 'space-between', 
@@ -2382,7 +2397,7 @@ export function App() {
                 <div>
                   <h4 style={{ 
                     margin: '0 0 8px 0', 
-                    fontSize: isMobile ? 16 : 14, 
+                    fontSize: isMobile ? shrinkFont(16) : 14, 
                     fontWeight: 600, 
                     color: 'var(--accent2)' 
                   }}>
@@ -2439,7 +2454,7 @@ export function App() {
         border: '1px solid var(--border)', 
         background: r.you.ready ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', 
         color: r.you.ready ? 'var(--good)' : 'var(--bad)',
-        fontSize: isMobile ? 16 : 'inherit',
+        fontSize: isMobile ? shrinkFont(16) : 'inherit',
         fontWeight: isMobile ? 600 : 'normal',
         minHeight: isMobile ? 48 : 'auto'
       }}
@@ -2447,7 +2462,7 @@ export function App() {
           >
             Ready
           </button>
-          <span style={{ fontSize: isMobile ? 18 : 'inherit' }}><strong>${r.you.money}</strong></span>
+          <span style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}><strong>${r.you.money}</strong></span>
           <div title="Ship fuel (price varies by planet)" style={{ 
             display: isMobile ? 'flex' : 'block',
             flexDirection: isMobile ? 'column' : 'row',
@@ -2456,13 +2471,13 @@ export function App() {
           }}>
             <span style={{ 
               marginLeft: isMobile ? 0 : 8,
-              fontSize: isMobile ? 14 : 'inherit'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit'
             }}>
               Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}
             </span>
       <span className="muted" style={{ 
         marginLeft: isMobile ? 0 : 8,
-        fontSize: isMobile ? 12 : 'inherit'
+        fontSize: isMobile ? shrinkFont(12) : 'inherit'
       }}>@ ${ fuelPrice }/unit</span>
             <button 
               onClick={() => refuel(0)} 
@@ -2470,7 +2485,7 @@ export function App() {
                 marginLeft: isMobile ? 0 : 6,
                 marginTop: isMobile ? 4 : 0,
                 padding: isMobile ? '8px 16px' : '4px 8px',
-                fontSize: isMobile ? 14 : 'inherit',
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
                 minHeight: isMobile ? 40 : 'auto'
               }} 
               disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} 
@@ -2493,7 +2508,7 @@ export function App() {
                 title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2505,7 +2520,7 @@ export function App() {
                 onClick={addBot}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2546,7 +2561,7 @@ export function App() {
                 }}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2562,7 +2577,7 @@ export function App() {
                 onClick={exitRoom}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2584,13 +2599,13 @@ export function App() {
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: isMobile ? 12 : 8 }}>
                   <div style={{ 
                     fontWeight: 700,
-                    fontSize: isMobile ? 18 : 'inherit'
+                    fontSize: isMobile ? shrinkFont(18) : 'inherit'
                   }}>Ship Inventory — {playerInfo.name}</div>
                   <button 
                     onClick={()=>setPlayerInfo(null)}
                     style={{
                       padding: isMobile ? '8px 16px' : '4px 8px',
-                      fontSize: isMobile ? 16 : 'inherit',
+                      fontSize: isMobile ? shrinkFont(16) : 'inherit',
                       minHeight: isMobile ? 40 : 'auto'
                     }}
                   >
@@ -2638,7 +2653,7 @@ export function App() {
                 title="Toggle End Game for this room"
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2682,7 +2697,7 @@ export function App() {
                 }}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2698,7 +2713,7 @@ export function App() {
                 onClick={exitRoom}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2749,7 +2764,7 @@ export function App() {
   <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
     {activeTab==='map' && (
       <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>{mapTitle}</h3>
+  <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>{mapTitle}</h3>
         <div ref={planetsContainerRef} className="panel" style={{ 
           position:'relative', 
           flex:1, 
@@ -2788,7 +2803,8 @@ export function App() {
               const lowerName = p.toLowerCase()
               const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
               const mobileScale = isMobile ? 0.8 : 1
-              const iconSize = isMobile ? Math.round(58 * mobileScale) : 68
+              const baseIconSize = Math.round(58 * mobileScale)
+              const iconSize = isMobile ? Math.round(baseIconSize * 0.75) : 68
               const disabled = p === r.you.currentPlanet || !canReach
               const labelFontSize = isMobile ? `${Math.max(11, Math.round(14 * mobileScale))}px` : '14px'
               const playerTokenSize = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
@@ -3104,7 +3120,7 @@ export function App() {
 
       return (
         <div style={{ padding: isMobile ? 12 : 16 }}>
-          <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Players</h3>
+          <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Players</h3>
           <div className="panel" style={{ padding: isMobile ? 12 : 16 }}>
             <div style={{
               display: 'flex',
@@ -3177,17 +3193,17 @@ export function App() {
                           padding: 0,
                           cursor: 'pointer',
                           color: 'var(--accent2)',
-                          fontSize: isMobile ? 16 : 14,
+                          fontSize: isMobile ? shrinkFont(16) : 14,
                           fontWeight: 600,
                           textAlign: 'left'
                         }}
                         title="View inventory"
                       >
                         <span>{pl.name}</span>
-                        <span style={{ fontSize: isMobile ? 12 : 11, color: 'var(--muted)', fontWeight: 400 }}>View inventory</span>
+                        <span style={{ fontSize: isMobile ? shrinkFont(12) : 11, color: 'var(--muted)', fontWeight: 400 }}>View inventory</span>
                       </button>
-                      <span style={{ fontWeight: 600, fontSize: isMobile ? 15 : 13 }}>${moneyDisplay}</span>
-                      <span className="muted" style={{ fontSize: isMobile ? 13 : 12 }}>@ {pl.currentPlanet}</span>
+                      <span style={{ fontWeight: 600, fontSize: isMobile ? shrinkFont(15) : 13 }}>${moneyDisplay}</span>
+                      <span className="muted" style={{ fontSize: isMobile ? shrinkFont(13) : 12 }}>@ {pl.currentPlanet}</span>
                     </li>
                   )
                 })}
@@ -3374,7 +3390,7 @@ export function App() {
 
       return (
         <div style={{ padding: isMobile ? 12 : 16 }}>
-          <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
+          <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
           <div className="panel" style={{ overflowX: 'auto' }}>
             {noGoods ? (
               <div style={{ padding: isMobile ? 16 : 24, textAlign: 'center', color: 'var(--muted)' }}>
@@ -3467,7 +3483,7 @@ export function App() {
 
       return (
       <div style={{ padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Locations &amp; Facilities</h3>
+        <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Locations &amp; Facilities</h3>
         <div style={{
           display: 'grid',
           gap: isMobile ? 12 : 16,
@@ -3499,7 +3515,7 @@ export function App() {
                   justifyContent: 'space-between',
                   gap: 12
                 }}>
-                  <span style={{ fontWeight: 600, fontSize: isMobile ? 16 : 18 }}>{planet}</span>
+                  <span style={{ fontWeight: 600, fontSize: isMobile ? shrinkFont(16) : 18 }}>{planet}</span>
                   <div style={{
                     display: 'flex',
                     gap: 6,
@@ -3508,7 +3524,7 @@ export function App() {
                   }}>
                     {snapshot ? (
                       <span style={{
-                        fontSize: isMobile ? 11 : 12,
+                        fontSize: isMobile ? shrinkFont(11) : 12,
                         padding: '4px 8px',
                         borderRadius: 999,
                         background: 'rgba(139, 92, 246, 0.18)',
@@ -3520,7 +3536,7 @@ export function App() {
                       </span>
                     ) : (
                       <span style={{
-                        fontSize: isMobile ? 11 : 12,
+                        fontSize: isMobile ? shrinkFont(11) : 12,
                         padding: '4px 8px',
                         borderRadius: 999,
                         background: 'rgba(148, 163, 184, 0.18)',
@@ -3533,7 +3549,7 @@ export function App() {
                     )}
                     {isHome && (
                       <span style={{
-                        fontSize: isMobile ? 11 : 12,
+                        fontSize: isMobile ? shrinkFont(11) : 12,
                         padding: '4px 8px',
                         borderRadius: 999,
                         background: 'rgba(56, 189, 248, 0.18)',
@@ -3779,7 +3795,7 @@ export function App() {
 
     {activeTab==='graphs' && (
       <div style={{ padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Wealth Over Time</h3>
+  <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Wealth Over Time</h3>
         <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
           <WealthCharts 
             history={wealthHistory} 
