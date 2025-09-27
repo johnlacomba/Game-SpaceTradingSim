@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"math"
 	"math/rand"
@@ -140,6 +141,10 @@ type Room struct {
 	mu              sync.Mutex
 	readyCh         chan struct{}         // signal to end turn early when all humans are ready
 	closeCh         chan struct{}         // signal to stop the ticker when room is closed
+	Private         bool                  `json:"-"`
+	CreatorID       PlayerID              `json:"-"`
+	Paused          bool                  `json:"-"`
+	stateCh         chan struct{}         `json:"-"`
 	TurnEndsAt      time.Time             `json:"-"`
 	News            []NewsItem            `json:"-"`
 	PlanetOrder     []string              `json:"-"`
@@ -362,7 +367,16 @@ func (gs *GameServer) HandleListRooms(w http.ResponseWriter, r *http.Request) {
 }
 
 func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
-	room := gs.createRoom("")
+	var data struct {
+		Name         string `json:"name"`
+		Singleplayer bool   `json:"singleplayer"`
+	}
+	if r.Body != nil {
+		if err := json.NewDecoder(r.Body).Decode(&data); err != nil && err != io.EOF {
+			log.Printf("createRoom decode error: %v", err)
+		}
+	}
+	room := gs.createRoom(data.Name, "", data.Singleplayer)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": room.ID, "name": room.Name})
 }
@@ -407,12 +421,21 @@ func (gs *GameServer) readLoop(p *Player) {
 					MarketMemory:       cloneMarketMemory(p.MarketMemory),
 				}
 				delete(room.Players, p.ID)
+				p.roomID = ""
 
-				// Check if room is now empty
 				isEmpty := len(room.Players) == 0
+				isCreator := room.CreatorID != "" && room.CreatorID == p.ID
+				keepAlive := room.Private && isCreator
+				if keepAlive {
+					room.Paused = true
+					room.TurnEndsAt = time.Time{}
+					select {
+					case room.stateCh <- struct{}{}:
+					default:
+					}
+				}
 
-				// If no humans remain, signal the ticker to end the current turn early
-				if room.Started {
+				if room.Started && !keepAlive {
 					hasHuman := false
 					for _, pl := range room.Players {
 						if !pl.IsBot {
@@ -429,12 +452,12 @@ func (gs *GameServer) readLoop(p *Player) {
 				}
 				room.mu.Unlock()
 
-				// If room is empty, close it to stop the ticker and clean up
-				if isEmpty {
+				if keepAlive {
+					gs.broadcastRoom(room)
+				} else if isEmpty {
 					gs.roomsMu.Lock()
 					delete(gs.rooms, room.ID)
 					gs.roomsMu.Unlock()
-					// Signal ticker to stop
 					select {
 					case room.closeCh <- struct{}{}:
 					default:
@@ -474,7 +497,16 @@ func (gs *GameServer) readLoop(p *Player) {
 		case "listRooms":
 			gs.sendLobbyState(p)
 		case "createRoom":
-			room := gs.createRoom("")
+			var data struct {
+				Name         string `json:"name"`
+				Singleplayer bool   `json:"singleplayer"`
+			}
+			if len(msg.Payload) > 0 {
+				if err := json.Unmarshal(msg.Payload, &data); err != nil {
+					log.Printf("createRoom payload decode error: %v", err)
+				}
+			}
+			room := gs.createRoom(data.Name, p.ID, data.Singleplayer)
 			gs.joinRoom(p, room.ID)
 		case "joinRoom":
 			var data struct {
@@ -815,12 +847,19 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 	resp := []map[string]interface{}{}
 	for _, room := range gs.rooms {
 		room.mu.Lock()
+		if room.Private && room.CreatorID != "" && room.CreatorID != p.ID {
+			room.mu.Unlock()
+			continue
+		}
 		resp = append(resp, map[string]interface{}{
 			"id":          room.ID,
 			"name":        room.Name,
 			"started":     room.Started,
 			"playerCount": len(room.Players),
 			"turn":        room.Turn,
+			"private":     room.Private,
+			"paused":      room.Paused,
+			"creatorId":   string(room.CreatorID),
 		})
 		room.mu.Unlock()
 	}
@@ -832,7 +871,7 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 	}
 }
 
-func (gs *GameServer) createRoom(name string) *Room {
+func (gs *GameServer) createRoom(name string, creator PlayerID, private bool) *Room {
 	if name == "" {
 		name = "Room " + randID()[0:4]
 	}
@@ -844,6 +883,15 @@ func (gs *GameServer) createRoom(name string) *Room {
 		Persist: map[PlayerID]*PersistedPlayer{},
 		readyCh: make(chan struct{}, 1),
 		closeCh: make(chan struct{}),
+		Private: private,
+		CreatorID: func() PlayerID {
+			if private {
+				return creator
+			}
+			return ""
+		}(),
+		Paused:  false,
+		stateCh: make(chan struct{}, 1),
 	}
 	// Pre-randomize planet order and positions so the map is ready before game start
 	names := planetNames(room.Planets)
@@ -864,6 +912,18 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	if room == nil {
 		return
 	}
+	room.mu.Lock()
+	if room.Private && room.CreatorID != "" && room.CreatorID != p.ID {
+		room.mu.Unlock()
+		if p.conn != nil {
+			p.writeMu.Lock()
+			p.conn.WriteJSON(WSOut{Type: "joinDenied", Payload: map[string]string{"message": "This room is private."}})
+			p.writeMu.Unlock()
+		}
+		gs.sendLobbyState(p)
+		return
+	}
+	room.mu.Unlock()
 	// remove from old room
 	if p.roomID != "" && p.roomID != roomID {
 		if old := gs.getRoom(p.roomID); old != nil {
@@ -897,6 +957,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		}
 	}
 	room.mu.Lock()
+	if room.Private && room.CreatorID == "" {
+		room.CreatorID = p.ID
+	}
+	wasPaused := room.Paused
 	p.roomID = room.ID
 	// restore from persistence if available, else initialize defaults
 	if snap, ok := room.Persist[p.ID]; ok && snap != nil {
@@ -979,6 +1043,18 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.MarketMemory = make(map[string]*MarketSnapshot)
 	}
 	room.Players[p.ID] = p
+	if room.Private && room.CreatorID == p.ID {
+		room.Paused = false
+		if room.Started {
+			room.TurnEndsAt = time.Now().Add(turnDuration)
+		}
+		if wasPaused {
+			select {
+			case room.stateCh <- struct{}{}:
+			default:
+			}
+		}
+	}
 	room.mu.Unlock()
 	gs.sendRoomState(room, p)
 	gs.broadcastRoom(room)
@@ -1018,9 +1094,19 @@ func (gs *GameServer) exitRoom(p *Player) {
 
 	// Check if room is now empty and should be cleaned up
 	isEmpty := len(room.Players) == 0
+	isCreator := room.CreatorID != "" && room.CreatorID == p.ID
+	shouldKeep := room.Private && isCreator
+	if shouldKeep {
+		room.Paused = true
+		room.TurnEndsAt = time.Time{}
+		select {
+		case room.stateCh <- struct{}{}:
+		default:
+		}
+	}
 
 	// If game running and no humans remain, prompt the ticker to end turn now
-	if room.Started {
+	if room.Started && !shouldKeep {
 		hasHuman := false
 		for _, pl := range room.Players {
 			if !pl.IsBot {
@@ -1037,8 +1123,10 @@ func (gs *GameServer) exitRoom(p *Player) {
 	}
 	room.mu.Unlock()
 
-	// If room is empty, close it to stop the ticker and clean up
-	if isEmpty {
+	// If the creator left a private room, keep the room but broadcast the pause state
+	if shouldKeep {
+		gs.broadcastRoom(room)
+	} else if isEmpty {
 		gs.roomsMu.Lock()
 		delete(gs.rooms, room.ID)
 		gs.roomsMu.Unlock()
@@ -1064,7 +1152,6 @@ func (gs *GameServer) startGame(roomID string) {
 	}
 	room.mu.Lock()
 	if !room.Started {
-		// Only start if all non-bot players are ready
 		canStart := true
 		for _, pl := range room.Players {
 			if pl.IsBot {
@@ -2926,6 +3013,9 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"turn":       room.Turn,
 				"players":    players,
 				"turnEndsAt": room.TurnEndsAt.UnixMilli(),
+				"private":    room.Private,
+				"paused":     room.Paused,
+				"creatorId":  string(room.CreatorID),
 				"allReady":   allReady,
 				"planets": func() []string {
 					if len(room.PlanetOrder) > 0 {

@@ -30,7 +30,16 @@ const shrinkFont = (size: number) => Math.max(10, size - 4)
 
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
-type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
+type LobbyRoom = {
+  id: string
+  name: string
+  playerCount: number
+  started: boolean
+  turn?: number
+  private?: boolean
+  paused?: boolean
+  creatorId?: string
+}
 
 type RoomPlayer = {
   id: string
@@ -74,6 +83,9 @@ type RoomState = {
     turn: number
     players: RoomPlayer[]
     planets: string[]
+    private?: boolean
+    paused?: boolean
+    creatorId?: string
   facilities?: Record<string, FacilitySummary[]>
     planetPositions?: Record<string, { x: number; y: number }>
     allReady?: boolean
@@ -994,8 +1006,13 @@ export function App() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
   const [showLogin, setShowLogin] = useState(false)
+  const [newRoomName, setNewRoomName] = useState('')
+  const [singleplayerMode, setSingleplayerMode] = useState(false)
+  const [lobbyNotice, setLobbyNotice] = useState<string | null>(null)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  const nameTouchedRef = useRef(false)
+  const lastUserIdRef = useRef<string | null>(null)
   
   // Debug auth state
   //
@@ -1029,12 +1046,28 @@ export function App() {
     }
   }, [isMobile])
 
-  // Set name from authenticated user
+  // Set name from authenticated user once per login, without overriding manual edits
   useEffect(() => {
-    if (user && !name) {
-      setName(user.name || user.username)
+    if (!user) {
+      lastUserIdRef.current = null
+      nameTouchedRef.current = false
+      setName('')
+      return
     }
-  }, [user, name])
+
+    const userId = user.username || user.name || (user as any)?.sub || ''
+    if (userId && userId !== lastUserIdRef.current) {
+      lastUserIdRef.current = userId
+      nameTouchedRef.current = false
+    }
+
+    if (!nameTouchedRef.current) {
+      const suggested = user.name || user.username || ''
+      if (suggested) {
+        setName(prev => (prev ? prev : suggested))
+      }
+    }
+  }, [user])
 
   // Tick local time for countdown
   useEffect(() => {
@@ -1052,6 +1085,12 @@ export function App() {
     if (last.type === 'roomState') {
       setRoom(last.payload)
       setStage('room')
+      setLobbyNotice(null)
+    }
+    if (last.type === 'joinDenied') {
+      const reason = last.payload?.message || last.payload?.reason || 'Unable to join room.'
+      setLobbyNotice(reason)
+      setStage('lobby')
     }
   }, [messages])
 
@@ -1177,7 +1216,20 @@ export function App() {
     return () => clearInterval(t)
   }, [ready, stage])
 
-  const createRoom = () => send('createRoom')
+  const createRoom = useCallback(() => {
+    const trimmedName = newRoomName.trim()
+    const payload: Record<string, any> = {}
+    if (trimmedName) {
+      payload.name = trimmedName
+    }
+    if (singleplayerMode) {
+      payload.singleplayer = true
+    }
+    const ok = send('createRoom', Object.keys(payload).length ? payload : undefined)
+    if (ok) {
+      setNewRoomName('')
+    }
+  }, [newRoomName, singleplayerMode, send])
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
@@ -1189,6 +1241,10 @@ export function App() {
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
+  const handleCommanderNameChange = useCallback((value: string) => {
+    nameTouchedRef.current = true
+    setName(value)
+  }, [])
   
   // Auction bid state
   const [auctionBid, setAuctionBid] = useState<string>('')
@@ -1460,7 +1516,7 @@ export function App() {
                   <input 
                     placeholder="Enter your commander name" 
                     value={name} 
-                    onChange={e=>setName(e.target.value)}
+                    onChange={e=>handleCommanderNameChange(e.target.value)}
                     style={{
                       padding: isMobile ? '16px 20px' : '12px 16px',
                       fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
@@ -1788,6 +1844,39 @@ export function App() {
             </p>
           </div>
 
+          {lobbyNotice && (
+            <div style={{
+              marginBottom: isMobile ? 16 : 24,
+              padding: isMobile ? '12px 16px' : '14px 20px',
+              borderRadius: isMobile ? 12 : 14,
+              border: '1px solid rgba(248, 113, 113, 0.35)',
+              background: 'rgba(248, 113, 113, 0.12)',
+              color: 'white',
+              display: 'flex',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexDirection: isMobile ? 'column' : 'row'
+            }}>
+              <span style={{ fontSize: isMobile ? '0.95rem' : '1rem', lineHeight: 1.4 }}>{lobbyNotice}</span>
+              <button
+                onClick={() => setLobbyNotice(null)}
+                style={{
+                  padding: isMobile ? '8px 14px' : '6px 12px',
+                  fontSize: isMobile ? '0.85rem' : '0.8rem',
+                  fontWeight: 600,
+                  borderRadius: 999,
+                  border: '1px solid rgba(248, 113, 113, 0.5)',
+                  background: 'transparent',
+                  color: 'rgba(255,255,255,0.85)',
+                  cursor: 'pointer'
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Action Cards Container */}
           <div style={{
             display: 'grid',
@@ -1828,6 +1917,65 @@ export function App() {
               }}>
                 Launch a new trading expedition and invite other commanders to join your crew.
               </p>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                marginBottom: 16,
+                textAlign: 'left'
+              }}>
+                <label htmlFor="room-name" style={{
+                  fontSize: isMobile ? '0.85rem' : '0.9rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  color: 'rgba(255, 255, 255, 0.65)',
+                  fontWeight: 600
+                }}>
+                  Room Name
+                </label>
+                <input
+                  id="room-name"
+                  placeholder="E.g. Galactic Express"
+                  value={newRoomName}
+                  onChange={e => setNewRoomName(e.target.value)}
+                  style={{
+                    padding: isMobile ? '14px 16px' : '12px 14px',
+                    fontSize: isMobile ? '1rem' : '0.95rem',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    color: 'white',
+                    outline: 'none'
+                  }}
+                  onFocus={e => {
+                    e.currentTarget.style.borderColor = 'rgba(167, 139, 250, 0.6)'
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167, 139, 250, 0.2)'
+                  }}
+                  onBlur={e => {
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }}
+                />
+              </div>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                justifyContent: 'flex-start',
+                marginBottom: 20,
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: isMobile ? '0.95rem' : '0.9rem'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={singleplayerMode}
+                  onChange={e => setSingleplayerMode(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>
+                  Singleplayer — make room private and pause when you step away
+                </span>
+              </label>
               <button 
                 onClick={createRoom}
                 style={{ 
@@ -1946,6 +2094,7 @@ export function App() {
                             color: 'white',
                             fontWeight: 600
                           }}>
+                            {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
                             {r.name}
                           </h4>
                           <div style={{
@@ -1981,6 +2130,32 @@ export function App() {
                           alignItems: 'center',
                           gap: 8
                         }}>
+                          {r.private && (
+                            <span style={{
+                              padding: isMobile ? '6px 12px' : '4px 8px',
+                              fontSize: isMobile ? '0.75rem' : '0.7rem',
+                              fontWeight: 600,
+                              borderRadius: 20,
+                              background: 'rgba(167, 139, 250, 0.2)',
+                              color: '#a855f7',
+                              border: '1px solid rgba(167, 139, 250, 0.35)'
+                            }}>
+                              PRIVATE
+                            </span>
+                          )}
+                          {r.paused && (
+                            <span style={{
+                              padding: isMobile ? '6px 12px' : '4px 8px',
+                              fontSize: isMobile ? '0.75rem' : '0.7rem',
+                              fontWeight: 600,
+                              borderRadius: 20,
+                              background: 'rgba(251, 191, 36, 0.2)',
+                              color: '#fbbf24',
+                              border: '1px solid rgba(251, 191, 36, 0.35)'
+                            }}>
+                              PAUSED
+                            </span>
+                          )}
                           <span style={{
                             padding: isMobile ? '6px 12px' : '4px 8px',
                             fontSize: isMobile ? '0.75rem' : '0.7rem',
@@ -2343,11 +2518,20 @@ export function App() {
   }}>
           <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(16) : 'inherit' }}>{r.room.name}</strong>
           <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>Turn: {r.room.turn}</span>
-          {typeof r.room.turnEndsAt === 'number' && (
+          {r.room.private && (
+            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              · <span role="img" aria-label="Private Room">🔒</span> Private
+            </span>
+          )}
+          {r.room.paused ? (
+            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', color: '#fbbf24', fontWeight: 600 }}>
+              · Paused
+            </span>
+          ) : (typeof r.room.turnEndsAt === 'number' && (
             <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>
               · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
             </span>
-          )}
+          ))}
           {/* Tabs */}
           <div style={{ 
             marginLeft: isMobile ? 0 : 8, 
