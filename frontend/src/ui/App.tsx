@@ -2043,22 +2043,6 @@ export function App() {
   const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
-  const goodsOrdering = useMemo(() => {
-    const inventory = r.you.inventory || {}
-    const allGoods = Object.keys(goods)
-    const goodsInCargo = allGoods
-      .filter(g => (inventory[g] ?? 0) > 0)
-      .sort((a, b) => a.localeCompare(b))
-    const otherGoods = allGoods
-      .filter(g => (inventory[g] ?? 0) <= 0)
-      .sort((a, b) => a.localeCompare(b))
-    return {
-      goodsInCargo,
-      otherGoods,
-      orderedGoods: [...goodsInCargo, ...otherGoods]
-    }
-  }, [goods, r.you.inventory])
-  const { goodsInCargo, otherGoods } = goodsOrdering
   // Compute map distance between current and selected destination using normalized positions
   const getNormPos = (name?: string): { x: number; y: number } | undefined => {
     if (!name) return undefined
@@ -3203,6 +3187,14 @@ export function App() {
     })()}
 
     {activeTab==='market' && (() => {
+      const inventory = r.you.inventory || {}
+      const allGoods = Object.keys(goods)
+      const goodsInCargo = allGoods
+        .filter(g => (inventory[g] ?? 0) > 0)
+        .sort((a, b) => a.localeCompare(b))
+      const otherGoods = allGoods
+        .filter(g => (inventory[g] ?? 0) <= 0)
+        .sort((a, b) => a.localeCompare(b))
       const renderMobileCard = (g: string) => {
         const price = prices[g]
         const range = priceRanges[g]
