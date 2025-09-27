@@ -2517,12 +2517,12 @@ export function App() {
     width: isMobile ? '100%' : 'auto'
   }}>
           <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(16) : 'inherit' }}>{r.room.name}</strong>
-          <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>Turn: {r.room.turn}</span>
           {r.room.private && (
             <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
               · <span role="img" aria-label="Private Room">🔒</span> Private
             </span>
           )}
+          <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>· Turn: {r.room.turn}</span>
           {r.room.paused ? (
             <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', color: '#fbbf24', fontWeight: 600 }}>
               · Paused

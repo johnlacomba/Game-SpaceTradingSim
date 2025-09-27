@@ -1257,8 +1257,16 @@ func (gs *GameServer) addBot(roomID string) {
 func (gs *GameServer) runTicker(room *Room) {
 	base := turnDuration
 	for {
-		// Determine if there are any human players; if only bots, don't wait 60s
 		room.mu.Lock()
+		if room.Paused {
+			room.mu.Unlock()
+			select {
+			case <-room.closeCh:
+				return
+			case <-room.stateCh:
+				continue
+			}
+		}
 		onlyBots := true
 		for _, pl := range room.Players {
 			if !pl.IsBot {
@@ -1266,36 +1274,30 @@ func (gs *GameServer) runTicker(room *Room) {
 				break
 			}
 		}
-		// If humans are present but the current deadline is stale (e.g., came from a bot-only turn), push a fresh deadline now
 		if !onlyBots {
 			now := time.Now()
 			if room.TurnEndsAt.Before(now.Add(1 * time.Second)) {
 				room.TurnEndsAt = now.Add(base)
-				// We'll broadcast below after unlocking so clients see a proper countdown immediately upon join
 			}
 		}
 		room.mu.Unlock()
 		if !onlyBots {
-			// Broadcast any updated deadline on transition from bot-only to human-present
 			gs.broadcastRoom(room)
 		}
 
 		if onlyBots {
-			// Skip the long timer; tiny pause to avoid a tight CPU loop
 			select {
 			case <-room.closeCh:
-				return // Room is being closed, exit ticker
+				return
+			case <-room.stateCh:
+				continue
 			case <-time.After(150 * time.Millisecond):
-				// Continue to next iteration
 			}
 		} else {
-			// Wait for either timer or early ready signal or close signal
 			timer := time.NewTimer(base)
 			select {
 			case <-timer.C:
-				// time-based turn end
 			case <-room.readyCh:
-				// early turn end due to all humans ready
 				if !timer.Stop() {
 					<-timer.C
 				}
@@ -1303,14 +1305,22 @@ func (gs *GameServer) runTicker(room *Room) {
 				if !timer.Stop() {
 					<-timer.C
 				}
-				return // Room is being closed, exit ticker
+				return
+			case <-room.stateCh:
+				if !timer.Stop() {
+					<-timer.C
+				}
+				continue
 			}
 		}
-		// Process end-of-turn effects and start the next turn
 		room.mu.Lock()
 		if !room.Started {
 			room.mu.Unlock()
 			return
+		}
+		if room.Paused {
+			room.mu.Unlock()
+			continue
 		}
 		room.Turn++
 		// new turn begins; set the next deadline and reset human ready
