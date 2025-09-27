@@ -3581,6 +3581,8 @@ func (gs *GameServer) endFederationAuction(room *Room) {
 
 // handleFacilities processes facility usage charges and collection
 func (gs *GameServer) handleFacilities(room *Room) {
+	chargesByPlayer := make(map[PlayerID]map[string]int)
+
 	for planetName, planet := range room.Planets {
 		if planet == nil || len(planet.Facilities) == 0 {
 			continue
@@ -3604,9 +3606,10 @@ func (gs *GameServer) handleFacilities(room *Room) {
 
 					gs.logAction(room, p, fmt.Sprintf("Facility charge: $%d at %s (%s)", charge, planetName, facility.Type))
 					if !p.IsBot {
-						gs.enqueueModal(p, "Facility Usage Fee",
-							fmt.Sprintf("You were charged %d credits for using the %s on %s.",
-								charge, facility.Type, planetName))
+						if _, ok := chargesByPlayer[p.ID]; !ok {
+							chargesByPlayer[p.ID] = make(map[string]int)
+						}
+						chargesByPlayer[p.ID][planetName] += charge
 					}
 
 					if p.Money < -500 && !p.Bankrupt {
@@ -3632,6 +3635,20 @@ func (gs *GameServer) handleFacilities(room *Room) {
 						gs.enqueueModal(p, "Facility Revenue",
 							fmt.Sprintf("You collected %d credits in revenue from your %s on %s.",
 								collected, facility.Type, planetName))
+					}
+				}
+
+				for playerID, planetCharges := range chargesByPlayer {
+					player := room.Players[playerID]
+					if player == nil || player.IsBot {
+						continue
+					}
+					for planetName, total := range planetCharges {
+						if total <= 0 {
+							continue
+						}
+						gs.enqueueModal(player, "Facility Usage Fee",
+							fmt.Sprintf("The facilities at %s have charged you %d credits for your visit.", planetName, total))
 					}
 				}
 			}
