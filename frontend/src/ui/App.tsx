@@ -3277,7 +3277,7 @@ export function App() {
       const otherGoods = allGoods
         .filter(g => (inventory[g] ?? 0) <= 0)
         .sort((a, b) => a.localeCompare(b))
-  const mobileGridTemplate = 'minmax(0,1.6fr) minmax(0,1fr) minmax(0,1fr) min-content minmax(0,1fr) minmax(0,1fr)'
+  const mobileGridTemplate = 'minmax(0,1.65fr) minmax(0,1fr) minmax(0,1fr) min-content minmax(0,1.25fr) minmax(0,1.25fr)'
 
   const renderMobileCard = (g: string) => {
         const price = prices[g]
@@ -3343,19 +3343,20 @@ export function App() {
                 <span>Avg —</span>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'center', alignItems: 'center' }}>
-              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(10), color: 'var(--muted)', letterSpacing: 0.4 }}>Qty</label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'start', alignItems: 'flex-start' }}>
+              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(10), color: 'var(--muted)', letterSpacing: 0.4, paddingLeft: 2 }}>Qty</label>
               <input
                 id={qtyId}
                 style={{
-                  width: 56,
-                  padding: '8px 6px',
-                  fontSize: shrinkFont(13),
-                  minHeight: 36,
+                  width: 36,
+                  padding: '6px 4px',
+                  fontSize: shrinkFont(12),
+                  minHeight: 34,
                   borderRadius: 6,
                   border: '1px solid var(--border)',
                   background: 'rgba(12,18,38,0.95)',
                   color: 'var(--text)',
+                  textAlign: 'center',
                   WebkitAppearance: 'none',
                   MozAppearance: 'textfield'
                 }}
@@ -3377,8 +3378,8 @@ export function App() {
               title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
               style={{
                 width: '100%',
-                padding: '12px 10px',
-                fontSize: shrinkFont(13),
+                padding: '12px 12px',
+                fontSize: shrinkFont(14),
                 fontWeight: 600,
                 minHeight: 46,
                 height: '100%',
@@ -3399,8 +3400,8 @@ export function App() {
               onClick={() => sell(g, owned)}
               style={{
                 width: '100%',
-                padding: '12px 10px',
-                fontSize: shrinkFont(13),
+                padding: '12px 12px',
+                fontSize: shrinkFont(14),
                 fontWeight: 600,
                 minHeight: 46,
                 height: '100%',
