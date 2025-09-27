@@ -2996,9 +2996,9 @@ export function App() {
                             position: 'absolute',
                             inset: 0,
                             borderRadius: '50%',
-                            border: '2px solid rgba(59,130,246,0.85)',
-                            boxShadow: '0 0 16px rgba(59,130,246,0.45)',
-                            background: 'rgba(59,130,246,0.12)',
+                            border: '2px solid rgba(34,197,94,0.85)',
+                            boxShadow: '0 0 16px rgba(34,197,94,0.45)',
+                            background: 'rgba(34,197,94,0.12)',
                             pointerEvents: 'none'
                           }}
                         />
