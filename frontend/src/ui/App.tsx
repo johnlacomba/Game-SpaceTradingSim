@@ -3277,7 +3277,9 @@ export function App() {
       const otherGoods = allGoods
         .filter(g => (inventory[g] ?? 0) <= 0)
         .sort((a, b) => a.localeCompare(b))
-      const renderMobileCard = (g: string) => {
+  const mobileGridTemplate = 'minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,1.15fr) minmax(0,1.15fr) minmax(0,0.9fr) minmax(0,0.9fr)'
+
+  const renderMobileCard = (g: string) => {
         const price = prices[g]
         const range = priceRanges[g]
         const available = goods[g]
@@ -3306,62 +3308,42 @@ export function App() {
           <div
             key={g}
             style={{
-              padding: 12,
-              border: '1px solid var(--border)',
+              padding: '10px 12px',
+              border: '1px solid rgba(148,163,184,0.22)',
               borderRadius: 8,
-              background: 'rgba(4,7,21,0.65)',
-              display: 'flex',
-              flexDirection: 'column',
+              background: 'rgba(4,7,21,0.7)',
+              display: 'grid',
+              gridTemplateColumns: mobileGridTemplate,
+              alignItems: 'center',
               gap: 8
             }}
           >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'baseline',
-                gap: 8
-              }}
-            >
-              <span style={{ fontWeight: 700, fontSize: shrinkFont(15) }}>{g}</span>
-              <span style={{ fontWeight: 600, fontSize: shrinkFont(14) }}>${price}</span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontWeight: 700, fontSize: shrinkFont(15), color: 'var(--text)' }}>{g}</span>
+              <span style={{ fontWeight: 600, fontSize: shrinkFont(13), color: 'var(--muted)' }}>${price}</span>
             </div>
-
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0,1fr))',
-                gap: 6,
-                fontSize: shrinkFont(12),
-                color: 'var(--muted)'
-              }}
-            >
-              <span>Avail <strong style={{ color: 'var(--text)' }}>{available}</strong></span>
-              <span>Owned <strong style={{ color: 'var(--text)' }}>{owned}</strong></span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
+              <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{available}</strong> avail</span>
               <span>Range {rangeText}</span>
-              <span>% Max {pctText}</span>
-              {owned > 0 && typeof youPaid === 'number' ? (
-                <span style={{ gridColumn: '1 / -1' }}>Avg Paid ${youPaid}</span>
-              ) : null}
+              <span>% {pctText}</span>
             </div>
-
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8
-              }}
-            >
-              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(12), color: 'var(--muted)' }}>
-                Qty
-              </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
+              <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{owned}</strong> owned</span>
+              {owned > 0 && typeof youPaid === 'number' ? (
+                <span>Avg ${youPaid}</span>
+              ) : (
+                <span>Avg —</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Qty</label>
               <input
                 id={qtyId}
                 style={{
-                  flex: '0 0 72px',
-                  padding: '8px 10px',
-                  fontSize: shrinkFont(14),
-                  minHeight: 38,
+                  width: '100%',
+                  padding: '8px 8px',
+                  fontSize: shrinkFont(13),
+                  minHeight: 34,
                   borderRadius: 6,
                   border: '1px solid var(--border)',
                   background: 'rgba(15,23,42,0.9)',
@@ -3378,55 +3360,47 @@ export function App() {
                   setAmountsByGood(s => ({ ...s, [g]: capped }))
                 }}
               />
-              <span style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Max {maxBuy}</span>
+              <span style={{ fontSize: shrinkFont(10), color: 'var(--muted)' }}>Max {maxBuy}</span>
             </div>
-
-            <div
+            <button
+              disabled={disabledTrade || amt <= 0}
+              onClick={() => buy(g, amt)}
+              title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
               style={{
-                display: 'flex',
-                gap: 8
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: shrinkFont(13),
+                fontWeight: 600,
+                minHeight: 34,
+                borderRadius: 6,
+                background: disabledTrade || amt <= 0 ? 'rgba(59,130,246,0.35)' : 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                cursor: disabledTrade || amt <= 0 ? 'not-allowed' : 'pointer'
               }}
             >
-              <button
-                disabled={disabledTrade || amt <= 0}
-                onClick={() => buy(g, amt)}
-                title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
-                style={{
-                  flex: 1,
-                  padding: '10px 12px',
-                  fontSize: shrinkFont(14),
-                  fontWeight: 600,
-                  minHeight: 40,
-                  borderRadius: 6,
-                  background: 'var(--accent)',
-                  color: 'white',
-                  border: 'none',
-                  cursor: 'pointer'
-                }}
-              >
-                Buy
-              </button>
-              <button
-                disabled={disabledTrade || owned <= 0}
-                onClick={() => sell(g, owned)}
-                style={{
-                  flex: 1,
-                  padding: '10px 12px',
-                  fontSize: shrinkFont(14),
-                  fontWeight: 600,
-                  minHeight: 40,
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  border: '1px solid transparent',
-                  background: 'rgba(15,23,42,0.6)',
-                  color: 'var(--text)',
-                  ...sellStyle
-                }}
-                title={disabledTrade ? 'Unavailable while in transit' : undefined}
-              >
-                Sell All
-              </button>
-            </div>
+              Buy
+            </button>
+            <button
+              disabled={disabledTrade || owned <= 0}
+              onClick={() => sell(g, owned)}
+              style={{
+                width: '100%',
+                padding: '8px 10px',
+                fontSize: shrinkFont(13),
+                fontWeight: 600,
+                minHeight: 34,
+                borderRadius: 6,
+                cursor: disabledTrade || owned <= 0 ? 'not-allowed' : 'pointer',
+                border: '1px solid transparent',
+                background: disabledTrade || owned <= 0 ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.7)',
+                color: 'var(--text)',
+                ...sellStyle
+              }}
+              title={disabledTrade ? 'Unavailable while in transit' : undefined}
+            >
+              Sell
+            </button>
           </div>
         )
       }
@@ -3495,33 +3469,76 @@ export function App() {
                 No goods available at this location.
               </div>
             ) : isMobile ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {hasCargoGoods && (
                   <>
                     <div style={{
-                      margin: '4px 0 4px',
+                      margin: '2px 0 4px',
                       fontSize: 12,
                       textTransform: 'uppercase',
                       letterSpacing: 0.6,
                       color: 'var(--muted)',
                       fontWeight: 600
                     }}>In Cargo</div>
-                    {goodsInCargo.map(renderMobileCard)}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: mobileGridTemplate,
+                          gap: 8,
+                          padding: '0 12px',
+                          fontSize: shrinkFont(11),
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          color: 'var(--muted)'
+                        }}
+                      >
+                        <span>Good</span>
+                        <span>Market</span>
+                        <span>Holdings</span>
+                        <span>Qty</span>
+                        <span>Buy</span>
+                        <span>Sell</span>
+                      </div>
+                      {goodsInCargo.map(renderMobileCard)}
+                    </div>
                   </>
                 )}
                 {hasOtherGoods && (
                   <>
                     {hasCargoGoods && (
-                      <div style={{
-                        margin: '8px 0 4px',
-                        fontSize: 12,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.6,
-                        color: 'var(--muted)',
-                        fontWeight: 600
-                      }}>Marketplace</div>
+                      <div style={{ height: 1, background: 'rgba(148,163,184,0.18)' }} />
                     )}
-                    {otherGoods.map(renderMobileCard)}
+                    <div style={{
+                      margin: '2px 0 4px',
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.6,
+                      color: 'var(--muted)',
+                      fontWeight: 600
+                    }}>Marketplace</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: mobileGridTemplate,
+                          gap: 8,
+                          padding: '0 12px',
+                          fontSize: shrinkFont(11),
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          color: 'var(--muted)'
+                        }}
+                      >
+                        <span>Good</span>
+                        <span>Market</span>
+                        <span>Holdings</span>
+                        <span>Qty</span>
+                        <span>Buy</span>
+                        <span>Sell</span>
+                      </div>
+                      {otherGoods.map(renderMobileCard)}
+                    </div>
                   </>
                 )}
               </div>
