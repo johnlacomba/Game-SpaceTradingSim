@@ -8,6 +8,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,6 +42,15 @@ var botNames = []string{
 	"Captain Luna", "Commander Titan", "Admiral Helios", "Captain Andromeda", "Commander Pulsar",
 	"Captain Rigel", "Admiral Draco", "Commander Sirius", "Captain Vortex", "Admiral Eclipse",
 	"Captain Zenith", "Commander Nexus", "Admiral Infinity", "Captain Paradox", "Commander Flux",
+}
+
+var alphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+
+func sanitizeAlphanumeric(input string) string {
+	if input == "" {
+		return ""
+	}
+	return alphanumericRegex.ReplaceAllString(input, "")
 }
 
 type PlayerID string
@@ -376,6 +386,7 @@ func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 			log.Printf("createRoom decode error: %v", err)
 		}
 	}
+	data.Name = sanitizeAlphanumeric(data.Name)
 	room := gs.createRoom(data.Name, "", data.Singleplayer)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": room.ID, "name": room.Name})
@@ -491,7 +502,11 @@ func (gs *GameServer) readLoop(p *Player) {
 				Name string `json:"name"`
 			}
 			json.Unmarshal(msg.Payload, &data)
-			p.Name = defaultStr(data.Name, "Player "+string(p.ID[len(p.ID)-4:]))
+			cleanName := sanitizeAlphanumeric(data.Name)
+			if cleanName == "" {
+				cleanName = "Player " + string(p.ID[len(p.ID)-4:])
+			}
+			p.Name = cleanName
 			// send lobby state
 			gs.sendLobbyState(p)
 		case "listRooms":
@@ -506,6 +521,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					log.Printf("createRoom payload decode error: %v", err)
 				}
 			}
+			data.Name = sanitizeAlphanumeric(data.Name)
 			room := gs.createRoom(data.Name, p.ID, data.Singleplayer)
 			gs.joinRoom(p, room.ID)
 		case "joinRoom":
@@ -872,6 +888,7 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 }
 
 func (gs *GameServer) createRoom(name string, creator PlayerID, private bool) *Room {
+	name = sanitizeAlphanumeric(name)
 	if name == "" {
 		name = "Room " + randID()[0:4]
 	}

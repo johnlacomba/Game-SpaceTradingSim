@@ -28,6 +28,9 @@ function useIsMobile() {
 
 const shrinkFont = (size: number) => Math.max(10, size - 4)
 
+const sanitizeAlphanumeric = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '')
+const sanitizeNumeric = (value: string) => value.replace(/[^0-9]/g, '')
+
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
 type LobbyRoom = {
@@ -1217,10 +1220,10 @@ export function App() {
   }, [ready, stage])
 
   const createRoom = useCallback(() => {
-    const trimmedName = newRoomName.trim()
+    const sanitizedName = sanitizeAlphanumeric(newRoomName)
     const payload: Record<string, any> = {}
-    if (trimmedName) {
-      payload.name = trimmedName
+    if (sanitizedName) {
+      payload.name = sanitizedName
     }
     if (singleplayerMode) {
       payload.singleplayer = true
@@ -1243,11 +1246,17 @@ export function App() {
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
   const handleCommanderNameChange = useCallback((value: string) => {
     nameTouchedRef.current = true
-    setName(value)
+    setName(sanitizeAlphanumeric(value))
+  }, [])
+  const handleRoomNameChange = useCallback((value: string) => {
+    setNewRoomName(sanitizeAlphanumeric(value))
   }, [])
   
   // Auction bid state
   const [auctionBid, setAuctionBid] = useState<string>('')
+  const handleAuctionBidChange = useCallback((value: string) => {
+    setAuctionBid(sanitizeNumeric(value))
+  }, [])
   const submitAuctionBid = () => {
     const modal = (room?.you as any)?.modal
     if (!modal || modal.kind !== 'auction') return
@@ -1937,7 +1946,7 @@ export function App() {
                   id="room-name"
                   placeholder="E.g. Galactic Express"
                   value={newRoomName}
-                  onChange={e => setNewRoomName(e.target.value)}
+                  onChange={e => handleRoomNameChange(e.target.value)}
                   style={{
                     padding: isMobile ? '14px 16px' : '12px 14px',
                     fontSize: isMobile ? '1rem' : '0.95rem',
@@ -2399,7 +2408,7 @@ export function App() {
                 <input
                   type="number"
                   value={auctionBid}
-                  onChange={(e) => setAuctionBid(e.target.value)}
+                  onChange={(e) => handleAuctionBidChange(e.target.value)}
                   placeholder={(r.you.modal as any).suggestedBid?.toString() || '0'}
                   min="1"
                   max={r.you.money}
@@ -3550,7 +3559,11 @@ export function App() {
                 max={maxBuy}
                 disabled={disabledTrade}
                 onChange={e => {
-                  const v = Number(e.target.value)
+                  const sanitized = sanitizeNumeric(e.target.value)
+                  if (sanitized !== e.target.value) {
+                    e.target.value = sanitized
+                  }
+                  const v = Number(sanitized)
                   const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
                   setAmountsByGood(s => ({ ...s, [g]: capped }))
                 }}

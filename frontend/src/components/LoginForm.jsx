@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext.jsx';
 
+const sanitizeAlphanumeric = (value) => value.replace(/[^a-zA-Z0-9]/g, '')
+const sanitizeNumeric = (value) => value.replace(/[^0-9]/g, '')
+
 const LoginForm = ({ onClose }) => {
   const [isSignUp, setIsSignUp] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -109,7 +112,7 @@ const LoginForm = ({ onClose }) => {
                 <input
                   type="text"
                   value={confirmationCode}
-                  onChange={(e) => setConfirmationCode(e.target.value)}
+                  onChange={(e) => setConfirmationCode(sanitizeNumeric(e.target.value))}
                   required
                   style={{
                     width: '100%',
@@ -148,7 +151,7 @@ const LoginForm = ({ onClose }) => {
                 <input
                   type="text"
                   value={username}
-                  onChange={(e) => setUsername(e.target.value)}
+                  onChange={(e) => setUsername(sanitizeAlphanumeric(e.target.value))}
                   required
                   style={{
                     width: '100%',
@@ -190,7 +193,7 @@ const LoginForm = ({ onClose }) => {
                     <input
                       type="text"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
+                      onChange={(e) => setName(sanitizeAlphanumeric(e.target.value))}
                       required
                       style={{
                         width: '100%',
