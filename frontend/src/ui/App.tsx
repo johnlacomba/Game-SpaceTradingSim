@@ -2537,8 +2537,18 @@ export function App() {
   }}>
           <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(16) : 'inherit' }}>{r.room.name}</strong>
           {r.room.private && (
-            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              · <span role="img" aria-label="Private Room">🔒</span> Private
+            <span
+              className="muted"
+              style={{
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center'
+              }}
+              role="img"
+              aria-label="Private room"
+              title="Private room"
+            >
+              🔒
             </span>
           )}
           <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>· Turn: {r.room.turn}</span>
