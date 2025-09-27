@@ -1361,6 +1361,21 @@ export function App() {
     'depot'
   ], [])
 
+    const facilitiesByPlanet = useMemo(() => {
+      const facilityMap = room?.room?.facilities as Record<string, FacilitySummary[] | FacilitySummary | undefined> | undefined
+      if (!facilityMap) return {}
+      const normalized: Record<string, FacilitySummary[]> = {}
+      Object.entries(facilityMap).forEach(([planet, value]) => {
+        if (!value) return
+        if (Array.isArray(value)) {
+          normalized[planet] = (value as FacilitySummary[]).filter(Boolean)
+        } else {
+          normalized[planet] = [value as FacilitySummary]
+        }
+      })
+      return normalized
+    }, [room?.room?.facilities])
+
   // UI
   if (stage === 'title') {
     return (
@@ -2096,19 +2111,6 @@ export function App() {
     const y = (a.y + (b.y - a.y) * progressed) * containerSize.height
     return { x, y }
   })()
-
-  const facilitiesByPlanet = useMemo(() => {
-    const raw = r.room.facilities ?? {}
-    const normalized: Record<string, FacilitySummary[]> = {}
-    Object.entries(raw as Record<string, unknown>).forEach(([planet, value]) => {
-      if (Array.isArray(value)) {
-        normalized[planet] = value as FacilitySummary[]
-      } else if (value && typeof value === 'object') {
-        normalized[planet] = [value as FacilitySummary]
-      }
-    })
-    return normalized
-  }, [r.room.facilities])
 
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
