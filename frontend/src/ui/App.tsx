@@ -3277,7 +3277,7 @@ export function App() {
       const otherGoods = allGoods
         .filter(g => (inventory[g] ?? 0) <= 0)
         .sort((a, b) => a.localeCompare(b))
-  const mobileGridTemplate = 'minmax(0,1.6fr) minmax(0,1.1fr) minmax(0,1.15fr) minmax(0,1.15fr) minmax(0,0.9fr) minmax(0,0.9fr)'
+  const mobileGridTemplate = 'minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr) auto minmax(0,1fr) minmax(0,1fr)'
 
   const renderMobileCard = (g: string) => {
         const price = prices[g]
@@ -3297,11 +3297,16 @@ export function App() {
           : undefined
         const disabledTrade = inTransit
         const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-        const pctText = range ? (() => {
+        const pctValue = range ? (() => {
           const max = range[1]
-          const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
-          return `${pct}%`
-        })() : '—'
+          return max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+        })() : null
+        const pctText = pctValue === null ? '—' : `${pctValue}%`
+        const pctStyle: React.CSSProperties = pctValue === null
+          ? { color: 'var(--muted)' }
+          : pctValue <= 50
+            ? { color: 'var(--good)', fontWeight: 600 }
+            : { color: 'var(--bad)', fontWeight: 600 }
         const qtyId = `qty-${g.replace(/\s+/g, '-').toLowerCase()}`
 
         return (
@@ -3325,7 +3330,10 @@ export function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
               <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{available}</strong> avail</span>
               <span>Range {rangeText}</span>
-              <span>% {pctText}</span>
+              <span>
+                % Max{' '}
+                <span style={pctStyle}>{pctText}</span>
+              </span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
               <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{owned}</strong> owned</span>
@@ -3335,19 +3343,22 @@ export function App() {
                 <span>Avg —</span>
               )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, justifySelf: 'center', alignItems: 'flex-start', maxWidth: 88 }}>
               <label htmlFor={qtyId} style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Qty</label>
               <input
                 id={qtyId}
                 style={{
                   width: '100%',
+                  maxWidth: 80,
                   padding: '8px 8px',
                   fontSize: shrinkFont(13),
                   minHeight: 34,
                   borderRadius: 6,
                   border: '1px solid var(--border)',
-                  background: 'rgba(15,23,42,0.9)',
-                  color: 'var(--text)'
+                  background: 'rgba(12,18,38,0.95)',
+                  color: 'var(--text)',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
                 }}
                 type="number"
                 value={amt}
@@ -3368,10 +3379,10 @@ export function App() {
               title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
               style={{
                 width: '100%',
-                padding: '8px 10px',
+                padding: '12px 10px',
                 fontSize: shrinkFont(13),
                 fontWeight: 600,
-                minHeight: 34,
+                minHeight: 46,
                 borderRadius: 6,
                 background: disabledTrade || amt <= 0 ? 'rgba(59,130,246,0.35)' : 'var(--accent)',
                 color: '#fff',
@@ -3386,10 +3397,10 @@ export function App() {
               onClick={() => sell(g, owned)}
               style={{
                 width: '100%',
-                padding: '8px 10px',
+                padding: '12px 10px',
                 fontSize: shrinkFont(13),
                 fontWeight: 600,
-                minHeight: 34,
+                minHeight: 46,
                 borderRadius: 6,
                 cursor: disabledTrade || owned <= 0 ? 'not-allowed' : 'pointer',
                 border: '1px solid transparent',
@@ -3423,11 +3434,16 @@ export function App() {
           : undefined
         const disabledTrade = inTransit
         const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-        const pctText = range ? (() => {
+        const pctValue = range ? (() => {
           const max = range[1]
-          const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
-          return `${pct}%`
-        })() : '—'
+          return max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+        })() : null
+        const pctText = pctValue === null ? '—' : `${pctValue}%`
+        const pctStyle: React.CSSProperties = pctValue === null
+          ? { color: 'var(--muted)' }
+          : pctValue <= 50
+            ? { color: 'var(--good)', fontWeight: 600 }
+            : { color: 'var(--bad)', fontWeight: 600 }
 
         return (
           <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
@@ -3435,7 +3451,13 @@ export function App() {
             <td style={{ padding:'6px 8px' }}>{available}</td>
             <td style={{ padding:'6px 8px' }}>${price}</td>
             <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
-            <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
+            <td style={{ padding:'6px 8px' }}>
+              {pctValue === null ? (
+                <span className="muted">{pctText}</span>
+              ) : (
+                <span style={pctStyle}>{pctText}</span>
+              )}
+            </td>
             <td style={{ padding:'6px 8px' }}>
               {owned}
               {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
