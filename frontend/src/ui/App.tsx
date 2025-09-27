@@ -2228,6 +2228,13 @@ export function App() {
   const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
+  const preGame = !r.room.started
+  const readyToStart = Boolean(r.room.allReady)
+  useEffect(() => {
+    if (preGame && activeTab === 'market') {
+      setActiveTab('map')
+    }
+  }, [preGame, activeTab])
   const renderShipSections = () => {
     const inventory = r.you.inventory || {}
     const inventoryKeys = Object.keys(inventory).sort()
@@ -2560,17 +2567,26 @@ export function App() {
               fontSize: isMobile ? shrinkFont(14) : 'inherit',
               minHeight: isMobile ? 44 : 'auto'
             }}>Map</button>
-            <button onClick={()=>setActiveTab('market')} style={{ 
-              padding: isMobile ? '10px 8px' : '4px 8px', 
-              background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
-              borderRight: 'none', 
-              borderTop: 'none', 
-              borderBottom: 'none',
-              flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? shrinkFont(14) : 'inherit',
-              minHeight: isMobile ? 44 : 'auto'
-            }}>Market</button>
+            <button
+              onClick={() => {
+                if (preGame) return
+                setActiveTab('market')
+              }}
+              disabled={preGame}
+              style={{ 
+                padding: isMobile ? '10px 8px' : '4px 8px', 
+                background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+                borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+                borderRight: 'none', 
+                borderTop: 'none', 
+                borderBottom: 'none',
+                flex: isMobile ? 1 : 'none',
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
+                minHeight: isMobile ? 44 : 'auto',
+                opacity: preGame ? 0.35 : 1,
+                cursor: preGame ? 'not-allowed' : 'pointer'
+              }}
+            >Market</button>
             <button onClick={()=>setActiveTab('locations')} style={{ 
               padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='locations' ? 'rgba(167,139,250,0.18)' : 'transparent', 
@@ -2682,20 +2698,6 @@ export function App() {
               width: isMobile ? '100%' : 'auto',
               order: isMobile ? 1 : 'unset'
             }}>
-              <button 
-                onClick={startGame} 
-                disabled={!r.room.allReady} 
-                title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}
-                style={{
-                  padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
-                  fontWeight: isMobile ? 600 : 'normal',
-                  minHeight: isMobile ? 48 : 'auto',
-                  flex: isMobile ? 1 : 'none'
-                }}
-              >
-                Start Game
-              </button>
               <button 
                 onClick={addBot}
                 style={{
@@ -2920,6 +2922,11 @@ export function App() {
               50% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
               100% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
             }
+            @keyframes readyPulse {
+              0% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0.45); }
+              50% { transform: scale(1.05); box-shadow: 0 0 22px rgba(34,197,94,0.55); }
+              100% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0.45); }
+            }
           `}
         </style>
         <div aria-live="polite" style={{ position:'absolute', top: 42, right: 16, pointerEvents:'none', width: 280, height: 0 }}>
@@ -2954,7 +2961,9 @@ export function App() {
           backgroundSize:'cover', 
           backgroundPosition:'center', 
           backgroundRepeat:'no-repeat',
-          touchAction: isMobile ? 'pan-x pan-y' : 'auto'
+          touchAction: isMobile ? 'pan-x pan-y' : 'auto',
+          filter: preGame ? 'grayscale(0.55) brightness(0.85)' : 'none',
+          transition: 'filter 220ms ease'
         }}>
           <div aria-hidden style={{
             position: 'absolute',
@@ -3294,6 +3303,54 @@ export function App() {
                       filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
                     }}
                   />
+                  {preGame && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        zIndex: 6,
+                        background: 'rgba(15,23,42,0.55)',
+                        backdropFilter: 'blur(1.5px)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: isMobile ? 12 : 16,
+                        padding: isMobile ? 16 : 24
+                      }}
+                    >
+                      <button
+                        onClick={startGame}
+                        disabled={!readyToStart}
+                        title={readyToStart ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
+                        style={{
+                          padding: isMobile ? '18px 32px' : '16px 36px',
+                          fontSize: isMobile ? shrinkFont(20) : '1.1rem',
+                          fontWeight: 700,
+                          borderRadius: 999,
+                          border: 'none',
+                          color: readyToStart ? '#052e16' : 'rgba(255,255,255,0.8)',
+                          background: readyToStart ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 35%, #16a34a 100%)' : 'linear-gradient(135deg, rgba(148,163,184,0.6) 0%, rgba(71,85,105,0.75) 100%)',
+                          cursor: readyToStart ? 'pointer' : 'not-allowed',
+                          boxShadow: readyToStart ? '0 12px 24px rgba(34,197,94,0.45)' : '0 6px 16px rgba(15,23,42,0.45)',
+                          transition: 'transform 160ms ease, box-shadow 160ms ease',
+                          animation: readyToStart ? 'readyPulse 1.6s ease-in-out infinite' : 'none'
+                        }}
+                      >
+                        Start Game
+                      </button>
+                      <span
+                        style={{
+                          fontSize: isMobile ? shrinkFont(16) : '0.95rem',
+                          color: 'rgba(226,232,240,0.85)',
+                          textAlign: 'center',
+                          maxWidth: 360
+                        }}
+                      >
+                        {readyToStart ? 'All commanders are ready! Launch when you are.' : 'Greyed-out controls will unlock once every commander is marked Ready.'}
+                      </span>
+                    </div>
+                  )}
                   {isYou && pathUnits > 0 && (
                     <text
                       x={midX}
