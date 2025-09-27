@@ -26,14 +26,108 @@ function useIsMobile() {
   return isMobile
 }
 
+const shrinkFont = (size: number) => Math.max(10, size - 4)
+
+const sanitizeAlphanumeric = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '')
+const sanitizeNumeric = (value: string) => value.replace(/[^0-9]/g, '')
+
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
-type LobbyRoom = { id: string; name: string; playerCount: number; started: boolean; turn?: number }
+type LobbyRoom = {
+  id: string
+  name: string
+  playerCount: number
+  started: boolean
+  turn?: number
+  private?: boolean
+  paused?: boolean
+  creatorId?: string
+}
 
-type RoomPlayer = { id: string; name: string; money: number; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean }
+type RoomPlayer = {
+  id: string
+  name: string
+  money: number | string
+  cashValue?: number
+  currentPlanet: string
+  destinationPlanet: string
+  ready?: boolean
+  endGame?: boolean
+  bankrupt?: boolean
+  cargoValue?: number
+  upgradeValue?: number
+  facilityInvestment?: number
+}
+
+type FacilitySummary = {
+  id?: string
+  type: string
+  ownerId: string
+  ownerName?: string
+  usageCharge: number
+  accruedMoney?: number
+  purchasePrice?: number
+}
+
+type MarketSnapshot = {
+  turn: number
+  updatedAt?: number
+  goods: Record<string, number>
+  prices: Record<string, number>
+  priceRanges?: Record<string, [number, number]>
+  fuelPrice?: number
+}
+
 type RoomState = {
-  room: { id: string; name: string; started: boolean; turn: number; players: RoomPlayer[]; planets: string[]; planetPositions?: Record<string, { x: number; y: number }>; allReady?: boolean; turnEndsAt?: number; news?: { headline: string; planet: string; turnsRemaining: number }[] }
-  you: { id: string; name: string; money: number; fuel: number; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; currentPlanet: string; destinationPlanet: string; ready?: boolean; endGame?: boolean; modal?: { id: string; title: string; body: string }; inTransit?: boolean; transitFrom?: string; transitRemaining?: number; transitTotal?: number }
+  room: {
+    id: string
+    name: string
+    started: boolean
+    turn: number
+    players: RoomPlayer[]
+    planets: string[]
+    private?: boolean
+    paused?: boolean
+    creatorId?: string
+  facilities?: Record<string, FacilitySummary[]>
+    planetPositions?: Record<string, { x: number; y: number }>
+    allReady?: boolean
+    turnEndsAt?: number
+    news?: { headline: string; planet: string; turnsRemaining: number }[]
+  }
+  you: {
+    id: string
+    name: string
+    money: number
+    cashValue?: number
+    fuel: number
+    inventory: Record<string, number>
+    inventoryAvgCost: Record<string, number>
+    currentPlanet: string
+    destinationPlanet: string
+    ready?: boolean
+    endGame?: boolean
+    modal?: {
+      id: string
+      title: string
+      body: string
+      kind?: string
+      auctionId?: string
+      facilityType?: string
+      planet?: string
+      usageCharge?: number
+      suggestedBid?: number
+    }
+    inTransit?: boolean
+    transitFrom?: string
+    transitRemaining?: number
+    transitTotal?: number
+    facilityInvestment?: number
+    upgradeInvestment?: number
+    upgradeValue?: number
+    cargoValue?: number
+    marketMemory?: Record<string, MarketSnapshot>
+  }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
 
@@ -272,13 +366,13 @@ function ConnectionStatus({
       zIndex: 9999,
       display: 'flex',
       alignItems: 'center',
-      gap: 8,
-      fontSize: isMobile ? '14px' : '12px',
+  gap: 8,
+  fontSize: isMobile ? `${shrinkFont(14)}px` : '12px',
       color: 'white',
       boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)'
     }}>
       <span style={{ 
-        fontSize: isMobile ? '16px' : '14px',
+        fontSize: isMobile ? `${shrinkFont(16)}px` : '14px',
         animation: isReconnecting ? 'spin 1s linear infinite' : 'none'
       }}>
         {status.icon}
@@ -292,7 +386,7 @@ function ConnectionStatus({
           style={{
             marginLeft: 8,
             padding: isMobile ? '6px 12px' : '4px 8px',
-            fontSize: isMobile ? '12px' : '11px',
+            fontSize: isMobile ? `${shrinkFont(12)}px` : '11px',
             background: status.color,
             border: 'none',
             borderRadius: 4,
@@ -387,29 +481,34 @@ function NewsTicker({ items }: { items: string[] }) {
 // Wealth charts: visualize player wealth over turns and recent shifts
 type WealthHistory = { roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }
 
-// Calculate total wealth for a player including cash and inventory value
-function calculatePlayerWealth(player: any): { cash: number; inventoryValue: number; upgradeValue: number; total: number } {
-  const cash = player.money || 0
-  
-  // Calculate inventory value using average cost
-  let inventoryValue = 0
-  if (player.inventory && player.inventoryAvgCost) {
-    Object.keys(player.inventory).forEach(good => {
-      const quantity = player.inventory[good] || 0
-      const avgCost = player.inventoryAvgCost[good] || 0
-      inventoryValue += quantity * avgCost
-    })
-  }
-  
-  // For now, upgrade value is estimated based on player progression
-  // This could be enhanced with actual upgrade tracking from the backend
-  const upgradeValue = Math.max(0, (player.capacity || 200) - 200) * 50 + 
-                      Math.max(0, (player.fuelCapacity || 100) - 100) * 30 +
-                      Math.max(0, (player.speed || 1) - 1) * 100
-  
-  const total = cash + inventoryValue + upgradeValue
-  
-  return { cash, inventoryValue, upgradeValue, total }
+// Calculate total wealth for a player including cash, cargo, upgrades, and facilities
+function calculatePlayerWealth(player: any): { cash: number; inventoryValue: number; upgradeValue: number; facilityValue: number; total: number } {
+  const cash = typeof player.money === 'number' ? player.money : (player.cashValue || 0)
+
+  const inventoryValue = player.cargoValue != null
+    ? player.cargoValue
+    : (() => {
+        if (player.inventory && player.inventoryAvgCost) {
+          return Object.keys(player.inventory).reduce((sum, good) => {
+            const quantity = player.inventory[good] || 0
+            const avgCost = player.inventoryAvgCost[good] || 0
+            return sum + quantity * avgCost
+          }, 0)
+        }
+        return 0
+      })()
+
+  const upgradeValue = player.upgradeValue != null
+    ? player.upgradeValue
+    : player.upgradeInvestment != null
+      ? player.upgradeInvestment
+      : 0
+
+  const facilityValue = player.facilityInvestment != null ? player.facilityInvestment : 0
+
+  const total = cash + inventoryValue + upgradeValue + facilityValue
+
+  return { cash, inventoryValue, upgradeValue, facilityValue, total }
 }
 
 // Pie Chart Component for wealth distribution
@@ -480,6 +579,12 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
     }
   })
 
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const activeId = selectedId ?? hoveredId
+  const activeSegment = activeId ? segments.find(seg => seg.id === activeId) || null : null
+
   return (
     <div style={{ 
       display: 'flex', 
@@ -488,69 +593,126 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
       alignItems: isMobile ? 'center' : 'flex-start'
     }}>
       {/* Pie Chart */}
-      <div style={{ flex: 'none' }}>
-        <svg width={isMobile ? 280 : 300} height={isMobile ? 280 : 300} viewBox="0 0 300 300">
-          {segments.map((segment, index) => (
-            <g key={segment.id}>
-              <path
-                d={segment.pathData}
-                fill={segment.color}
-                stroke="rgba(255, 255, 255, 0.1)"
-                strokeWidth="2"
-                style={{
-                  filter: 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.filter = 'drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3))'
-                  e.currentTarget.style.transform = 'scale(1.02)'
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.filter = 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))'
-                  e.currentTarget.style.transform = 'scale(1)'
-                }}
-              />
-              {/* Percentage label */}
-              {segment.percentage > 5 && (
-                <text
-                  x={150 + 80 * Math.cos(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
-                  y={150 + 80 * Math.sin(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
-                  textAnchor="middle"
-                  dominantBaseline="middle"
-                  fill="white"
-                  fontSize={isMobile ? "12" : "14"}
-                  fontWeight="600"
-                  style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
-                >
-                  {segment.percentage.toFixed(1)}%
-                </text>
-              )}
-            </g>
-          ))}
+      <div style={{ flex: 'none', position: 'relative' }}>
+        <svg
+          width={isMobile ? 280 : 300}
+          height={isMobile ? 280 : 300}
+          viewBox="0 0 300 300"
+          onClick={() => setSelectedId(null)}
+        >
+          {segments.map(segment => {
+            const isActive = activeId === segment.id
+            return (
+              <g key={segment.id}>
+                <path
+                  d={segment.pathData}
+                  fill={segment.color}
+                  stroke="rgba(255, 255, 255, 0.1)"
+                  strokeWidth="2"
+                  style={{
+                    filter: isActive
+                      ? 'drop-shadow(0 6px 12px rgba(0, 0, 0, 0.4))'
+                      : 'drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2))',
+                    transform: `scale(${isActive ? 1.045 : 1})`,
+                    transformOrigin: '150px 150px',
+                    transformBox: 'fill-box',
+                    transition: 'transform 0.18s ease, filter 0.18s ease',
+                    cursor: 'pointer'
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${segment.name || 'Player'} wealth share ${segment.percentage.toFixed(1)} percent`}
+                  onMouseEnter={() => setHoveredId(segment.id)}
+                  onMouseLeave={() => setHoveredId(null)}
+                  onFocus={() => setHoveredId(segment.id)}
+                  onBlur={() => setHoveredId(null)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(prev => prev === segment.id ? null : segment.id)
+                  }}
+                  onTouchStart={(e) => {
+                    e.stopPropagation()
+                    setSelectedId(prev => prev === segment.id ? null : segment.id)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setSelectedId(prev => prev === segment.id ? null : segment.id)
+                    }
+                  }}
+                />
+                {/* Percentage label */}
+                {segment.percentage > 5 && (
+                  <text
+                    x={150 + 80 * Math.cos(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                    y={150 + 80 * Math.sin(((segment.startAngle + segment.endAngle) / 2) * Math.PI / 180)}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="white"
+                    fontSize={isMobile ? "12" : "14"}
+                    fontWeight="600"
+                    style={{ textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)' }}
+                  >
+                    {segment.percentage.toFixed(1)}%
+                  </text>
+                )}
+              </g>
+            )
+          })}
           
           {/* Center title */}
-          <text
-            x="150"
-            y="145"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(255, 255, 255, 0.8)"
-            fontSize={isMobile ? "12" : "14"}
-            fontWeight="600"
-          >
-            Total Wealth
-          </text>
-          <text
-            x="150"
-            y="160"
-            textAnchor="middle"
-            dominantBaseline="middle"
-            fill="rgba(255, 255, 255, 0.6)"
-            fontSize={isMobile ? "11" : "12"}
-          >
-            ${totalWealth.toLocaleString()}
-          </text>
+          {!activeSegment && (
+            <>
+              <text
+                x="150"
+                y="145"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="rgba(255, 255, 255, 0.8)"
+                fontSize={isMobile ? "12" : "14"}
+                fontWeight="600"
+              >
+                Total Wealth
+              </text>
+              <text
+                x="150"
+                y="160"
+                textAnchor="middle"
+                dominantBaseline="middle"
+                fill="rgba(255, 255, 255, 0.6)"
+                fontSize={isMobile ? "11" : "12"}
+              >
+                ${totalWealth.toLocaleString()}
+              </text>
+            </>
+          )}
         </svg>
+        {activeSegment && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%)',
+              background: 'rgba(10, 21, 42, 0.92)',
+              border: '1px solid rgba(148, 163, 184, 0.45)',
+              borderRadius: 10,
+              padding: '10px 14px',
+              minWidth: isMobile ? 130 : 160,
+              textAlign: 'center',
+              color: '#E0F2FE',
+              boxShadow: '0 10px 26px rgba(2, 6, 23, 0.55)',
+              pointerEvents: 'none'
+            }}
+          >
+            <div style={{ fontWeight: 700, fontSize: isMobile ? '0.95rem' : '1.05rem', marginBottom: 4 }}>
+              {activeSegment.name || 'Unknown Player'}
+            </div>
+            <div style={{ fontSize: isMobile ? '0.75rem' : '0.8rem', color: 'rgba(226, 232, 240, 0.8)' }}>
+              {activeSegment.percentage.toFixed(1)}% • ${activeSegment.total.toLocaleString()}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Legend and Details */}
@@ -572,7 +734,7 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
           flexDirection: 'column',
           gap: 12
         }}>
-          {segments
+          {[...segments]
             .sort((a, b) => b.total - a.total)
             .map((player, index) => (
             <div
@@ -625,7 +787,7 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
                 {/* Wealth breakdown */}
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: isMobile ? '1fr 1fr' : '1fr 1fr 1fr',
+                  gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, minmax(0, 1fr))',
                   gap: 8,
                   fontSize: isMobile ? '0.75rem' : '0.8rem',
                   color: 'rgba(255, 255, 255, 0.7)'
@@ -633,15 +795,20 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
                   <div>💰 Cash: ${player.cash.toLocaleString()}</div>
                   <div>📦 Cargo: ${player.inventoryValue.toLocaleString()}</div>
                   {!isMobile && <div>⚡ Upgrades: ${player.upgradeValue.toLocaleString()}</div>}
+                  {!isMobile && <div>🏭 Facilities: ${player.facilityValue.toLocaleString()}</div>}
                 </div>
-                
-                {isMobile && player.upgradeValue > 0 && (
+
+                {isMobile && (
                   <div style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
                     fontSize: '0.75rem',
                     color: 'rgba(255, 255, 255, 0.7)',
                     marginTop: 4
                   }}>
-                    ⚡ Upgrades: ${player.upgradeValue.toLocaleString()}
+                    {player.upgradeValue > 0 && <div>⚡ Upgrades: ${player.upgradeValue.toLocaleString()}</div>}
+                    {player.facilityValue > 0 && <div>🏭 Facilities: ${player.facilityValue.toLocaleString()}</div>}
                   </div>
                 )}
               </div>
@@ -842,8 +1009,13 @@ export function App() {
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
   const [showLogin, setShowLogin] = useState(false)
+  const [newRoomName, setNewRoomName] = useState('')
+  const [singleplayerMode, setSingleplayerMode] = useState(false)
+  const [lobbyNotice, setLobbyNotice] = useState<string | null>(null)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  const nameTouchedRef = useRef(false)
+  const lastUserIdRef = useRef<string | null>(null)
   
   // Debug auth state
   //
@@ -853,27 +1025,52 @@ export function App() {
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
-  const playersMenuRef = useRef<HTMLDivElement | null>(null)
-  const inventoryMenuRef = useRef<HTMLDivElement | null>(null)
   const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
-  const [playersOpen, setPlayersOpen] = useState(false)
-  const [inventoryOpen, setInventoryOpen] = useState(false)
   const [now, setNow] = useState<number>(() => Date.now())
-  // Tabs: map | market | graphs
-  const [activeTab, setActiveTab] = useState<'map'|'market'|'graphs'>('map')
+  // Tabs: map | market | locations | players | ship | graphs
+  const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'ship'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
 
-  // Set name from authenticated user
   useEffect(() => {
-    if (user && !name) {
-      setName(user.name || user.username)
+    const root = document.documentElement
+    const previous = root.style.fontSize
+    if (isMobile) {
+      root.style.fontSize = '12px'
+    } else {
+      root.style.fontSize = previous || ''
     }
-  }, [user, name])
+    return () => {
+      root.style.fontSize = previous
+    }
+  }, [isMobile])
+
+  // Set name from authenticated user once per login, without overriding manual edits
+  useEffect(() => {
+    if (!user) {
+      lastUserIdRef.current = null
+      nameTouchedRef.current = false
+      setName('')
+      return
+    }
+
+    const userId = user.username || user.name || (user as any)?.sub || ''
+    if (userId && userId !== lastUserIdRef.current) {
+      lastUserIdRef.current = userId
+      nameTouchedRef.current = false
+    }
+
+    if (!nameTouchedRef.current) {
+      const suggested = user.name || user.username || ''
+      if (suggested) {
+        setName(prev => (prev ? prev : suggested))
+      }
+    }
+  }, [user])
 
   // Tick local time for countdown
   useEffect(() => {
@@ -891,6 +1088,12 @@ export function App() {
     if (last.type === 'roomState') {
       setRoom(last.payload)
       setStage('room')
+      setLobbyNotice(null)
+    }
+    if (last.type === 'joinDenied') {
+      const reason = last.payload?.message || last.payload?.reason || 'Unable to join room.'
+      setLobbyNotice(reason)
+      setStage('lobby')
     }
   }, [messages])
 
@@ -919,6 +1122,14 @@ export function App() {
     }, 500)
     return () => clearInterval(t)
   }, [toasts.length])
+
+  useEffect(() => {
+    if (!room) return
+    const hasStarted = Boolean(room.room?.started)
+    if (!hasStarted && activeTab === 'market') {
+      setActiveTab('map')
+    }
+  }, [room?.room?.started, activeTab])
 
   // Track wealth history per turn (numeric money only); reset on room change
   useEffect(() => {
@@ -957,33 +1168,7 @@ export function App() {
     })
   }, [room?.room?.id, room?.room?.turn, room?.room?.players])
 
-  // Close Players menu on outside click
-  useEffect(() => {
-    if (!playersOpen) return
-    const onDocDown = (e: MouseEvent) => {
-      const el = playersMenuRef.current
-      if (!el) return
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        setPlayersOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    return () => document.removeEventListener('mousedown', onDocDown)
-  }, [playersOpen])
-
   // Close Ship Inventory menu on outside click
-  useEffect(() => {
-    if (!inventoryOpen) return
-    const onDocDown = (e: MouseEvent) => {
-      const el = inventoryMenuRef.current
-      if (!el) return
-      if (e.target instanceof Node && !el.contains(e.target)) {
-        setInventoryOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', onDocDown)
-    return () => document.removeEventListener('mousedown', onDocDown)
-  }, [inventoryOpen])
 
   // Actions
   const onConnect = async () => {
@@ -1042,7 +1227,20 @@ export function App() {
     return () => clearInterval(t)
   }, [ready, stage])
 
-  const createRoom = () => send('createRoom')
+  const createRoom = useCallback(() => {
+    const sanitizedName = sanitizeAlphanumeric(newRoomName)
+    const payload: Record<string, any> = {}
+    if (sanitizedName) {
+      payload.name = sanitizedName
+    }
+    if (singleplayerMode) {
+      payload.singleplayer = true
+    }
+    const ok = send('createRoom', Object.keys(payload).length ? payload : undefined)
+    if (ok) {
+      setNewRoomName('')
+    }
+  }, [newRoomName, singleplayerMode, send])
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
@@ -1054,6 +1252,41 @@ export function App() {
   const sell = (good: string, amount: number) => send('sell', { good, amount })
   const ackModal = (id?: string) => send('ackModal', { id })
   const refuel = (amount?: number) => send('refuel', { amount: amount ?? 0 })
+  const handleCommanderNameChange = useCallback((value: string) => {
+    nameTouchedRef.current = true
+    setName(sanitizeAlphanumeric(value))
+  }, [])
+  const handleRoomNameChange = useCallback((value: string) => {
+    setNewRoomName(sanitizeAlphanumeric(value))
+  }, [])
+  
+  // Auction bid state
+  const [auctionBid, setAuctionBid] = useState<string>('')
+  const handleAuctionBidChange = useCallback((value: string) => {
+    setAuctionBid(sanitizeNumeric(value))
+  }, [])
+  const submitAuctionBid = () => {
+    const modal = (room?.you as any)?.modal
+    if (!modal || modal.kind !== 'auction') return
+    
+    const bid = parseInt(auctionBid)
+    if (isNaN(bid) || bid <= 0) return
+    
+    send('auctionBid', { auctionId: modal.auctionId, bid })
+    setAuctionBid('')
+    ackModal(modal.id)
+  }
+  
+  // Reset auction bid when modal changes
+  useEffect(() => {
+    const modal = (room?.you as any)?.modal
+    if (modal?.kind === 'auction' && modal.suggestedBid) {
+      setAuctionBid(modal.suggestedBid.toString())
+    } else {
+      setAuctionBid('')
+    }
+  }, [room?.you?.modal?.id])
+  
   // Player info modal state
   const [playerInfo, setPlayerInfo] = useState<null | { id: string; name: string; inventory: Record<string, number>; inventoryAvgCost: Record<string, number>; usedSlots: number; capacity: number; history?: { turn: number; text: string }[] }>(null)
   useEffect(() => {
@@ -1175,6 +1408,32 @@ export function App() {
     return `hsl(${h},70%,45%)`
   }
 
+  const stationKeywords = useMemo(() => [
+    'station',
+    'outpost',
+    'base',
+    'port',
+    'dock',
+    'hub',
+    'colony',
+    'depot'
+  ], [])
+
+    const facilitiesByPlanet = useMemo(() => {
+      const facilityMap = room?.room?.facilities as Record<string, FacilitySummary[] | FacilitySummary | undefined> | undefined
+      if (!facilityMap) return {}
+      const normalized: Record<string, FacilitySummary[]> = {}
+      Object.entries(facilityMap).forEach(([planet, value]) => {
+        if (!value) return
+        if (Array.isArray(value)) {
+          normalized[planet] = (value as FacilitySummary[]).filter(Boolean)
+        } else {
+          normalized[planet] = [value as FacilitySummary]
+        }
+      })
+      return normalized
+    }, [room?.room?.facilities])
+
   // UI
   if (stage === 'title') {
     return (
@@ -1274,10 +1533,10 @@ export function App() {
                   <input 
                     placeholder="Enter your commander name" 
                     value={name} 
-                    onChange={e=>setName(e.target.value)}
+                    onChange={e=>handleCommanderNameChange(e.target.value)}
                     style={{
                       padding: isMobile ? '16px 20px' : '12px 16px',
-                      fontSize: isMobile ? '18px' : '16px',
+                      fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                       flex: 1,
                       border: '2px solid rgba(255, 255, 255, 0.1)',
                       borderRadius: isMobile ? 12 : 8,
@@ -1300,7 +1559,7 @@ export function App() {
                     disabled={!name.trim() || authLoading}
                     style={{ 
                       padding: isMobile ? '16px 32px' : '12px 24px',
-                      fontSize: isMobile ? '18px' : '16px',
+                      fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                       fontWeight: 600,
                       minHeight: isMobile ? '56px' : '48px',
                       minWidth: isMobile ? 'auto' : 120,
@@ -1386,7 +1645,7 @@ export function App() {
                   disabled={authLoading}
                   style={{ 
                     padding: isMobile ? '16px 32px' : '12px 24px',
-                    fontSize: isMobile ? '18px' : '16px',
+                    fontSize: isMobile ? `${shrinkFont(18)}px` : '16px',
                     fontWeight: 600,
                     minHeight: isMobile ? '56px' : '48px',
                     width: '100%',
@@ -1425,7 +1684,7 @@ export function App() {
               background: 'rgba(68, 68, 255, 0.1)',
               border: '1px solid rgba(68, 68, 255, 0.3)',
               borderRadius: isMobile ? 12 : 16,
-              fontSize: isMobile ? '14px' : '15px',
+              fontSize: isMobile ? `${shrinkFont(14)}px` : '15px',
               lineHeight: 1.5,
               textAlign: 'left'
             }}>
@@ -1466,7 +1725,7 @@ export function App() {
               background: 'rgba(248, 113, 113, 0.1)',
               border: '1px solid rgba(248, 113, 113, 0.3)',
               borderRadius: isMobile ? 12 : 16,
-              fontSize: isMobile ? '14px' : '15px'
+              fontSize: isMobile ? `${shrinkFont(14)}px` : '15px'
             }}>
               <div style={{ 
                 fontWeight: 600, 
@@ -1488,7 +1747,7 @@ export function App() {
           {/* Connection Info */}
           {url && (
             <div style={{ 
-              fontSize: isMobile ? '12px' : '13px', 
+              fontSize: isMobile ? `${shrinkFont(12)}px` : '13px', 
               color: 'rgba(255, 255, 255, 0.4)',
               fontFamily: 'monospace',
               wordBreak: 'break-all',
@@ -1602,6 +1861,39 @@ export function App() {
             </p>
           </div>
 
+          {lobbyNotice && (
+            <div style={{
+              marginBottom: isMobile ? 16 : 24,
+              padding: isMobile ? '12px 16px' : '14px 20px',
+              borderRadius: isMobile ? 12 : 14,
+              border: '1px solid rgba(248, 113, 113, 0.35)',
+              background: 'rgba(248, 113, 113, 0.12)',
+              color: 'white',
+              display: 'flex',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              justifyContent: 'space-between',
+              gap: 12,
+              flexDirection: isMobile ? 'column' : 'row'
+            }}>
+              <span style={{ fontSize: isMobile ? '0.95rem' : '1rem', lineHeight: 1.4 }}>{lobbyNotice}</span>
+              <button
+                onClick={() => setLobbyNotice(null)}
+                style={{
+                  padding: isMobile ? '8px 14px' : '6px 12px',
+                  fontSize: isMobile ? '0.85rem' : '0.8rem',
+                  fontWeight: 600,
+                  borderRadius: 999,
+                  border: '1px solid rgba(248, 113, 113, 0.5)',
+                  background: 'transparent',
+                  color: 'rgba(255,255,255,0.85)',
+                  cursor: 'pointer'
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Action Cards Container */}
           <div style={{
             display: 'grid',
@@ -1642,6 +1934,65 @@ export function App() {
               }}>
                 Launch a new trading expedition and invite other commanders to join your crew.
               </p>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                marginBottom: 16,
+                textAlign: 'left'
+              }}>
+                <label htmlFor="room-name" style={{
+                  fontSize: isMobile ? '0.85rem' : '0.9rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: 0.6,
+                  color: 'rgba(255, 255, 255, 0.65)',
+                  fontWeight: 600
+                }}>
+                  Room Name
+                </label>
+                <input
+                  id="room-name"
+                  placeholder="E.g. Galactic Express"
+                  value={newRoomName}
+                  onChange={e => handleRoomNameChange(e.target.value)}
+                  style={{
+                    padding: isMobile ? '14px 16px' : '12px 14px',
+                    fontSize: isMobile ? '1rem' : '0.95rem',
+                    borderRadius: 10,
+                    border: '1px solid rgba(255, 255, 255, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.06)',
+                    color: 'white',
+                    outline: 'none'
+                  }}
+                  onFocus={e => {
+                    e.currentTarget.style.borderColor = 'rgba(167, 139, 250, 0.6)'
+                    e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167, 139, 250, 0.2)'
+                  }}
+                  onBlur={e => {
+                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'
+                    e.currentTarget.style.boxShadow = 'none'
+                  }}
+                />
+              </div>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                justifyContent: 'flex-start',
+                marginBottom: 20,
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: isMobile ? '0.95rem' : '0.9rem'
+              }}>
+                <input
+                  type="checkbox"
+                  checked={singleplayerMode}
+                  onChange={e => setSingleplayerMode(e.target.checked)}
+                  style={{ width: 18, height: 18 }}
+                />
+                <span>
+                  Singleplayer — make room private and pause when you step away
+                </span>
+              </label>
               <button 
                 onClick={createRoom}
                 style={{ 
@@ -1760,6 +2111,7 @@ export function App() {
                             color: 'white',
                             fontWeight: 600
                           }}>
+                            {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
                             {r.name}
                           </h4>
                           <div style={{
@@ -1795,6 +2147,32 @@ export function App() {
                           alignItems: 'center',
                           gap: 8
                         }}>
+                          {r.private && (
+                            <span style={{
+                              padding: isMobile ? '6px 12px' : '4px 8px',
+                              fontSize: isMobile ? '0.75rem' : '0.7rem',
+                              fontWeight: 600,
+                              borderRadius: 20,
+                              background: 'rgba(167, 139, 250, 0.2)',
+                              color: '#a855f7',
+                              border: '1px solid rgba(167, 139, 250, 0.35)'
+                            }}>
+                              PRIVATE
+                            </span>
+                          )}
+                          {r.paused && (
+                            <span style={{
+                              padding: isMobile ? '6px 12px' : '4px 8px',
+                              fontSize: isMobile ? '0.75rem' : '0.7rem',
+                              fontWeight: 600,
+                              borderRadius: 20,
+                              background: 'rgba(251, 191, 36, 0.2)',
+                              color: '#fbbf24',
+                              border: '1px solid rgba(251, 191, 36, 0.35)'
+                            }}>
+                              PAUSED
+                            </span>
+                          )}
                           <span style={{
                             padding: isMobile ? '6px 12px' : '4px 8px',
                             fontSize: isMobile ? '0.75rem' : '0.7rem',
@@ -1858,6 +2236,109 @@ export function App() {
   const capacity = (r.you as any).capacity ?? 200
   const usedSlots = Object.values(r.you.inventory || {}).reduce((a, b) => a + (b || 0), 0)
   const freeSlots = Math.max(0, capacity - usedSlots)
+  const preGame = !r.room.started
+  const readyToStart = Boolean(r.room.allReady)
+  const renderShipSections = () => {
+    const inventory = r.you.inventory || {}
+    const inventoryKeys = Object.keys(inventory).sort()
+    const fuelCapacityValue = (r.you as any).fuelCapacity ?? 100
+    const speedPerTurn = (r.you as any).speedPerTurn ?? 20
+
+    return (
+      <>
+        <div style={{ marginBottom: isMobile ? 16 : 12 }}>
+          <h4
+            style={{
+              margin: '0 0 8px 0',
+              fontSize: isMobile ? shrinkFont(16) : 14,
+              fontWeight: 600,
+              color: 'var(--accent2)'
+            }}
+          >
+            Ship Stats
+          </h4>
+          <div style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--text)' }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '4px 0'
+              }}
+            >
+              <span>Fuel Tank:</span>
+              <span>
+                <strong>{fuelCapacityValue}</strong> units
+              </span>
+            </div>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                padding: '4px 0'
+              }}
+            >
+              <span>Engine Speed:</span>
+              <span>
+                <strong>{speedPerTurn}</strong> units/turn
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h4
+            style={{
+              margin: '0 0 8px 0',
+              fontSize: isMobile ? shrinkFont(16) : 14,
+              fontWeight: 600,
+              color: 'var(--accent2)'
+            }}
+          >
+            Cargo Hold [{usedSlots}/{capacity}]
+          </h4>
+          {inventoryKeys.length === 0 ? (
+            <div
+              style={{
+                fontSize: isMobile ? shrinkFont(14) : 13,
+                color: 'var(--muted)',
+                fontStyle: 'italic'
+              }}
+            >
+              Empty
+            </div>
+          ) : (
+            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {inventoryKeys.map((g) => {
+                const qty = inventory[g]
+                const avg = r.you.inventoryAvgCost?.[g]
+                return (
+                  <li
+                    key={g}
+                    style={{
+                      padding: isMobile ? '4px 0' : '2px 0',
+                      fontSize: isMobile ? shrinkFont(14) : 13,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: 8
+                    }}
+                  >
+                    <span>{g}:</span>
+                    <span>
+                      <strong>{qty}</strong>
+                      {typeof avg === 'number' ? (
+                        <span className="muted"> (avg ${avg})</span>
+                      ) : null}
+                    </span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      </>
+    )
+  }
   // Compute map distance between current and selected destination using normalized positions
   const getNormPos = (name?: string): { x: number; y: number } | undefined => {
     if (!name) return undefined
@@ -1871,18 +2352,6 @@ export function App() {
   }
   const destName = r.you.destinationPlanet
   const inTransit = Boolean((r.you as any).inTransit)
-  let mapTitle = 'Map'
-  if (destName && destName !== r.you.currentPlanet) {
-    const a = getNormPos(r.you.currentPlanet)
-    const b = getNormPos(destName)
-    if (a && b) {
-      const dx = a.x - b.x
-      const dy = a.y - b.y
-      const d = Math.sqrt(dx*dx + dy*dy)
-      const units = Math.max(1, Math.ceil(d * 40)) // match server scaling
-      mapTitle = `Map — ${units} units`
-    }
-  }
   // Helper to compute fuel cost between two planets (server-aligned scaling)
   const travelUnits = (from?: string, to?: string) => {
     if (!from || !to || from === to) return 0
@@ -1926,21 +2395,93 @@ export function App() {
             <div style={{ 
               fontWeight: 700, 
               marginBottom: isMobile ? 12 : 8,
-              fontSize: isMobile ? 18 : 'inherit'
+              fontSize: isMobile ? shrinkFont(18) : 'inherit'
             }}>{r.you.modal.title}</div>
             <div style={{ 
               whiteSpace: 'pre-wrap', 
               marginBottom: isMobile ? 16 : 12,
-              fontSize: isMobile ? 16 : 'inherit',
+              fontSize: isMobile ? shrinkFont(16) : 'inherit',
               lineHeight: isMobile ? 1.5 : 'inherit'
             }}>{r.you.modal.body}</div>
-            { (r.you.modal as any).kind ? (
+            
+            {/* Auction bid input */}
+            {(r.you.modal as any).kind === 'auction' && (
+              <div style={{ marginBottom: isMobile ? 16 : 12 }}>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: isMobile ? 8 : 4, 
+                  fontSize: isMobile ? shrinkFont(14) : 12,
+                  color: 'var(--text-muted)'
+                }}>
+                  Your Bid (Suggested: {(r.you.modal as any).suggestedBid} credits):
+                </label>
+                <input
+                  type="number"
+                  value={auctionBid}
+                  onChange={(e) => handleAuctionBidChange(e.target.value)}
+                  placeholder={(r.you.modal as any).suggestedBid?.toString() || '0'}
+                  min="1"
+                  max={r.you.money}
+                  style={{
+                    width: '100%',
+                    padding: isMobile ? '12px' : '8px',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
+                    border: '1px solid var(--border)',
+                    borderRadius: '4px',
+                    background: 'var(--bg)',
+                    color: 'var(--text)'
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      submitAuctionBid()
+                    }
+                  }}
+                />
+                <div style={{ 
+                  fontSize: isMobile ? shrinkFont(12) : 10,
+                  color: 'var(--text-muted)',
+                  marginTop: isMobile ? 4 : 2
+                }}>
+                  You have {r.you.money.toLocaleString()} credits available
+                </div>
+              </div>
+            )}
+            
+            { (r.you.modal as any).kind === 'auction' ? (
+              <div style={{ display:'flex', justifyContent:'flex-end', gap: isMobile ? 12 : 8, flexDirection: isMobile ? 'column' : 'row' }}>
+                <button 
+                  onClick={()=>ackModal(r.you.modal?.id)}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 2 : 'unset'
+                  }}
+                >
+                  Skip Auction
+                </button>
+                <button 
+                  onClick={submitAuctionBid}
+                  disabled={!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money}
+                  style={{
+                    padding: isMobile ? '12px 24px' : '8px 16px',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
+                    minHeight: isMobile ? 48 : 'auto',
+                    order: isMobile ? 1 : 'unset',
+                    opacity: (!auctionBid || parseInt(auctionBid) <= 0 || parseInt(auctionBid) > r.you.money) ? 0.5 : 1
+                  }}
+                >
+                  Place Bid
+                </button>
+              </div>
+            ) : (r.you.modal as any).kind ? (
               <div style={{ display:'flex', justifyContent:'flex-end', gap: isMobile ? 12 : 8, flexDirection: isMobile ? 'column' : 'row' }}>
                 <button 
                   onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: false })}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 2 : 'unset'
                   }}
@@ -1951,7 +2492,7 @@ export function App() {
                   onClick={()=>send('respondModal', { id: r.you.modal?.id, accept: true })}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto',
                     order: isMobile ? 1 : 'unset'
                   }}
@@ -1965,7 +2506,7 @@ export function App() {
                   onClick={()=>ackModal(r.you.modal?.id)}
                   style={{
                     padding: isMobile ? '12px 24px' : '8px 16px',
-                    fontSize: isMobile ? 16 : 'inherit',
+                    fontSize: isMobile ? shrinkFont(16) : 'inherit',
                     minHeight: isMobile ? 48 : 'auto'
                   }}
                 >
@@ -1994,17 +2535,37 @@ export function App() {
     flexWrap: isMobile ? 'wrap' : 'nowrap',
     width: isMobile ? '100%' : 'auto'
   }}>
-          <strong className="glow" style={{ fontSize: isMobile ? 16 : 'inherit' }}>{r.room.name}</strong>
-          <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>Turn: {r.room.turn}</span>
-          {typeof r.room.turnEndsAt === 'number' && (
-            <span className="muted" style={{ fontSize: isMobile ? 14 : 'inherit' }}>
-              · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
+          <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(16) : 'inherit' }}>{r.room.name}</strong>
+          {r.room.private && (
+            <span
+              className="muted"
+              style={{
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
+                display: 'inline-flex',
+                alignItems: 'center'
+              }}
+              role="img"
+              aria-label="Private room"
+              title="Private room"
+            >
+              🔒
             </span>
           )}
+          <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>· Turn: {r.room.turn}</span>
+          {r.room.paused ? (
+            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', color: '#fbbf24', fontWeight: 600 }}>
+              · Paused
+            </span>
+          ) : (typeof r.room.turnEndsAt === 'number' && (
+            <span className="muted" style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit' }}>
+              · {Math.max(0, Math.ceil((r.room.turnEndsAt - now) / 1000))}s
+            </span>
+          ))}
           {/* Tabs */}
           <div style={{ 
             marginLeft: isMobile ? 0 : 8, 
-            display: 'inline-flex', 
+            display: isMobile ? 'grid' : 'inline-flex', 
+            gridTemplateColumns: isMobile ? 'repeat(6, minmax(0, 1fr))' : undefined,
             border: '1px solid var(--border)', 
             borderRadius: 8, 
             overflow: 'hidden',
@@ -2012,214 +2573,77 @@ export function App() {
             order: isMobile ? 1 : 'unset'
           }}>
             <button onClick={()=>setActiveTab('map')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
               background: activeTab==='map' ? 'rgba(167,139,250,0.18)' : 'transparent', 
               border: 'none',
               flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
             }}>Map</button>
-            <button onClick={()=>setActiveTab('market')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
-              background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
-              borderRight: 'none', 
-              borderTop: 'none', 
-              borderBottom: 'none',
-              flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
-            }}>Market</button>
-            <button onClick={()=>setActiveTab('graphs')} style={{ 
-              padding: isMobile ? '12px 16px' : '4px 8px', 
-              background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
-              borderLeft: '1px solid var(--border)', 
-              borderRight: 'none', 
-              borderTop: 'none', 
-              borderBottom: 'none',
-              flex: isMobile ? 1 : 'none',
-              fontSize: isMobile ? 16 : 'inherit',
-              minHeight: isMobile ? 48 : 'auto'
-            }}>Graphs</button>
-          </div>
-          <div ref={playersMenuRef} style={{ position: 'relative' }}>
-            <button 
-              onClick={() => setPlayersOpen(v=>!v)} 
-              aria-expanded={playersOpen} 
-              aria-haspopup="menu"
-              style={{
-                padding: isMobile ? '12px 16px' : '6px 12px',
-                fontSize: isMobile ? 16 : 'inherit',
-                minHeight: isMobile ? 48 : 'auto'
+            <button
+              onClick={() => {
+                if (preGame) return
+                setActiveTab('market')
               }}
-            >
-              Players ▾
-            </button>
-            {playersOpen && (
-              <div className="panel" style={{ 
-                position: 'absolute', 
-                top: '100%', 
-                left: isMobile ? -200 : 0, 
-                marginTop: 6, 
-                padding: 8, 
-                zIndex: 1000, 
-                minWidth: isMobile ? 320 : 280,
-                maxWidth: isMobile ? '90vw' : 'none'
-              }}>
-                <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-          {r.room.players.map((pl)=> (
-                    <li key={pl.id} style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      gap: isMobile ? 12 : 8, 
-                      fontSize: isMobile ? 14 : 12, 
-                      lineHeight: 1.2, 
-                      padding: isMobile ? '10px 12px' : '6px 8px', 
-                      borderRadius: 6 
-                    }}>
-                      <span title={pl.ready ? 'Ready' : 'Not Ready'} style={{ 
-                        width: isMobile ? 10 : 8, 
-                        height: isMobile ? 10 : 8, 
-                        borderRadius: isMobile ? 5 : 4, 
-                        background: pl.ready ? 'var(--good)' : 'var(--bad)' 
-                      }} />
-                      <span style={{ 
-                        width: isMobile ? 12 : 10, 
-                        height: isMobile ? 12 : 10, 
-                        borderRadius: isMobile ? 6 : 5, 
-                        background: colorFor(String(pl.id)), 
-                        boxShadow: '0 0 0 1px rgba(0,0,0,0.15)' 
-                      }} />
-            <button 
-              onClick={()=>requestPlayerInfo(pl.id)} 
+              disabled={preGame}
               style={{ 
-                flex: 1, 
-                overflow: 'hidden', 
-                textOverflow: 'ellipsis', 
-                whiteSpace: 'nowrap', 
-                textAlign: 'left', 
-                background: 'transparent', 
-                border: 'none', 
-                padding: isMobile ? '8px 0' : 0, 
-                cursor: 'pointer', 
-                color: 'var(--accent2)',
-                fontSize: isMobile ? 16 : 'inherit',
-                minHeight: isMobile ? 44 : 'auto'
-              }} 
-              title="View inventory"
-            >
-              {pl.name}
-            </button>
-                      <span style={{ fontSize: isMobile ? 14 : 'inherit' }}>${pl.money}</span>
-                      <span className="muted" style={{ fontSize: isMobile ? 12 : 'inherit' }}>@ {pl.currentPlanet}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-          <div ref={inventoryMenuRef} style={{ position: 'relative' }}>
-            <button 
-              onClick={() => setInventoryOpen(v=>!v)} 
-              aria-expanded={inventoryOpen} 
-              aria-haspopup="menu"
-              style={{
-                padding: isMobile ? '12px 16px' : '6px 12px',
-                fontSize: isMobile ? 16 : 'inherit',
-                minHeight: isMobile ? 48 : 'auto'
+                padding: isMobile ? '10px 8px' : '4px 8px', 
+                background: activeTab==='market' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+                borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+                borderRight: 'none', 
+                borderTop: 'none', 
+                borderBottom: 'none',
+                flex: isMobile ? 1 : 'none',
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
+                minHeight: isMobile ? 44 : 'auto',
+                opacity: preGame ? 0.35 : 1,
+                cursor: preGame ? 'not-allowed' : 'pointer'
               }}
-            >
-              Ship [{usedSlots}/{capacity}] ▾
-            </button>
-            {inventoryOpen && (
-              <div className="panel" style={{ 
-                position: isMobile ? 'fixed' : 'absolute', 
-                top: isMobile ? '120px' : '100%', 
-                right: isMobile ? 16 : 'auto',
-                left: isMobile ? 16 : 0, 
-                marginTop: isMobile ? 0 : 6, 
-                padding: 12, 
-                zIndex: 1000, 
-                minWidth: isMobile ? 'auto' : 300, 
-                maxHeight: isMobile ? '60vh' : 360, 
-                overflow: 'auto',
-                maxWidth: isMobile ? 'calc(100vw - 32px)' : 'none'
-              }}>
-                {/* Ship Stats Section */}
-                <div style={{ marginBottom: 16 }}>
-                  <h4 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: isMobile ? 16 : 14, 
-                    fontWeight: 600, 
-                    color: 'var(--accent2)' 
-                  }}>
-                    Ship Stats
-                  </h4>
-                  <div style={{ fontSize: isMobile ? 14 : 13, color: 'var(--text)' }}>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      padding: '4px 0' 
-                    }}>
-                      <span>Fuel Tank:</span>
-                      <span><strong>{(r.you as any).fuelCapacity ?? 100}</strong> units</span>
-                    </div>
-                    <div style={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      padding: '4px 0' 
-                    }}>
-                      <span>Engine Speed:</span>
-                      <span><strong>{(r.you as any).speedPerTurn ?? 20}</strong> units/turn</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ship Inventory Section */}
-                <div>
-                  <h4 style={{ 
-                    margin: '0 0 8px 0', 
-                    fontSize: isMobile ? 16 : 14, 
-                    fontWeight: 600, 
-                    color: 'var(--accent2)' 
-                  }}>
-                    Cargo Hold [{usedSlots}/{capacity}]
-                  </h4>
-                  {Object.keys(r.you.inventory).length === 0 ? (
-                    <div style={{ 
-                      fontSize: isMobile ? 14 : 13, 
-                      color: 'var(--muted)', 
-                      fontStyle: 'italic' 
-                    }}>
-                      Empty
-                    </div>
-                  ) : (
-                    <ul style={{ listStyle:'none', padding:0, margin:0 }}>
-                      {Object.keys(r.you.inventory).sort().map(g => {
-                        const qty = r.you.inventory[g]
-                        const avg = r.you.inventoryAvgCost?.[g]
-                        return (
-                          <li key={g} style={{ 
-                            padding: isMobile ? '4px 0' : '2px 0',
-                            fontSize: isMobile ? 14 : 13,
-                            display: 'flex',
-                            justifyContent: 'space-between'
-                          }}>
-                            <span>{g}:</span>
-                            <span>
-                              <strong>{qty}</strong>
-                              {typeof avg === 'number' ? (
-                                <span className="muted"> (avg ${avg})</span>
-                              ) : ''}
-                            </span>
-                          </li>
-                        )
-                      })}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            )}
+            >Market</button>
+            <button onClick={()=>setActiveTab('locations')} style={{ 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
+              background: activeTab==='locations' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
+            }}>Locations</button>
+            <button onClick={()=>setActiveTab('players')} style={{ 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
+              background: activeTab==='players' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
+            }}>Players</button>
+            <button onClick={()=>setActiveTab('ship')} style={{ 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
+              background: activeTab==='ship' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
+            }}>Ship</button>
+            <button onClick={()=>setActiveTab('graphs')} style={{ 
+              padding: isMobile ? '10px 8px' : '4px 8px', 
+              background: activeTab==='graphs' ? 'rgba(167,139,250,0.18)' : 'transparent', 
+              borderLeft: isMobile ? 'none' : '1px solid var(--border)', 
+              borderRight: 'none', 
+              borderTop: 'none', 
+              borderBottom: 'none',
+              flex: isMobile ? 1 : 'none',
+              fontSize: isMobile ? shrinkFont(14) : 'inherit',
+              minHeight: isMobile ? 44 : 'auto'
+            }}>Graphs</button>
           </div>
         </div>
     <div style={{ 
@@ -2236,7 +2660,7 @@ export function App() {
         border: '1px solid var(--border)', 
         background: r.you.ready ? 'rgba(52,211,153,0.18)' : 'rgba(248,113,113,0.18)', 
         color: r.you.ready ? 'var(--good)' : 'var(--bad)',
-        fontSize: isMobile ? 16 : 'inherit',
+        fontSize: isMobile ? shrinkFont(16) : 'inherit',
         fontWeight: isMobile ? 600 : 'normal',
         minHeight: isMobile ? 48 : 'auto'
       }}
@@ -2244,7 +2668,10 @@ export function App() {
           >
             Ready
           </button>
-          <span style={{ fontSize: isMobile ? 18 : 'inherit' }}><strong>${r.you.money}</strong></span>
+          <span style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}><strong>${r.you.money}</strong></span>
+          <span style={{ fontSize: isMobile ? shrinkFont(14) : 'inherit', color: 'var(--muted)' }}>
+            Cargo: <strong>{usedSlots}</strong>/{capacity}
+          </span>
           <div title="Ship fuel (price varies by planet)" style={{ 
             display: isMobile ? 'flex' : 'block',
             flexDirection: isMobile ? 'column' : 'row',
@@ -2253,13 +2680,13 @@ export function App() {
           }}>
             <span style={{ 
               marginLeft: isMobile ? 0 : 8,
-              fontSize: isMobile ? 14 : 'inherit'
+              fontSize: isMobile ? shrinkFont(14) : 'inherit'
             }}>
               Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100}
             </span>
       <span className="muted" style={{ 
         marginLeft: isMobile ? 0 : 8,
-        fontSize: isMobile ? 12 : 'inherit'
+        fontSize: isMobile ? shrinkFont(12) : 'inherit'
       }}>@ ${ fuelPrice }/unit</span>
             <button 
               onClick={() => refuel(0)} 
@@ -2267,7 +2694,7 @@ export function App() {
                 marginLeft: isMobile ? 0 : 6,
                 marginTop: isMobile ? 4 : 0,
                 padding: isMobile ? '8px 16px' : '4px 8px',
-                fontSize: isMobile ? 14 : 'inherit',
+                fontSize: isMobile ? shrinkFont(14) : 'inherit',
                 minHeight: isMobile ? 40 : 'auto'
               }} 
               disabled={inTransit || (r.you.fuel ?? 0) >= ((r.you as any).fuelCapacity ?? 100) || (r.you.money ?? 0) < fuelPrice} 
@@ -2285,24 +2712,10 @@ export function App() {
               order: isMobile ? 1 : 'unset'
             }}>
               <button 
-                onClick={startGame} 
-                disabled={!r.room.allReady} 
-                title={r.room.allReady ? 'All players are ready' : 'Waiting for all players to be ready'}
-                style={{
-                  padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
-                  fontWeight: isMobile ? 600 : 'normal',
-                  minHeight: isMobile ? 48 : 'auto',
-                  flex: isMobile ? 1 : 'none'
-                }}
-              >
-                Start Game
-              </button>
-              <button 
                 onClick={addBot}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2343,7 +2756,7 @@ export function App() {
                 }}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2359,7 +2772,7 @@ export function App() {
                 onClick={exitRoom}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2381,13 +2794,13 @@ export function App() {
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: isMobile ? 12 : 8 }}>
                   <div style={{ 
                     fontWeight: 700,
-                    fontSize: isMobile ? 18 : 'inherit'
+                    fontSize: isMobile ? shrinkFont(18) : 'inherit'
                   }}>Ship Inventory — {playerInfo.name}</div>
                   <button 
                     onClick={()=>setPlayerInfo(null)}
                     style={{
                       padding: isMobile ? '8px 16px' : '4px 8px',
-                      fontSize: isMobile ? 16 : 'inherit',
+                      fontSize: isMobile ? shrinkFont(16) : 'inherit',
                       minHeight: isMobile ? 40 : 'auto'
                     }}
                   >
@@ -2435,7 +2848,7 @@ export function App() {
                 title="Toggle End Game for this room"
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2479,7 +2892,7 @@ export function App() {
                 }}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none',
@@ -2495,7 +2908,7 @@ export function App() {
                 onClick={exitRoom}
                 style={{
                   padding: isMobile ? '12px 20px' : '6px 12px',
-                  fontSize: isMobile ? 16 : 'inherit',
+                  fontSize: isMobile ? shrinkFont(16) : 'inherit',
                   fontWeight: isMobile ? 600 : 'normal',
                   minHeight: isMobile ? 48 : 'auto',
                   flex: isMobile ? 1 : 'none'
@@ -2516,6 +2929,16 @@ export function App() {
             @keyframes flowingDots {
               0% { stroke-dashoffset: 12; }
               100% { stroke-dashoffset: 0; }
+            }
+            @keyframes solarPulse {
+              0% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+              50% { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
+              100% { transform: translate(-50%, -50%) scale(1); opacity: 0.9; }
+            }
+            @keyframes readyPulse {
+              0% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0.45); }
+              50% { transform: scale(1.05); box-shadow: 0 0 22px rgba(34,197,94,0.55); }
+              100% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0.45); }
             }
           `}
         </style>
@@ -2540,8 +2963,7 @@ export function App() {
   {/* Content area fills window below header/ticker */}
   <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
     {activeTab==='map' && (
-      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>{mapTitle}</h3>
+      <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? '0 12px 12px' : '0 16px 16px' }}>
         <div ref={planetsContainerRef} className="panel" style={{ 
           position:'relative', 
           flex:1, 
@@ -2552,9 +2974,25 @@ export function App() {
           backgroundSize:'cover', 
           backgroundPosition:'center', 
           backgroundRepeat:'no-repeat',
-          touchAction: isMobile ? 'pan-x pan-y' : 'auto'
+          touchAction: isMobile ? 'pan-x pan-y' : 'auto',
+          filter: preGame ? 'grayscale(0.55) brightness(0.85)' : 'none',
+          transition: 'filter 220ms ease'
         }}>
-          <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0 }}>
+          <div aria-hidden style={{
+            position: 'absolute',
+            left: '50%',
+            top: '50%',
+            transform: 'translate(-50%, -50%)',
+            width: isMobile ? 160 : 220,
+            height: isMobile ? 160 : 220,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle at 50% 50%, rgba(255, 220, 160, 0.95) 0%, rgba(255, 196, 120, 0.75) 45%, rgba(255, 160, 60, 0.45) 70%, rgba(255, 140, 40, 0) 100%)',
+            boxShadow: '0 0 45px rgba(255, 200, 120, 0.35), 0 0 120px rgba(255, 170, 80, 0.25)',
+            pointerEvents: 'none',
+            zIndex: 0,
+            animation: 'solarPulse 6s ease-in-out infinite'
+          }} />
+          <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0, zIndex:1 }}>
             {r.room.planets.map(p => {
               const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
               const center = planetPos[p]
@@ -2563,6 +3001,166 @@ export function App() {
               const need = travelUnits(r.you.currentPlanet, p)
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
+              const lowerName = p.toLowerCase()
+              const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
+              const mobileScale = isMobile ? 0.8 : 1
+              const baseIconSize = Math.round(58 * mobileScale)
+              const iconSize = isMobile ? Math.round(baseIconSize * 0.75) : 68
+              const disabled = p === r.you.currentPlanet || !canReach
+              const labelFontSize = isMobile ? `${Math.max(11, Math.round(14 * mobileScale))}px` : '14px'
+              const playerTokenSize = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
+              const playerFontSize = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
+              const buttonGap = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
+              const podAngles = isStationLocation ? [45, 135, 225, 315] : []
+
+              const planetIcon = (
+                <div
+                  style={{
+                    width: iconSize,
+                    height: iconSize,
+                    borderRadius: '50%',
+                    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.85) 0%, rgba(147,197,253,0.55) 35%, rgba(59,130,246,0.45) 60%, rgba(29,78,216,0.3) 78%, rgba(15,23,42,0.2) 100%)',
+                    border: '1px solid rgba(147, 197, 253, 0.6)',
+                    boxShadow: '0 0 18px rgba(96,165,250,0.55), inset -6px -10px 18px rgba(15,23,42,0.35)',
+                    position: 'relative'
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: iconSize * 0.18,
+                      left: iconSize * 0.22,
+                      width: iconSize * 0.42,
+                      height: iconSize * 0.42,
+                      borderRadius: '50%',
+                      background: 'rgba(255,255,255,0.45)',
+                      filter: 'blur(0.5px)',
+                      opacity: 0.9
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      bottom: iconSize * 0.18,
+                      right: iconSize * 0.16,
+                      width: iconSize * 0.4,
+                      height: iconSize * 0.12,
+                      borderRadius: iconSize * 0.06,
+                      background: 'rgba(59,130,246,0.35)',
+                      filter: 'blur(0.5px)',
+                      opacity: 0.75
+                    }}
+                  />
+                </div>
+              )
+
+              const stationIcon = (
+                <div
+                  style={{
+                    width: iconSize,
+                    height: iconSize,
+                    borderRadius: '50%',
+                    position: 'relative',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'visible'
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: 0,
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(6,182,212,0.16) 0%, rgba(14,116,144,0.22) 45%, rgba(12,74,110,0.12) 70%, rgba(8,47,73,0) 100%)',
+                      boxShadow: '0 0 22px rgba(56,189,248,0.32)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: Math.max(4, Math.round(iconSize * 0.08)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle at 50% 30%, rgba(224,242,254,0.92) 0%, rgba(125,211,252,0.85) 45%, rgba(59,130,246,0.75) 70%, rgba(13,148,136,0.65) 100%)',
+                      boxShadow: '0 0 24px rgba(56,189,248,0.4)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: Math.max(12, Math.round(iconSize * 0.24)),
+                      borderRadius: '50%',
+                      background: '#020617',
+                      boxShadow: 'inset 0 0 18px rgba(99,102,241,0.35)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: Math.max(16, Math.round(iconSize * 0.32)),
+                      borderRadius: '50%',
+                      background: 'radial-gradient(circle, rgba(56,189,248,0.45) 0%, rgba(15,23,42,0.95) 75%)',
+                      boxShadow: '0 0 14px rgba(94,234,212,0.28)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      width: Math.max(12, Math.round(iconSize * 0.18)),
+                      height: Math.max(36, Math.round(iconSize * 0.72)),
+                      borderRadius: Math.max(6, Math.round(iconSize * 0.09)),
+                      background: 'linear-gradient(180deg, rgba(165,243,252,0.85) 0%, rgba(56,189,248,0.65) 50%, rgba(14,116,144,0.6) 100%)',
+                      boxShadow: '0 0 14px rgba(34,211,238,0.45)'
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: 'absolute',
+                      width: Math.max(38, Math.round(iconSize * 0.6)),
+                      height: Math.max(12, Math.round(iconSize * 0.18)),
+                      borderRadius: Math.max(6, Math.round(iconSize * 0.1)),
+                      background: 'linear-gradient(90deg, rgba(125,211,252,0.85) 0%, rgba(45,212,191,0.65) 100%)',
+                      boxShadow: '0 0 12px rgba(56,189,248,0.45)'
+                    }}
+                  />
+                  {podAngles.map((deg, idx) => {
+                    const rad = (deg * Math.PI) / 180
+                    const podSize = Math.max(10, Math.round(iconSize * 0.18))
+                    const orbitRadius = iconSize * 0.45
+                    const left = iconSize / 2 + Math.cos(rad) * orbitRadius - podSize / 2
+                    const top = iconSize / 2 + Math.sin(rad) * orbitRadius - podSize / 2
+                    return (
+                      <span
+                        key={deg}
+                        style={{
+                          position: 'absolute',
+                          left,
+                          top,
+                          width: podSize,
+                          height: podSize,
+                          borderRadius: '50%',
+                          background: 'radial-gradient(circle, rgba(226,232,240,0.95) 0%, rgba(125,211,252,0.75) 55%, rgba(56,189,248,0.4) 100%)',
+                          border: '1px solid rgba(191,219,254,0.45)',
+                          boxShadow: '0 0 12px rgba(125,211,252,0.48)'
+                        }}
+                      />
+                    )
+                  })}
+                  <div
+                    style={{
+                      position: 'absolute',
+                      inset: Math.max(6, Math.round(iconSize * 0.12)),
+                      borderRadius: '50%',
+                      border: '1px dashed rgba(226,232,240,0.38)',
+                      opacity: 0.8
+                    }}
+                  />
+                </div>
+              )
+
+              const outerPadding = isMobile ? Math.max(8, Math.round(12 * mobileScale)) : 8
+              const highlightSize = iconSize + (isMobile ? 22 : 28)
+
               return (
                 <li key={p} ref={(el: HTMLLIElement | null) => { planetRefs.current[p] = el }} style={{ 
                   position:'absolute', 
@@ -2572,35 +3170,83 @@ export function App() {
                   display:'flex', 
                   flexDirection:'column', 
                   alignItems:'center', 
-                  gap: isMobile ? 6 : 4, 
-                  padding: isMobile ? 12 : 8, 
+                  gap: buttonGap, 
+                  padding: outerPadding, 
                   border: isHere ? '2px solid transparent' : '1px solid transparent', 
-                  borderRadius: isMobile ? 12 : 8, 
+                  borderRadius: isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10, 
                   background:'transparent'
                 }}>
                   <button
-                    disabled={p===r.you.currentPlanet || !canReach}
+                    disabled={disabled}
                     onClick={()=>selectPlanet(p)}
                     style={{ 
-                      textAlign:'center', 
-                      background:'var(--panelElevated)', 
-                      border:'1px solid var(--border)',
-                      padding: isMobile ? '12px 16px' : '8px 12px',
-                      fontSize: isMobile ? 16 : 'inherit',
-                      minHeight: isMobile ? 48 : 'auto',
-                      minWidth: isMobile ? 80 : 'auto',
-                      borderRadius: isMobile ? 8 : 4,
-                      cursor: 'pointer',
-                      touchAction: 'manipulation'
+                      background:'transparent', 
+                      border:'none',
+                      display:'flex',
+                      flexDirection:'column',
+                      alignItems:'center',
+                      gap: buttonGap,
+                      cursor: disabled ? 'default' : 'pointer',
+                      touchAction: 'manipulation',
+                      opacity: disabled && !isHere ? 0.55 : 1,
+                      padding: 0,
+                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80
                     }}
                     title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
-                    {p}
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: highlightSize,
+                        height: highlightSize,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {isHere && (
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(34,197,94,0.85)',
+                            boxShadow: '0 0 16px rgba(34,197,94,0.45)',
+                            background: 'rgba(34,197,94,0.12)',
+                            pointerEvents: 'none'
+                          }}
+                        />
+                      )}
+                      <span
+                        style={{
+                          position: 'relative',
+                          zIndex: 1,
+                          display: 'inline-flex'
+                        }}
+                      >
+                        {isStationLocation ? stationIcon : planetIcon}
+                      </span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: labelFontSize,
+                        fontWeight: 600,
+                        letterSpacing: 0.4,
+                        color: 'var(--text)',
+                        textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6
+                      }}
+                    >
+                      {isStationLocation ? '🛰️' : '🪐'} {p}
+                    </span>
                   </button>
                   <div style={{ 
                     display:'flex', 
-                    gap: isMobile ? 6 : 4, 
-                    marginTop: isMobile ? 6 : 4, 
+                    gap: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
+                    marginTop: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
                     justifyContent:'center',
                     flexWrap: 'wrap'
                   }}>
@@ -2609,16 +3255,16 @@ export function App() {
                         key={pl.id}
                         title={pl.name}
                         style={{ 
-                          width: isMobile ? 18 : 14, 
-                          height: isMobile ? 18 : 14, 
-                          borderRadius: isMobile ? 9 : 7, 
+                          width: playerTokenSize, 
+                          height: playerTokenSize, 
+                          borderRadius: playerTokenSize / 2, 
                           background: colorFor(String(pl.id)), 
                           color:'#fff', 
                           display:'inline-flex', 
                           alignItems:'center', 
                           justifyContent:'center', 
-                          fontSize: isMobile ? 12 : 10, 
-                          boxShadow:'0 0 0 1px rgba(0,0,0,0.15)',
+                          fontSize: playerFontSize, 
+                          boxShadow:'0 0 0 1px rgba(0,0,0,0.2)',
                           fontWeight: isMobile ? 600 : 'normal'
                         }}
                       >
@@ -2631,7 +3277,11 @@ export function App() {
             })}
           </ul>
           {/* Destination arrows overlay */}
-          <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <svg
+            width={containerSize.width}
+            height={containerSize.height}
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3 }}
+          >
             {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
               const from = planetPos[pl.currentPlanet]
               const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
@@ -2640,216 +3290,926 @@ export function App() {
               const x1 = from.x, y1 = from.y
               const x2 = to.x, y2 = to.y
               const d = `M ${x1},${y1} L ${x2},${y2}`
+              const dx = x2 - x1
+              const dy = y2 - y1
+              const midX = x1 + dx * 0.5
+              const midY = y1 + dy * 0.5
+              const isYou = String(pl.id) === String(r.you.id)
+              const pathUnits = isYou && pl.destinationPlanet ? travelUnits(pl.currentPlanet, pl.destinationPlanet) : 0
+              let angle = Math.atan2(dy, dx) * 180 / Math.PI
+              if (angle > 90 || angle < -90) {
+                angle += 180
+              }
               return (
-                <path 
-                  key={pl.id} 
-                  d={d} 
-                  fill="none" 
-                  stroke={colorFor(String(pl.id))} 
-                  strokeWidth={isMobile ? 4 : 3} 
-                  strokeLinecap="round" 
-                  strokeDasharray="8,4"
-                  strokeDashoffset="12"
-                  opacity={1}
-                  style={{
-                    animation: 'flowingDots 0.4s linear infinite',
-                    filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
-                  }}
-                />
+                <g key={pl.id}>
+                  <path 
+                    d={d} 
+                    fill="none" 
+                    stroke={colorFor(String(pl.id))} 
+                    strokeWidth={isMobile ? 4 : 3} 
+                    strokeLinecap="round" 
+                    strokeDasharray="8,4"
+                    strokeDashoffset="12"
+                    opacity={1}
+                    style={{
+                      animation: 'flowingDots 0.4s linear infinite',
+                      filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
+                    }}
+                  />
+                  {isYou && pathUnits > 0 && (
+                    <text
+                      x={midX}
+                      y={midY}
+                      fill="#fff"
+                      fontSize={isMobile ? 12 : 14}
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      transform={`rotate(${angle}, ${midX}, ${midY})`}
+                      stroke="rgba(15,23,42,0.65)"
+                      strokeWidth={isMobile ? 1.4 : 1}
+                      paintOrder="stroke"
+                      letterSpacing="0.5"
+                    >
+                      {`${pathUnits} units`}
+                    </text>
+                  )}
+                </g>
               )
             })}
             {inTransit && yourTransitPos && (
               <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={isMobile ? 9 : 7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
             )}
           </svg>
-        </div>
-      </div>
-    )}
-
-    {activeTab==='market' && (
-      <div style={{ padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
-        <div className="panel" style={{ overflowX: 'auto' }}>
-          {isMobile ? (
-            // Mobile card layout for better usability
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {Object.keys(goods).map(g => {
-                const price = prices[g]
-                const range = priceRanges[g]
-                const available = goods[g]
-                const owned = r.you.inventory[g] || 0
-                const youPaid = r.you.inventoryAvgCost?.[g]
-                const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
-                const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
-                const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
-                const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
-                  ? (price > youPaid
-                      ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
-                      : price < youPaid
-                        ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
-                        : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
-                  : undefined
-                const disabledTrade = inTransit
-                const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-                const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
-                
-                return (
-                  <div key={g} style={{ 
-                    padding: 16, 
-                    border: '1px solid var(--border)', 
-                    borderRadius: 8,
-                    background: 'rgba(255,255,255,0.02)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                      <h4 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g}</h4>
-                      <div style={{ fontSize: 16, fontWeight: 600 }}>${price}</div>
-                    </div>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12, fontSize: 14 }}>
-                      <div>Available: {available}</div>
-                      <div>Range: {rangeText}</div>
-                      <div>Owned: {owned}{owned>0 && typeof youPaid === 'number' ? ` (avg $${youPaid})` : ''}</div>
-                      <div>% of Max: {pctText}</div>
-                    </div>
-                    
-                    <div style={{ marginBottom: 12 }}>
-                      <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>Buy Quantity:</label>
-                      <input 
-                        style={{ 
-                          width: '100%', 
-                          padding: '12px 16px',
-                          fontSize: 16,
-                          minHeight: 48,
-                          borderRadius: 6,
-                          border: '1px solid var(--border)',
-                          background: 'var(--bg)'
-                        }} 
-                        type="number" 
-                        value={amt} 
-                        min={0} 
-                        max={maxBuy} 
-                        disabled={disabledTrade}
-                        onChange={e=>{
-                          const v = Number(e.target.value)
-                          const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
-                          setAmountsByGood(s => ({ ...s, [g]: capped }))
-                        }} 
-                      />
-                    </div>
-                    
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      <button 
-                        disabled={disabledTrade || amt<=0} 
-                        onClick={()=>buy(g, amt)} 
-                        title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} 
-                        style={{ 
-                          flex: 1,
-                          padding: '16px 24px',
-                          fontSize: 18,
-                          fontWeight: 600,
-                          minHeight: 56,
-                          borderRadius: 8,
-                          background: 'var(--accent)',
-                          color: 'white',
-                          border: 'none',
-                          cursor: 'pointer'
-                        }}
-                      >
-                        Buy
-                      </button>
-                      <button 
-                        disabled={disabledTrade || owned<=0} 
-                        onClick={()=>sell(g, owned)} 
-                        style={{ 
-                          flex: 1,
-                          padding: '16px 24px',
-                          fontSize: 18,
-                          fontWeight: 600,
-                          minHeight: 56,
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          ...sellStyle
-                        }} 
-                        title={disabledTrade ? 'Unavailable while in transit' : undefined}
-                      >
-                        Sell All
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
+          {preGame && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 6,
+                background: 'rgba(10,14,29,0.72)',
+                backdropFilter: 'blur(1.8px)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: isMobile ? 12 : 18,
+                padding: isMobile ? 16 : 28,
+                pointerEvents: 'auto'
+              }}
+            >
+              <button
+                onClick={startGame}
+                disabled={!readyToStart}
+                title={readyToStart ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
+                style={{
+                  padding: isMobile ? '18px 34px' : '18px 44px',
+                  fontSize: isMobile ? shrinkFont(22) : '1.15rem',
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  border: readyToStart ? '1px solid rgba(21, 128, 61, 0.75)' : '1px solid rgba(148,163,184,0.45)',
+                  color: readyToStart ? '#052e16' : 'rgba(226,232,240,0.9)',
+                  background: readyToStart ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 40%, #16a34a 100%)' : 'linear-gradient(135deg, rgba(148,163,184,0.65) 0%, rgba(71,85,105,0.82) 100%)',
+                  cursor: readyToStart ? 'pointer' : 'not-allowed',
+                  boxShadow: readyToStart ? '0 16px 32px rgba(34,197,94,0.45)' : '0 10px 26px rgba(15,23,42,0.55)',
+                  transition: 'transform 160ms ease, box-shadow 160ms ease',
+                  animation: readyToStart ? 'readyPulse 1.6s ease-in-out infinite' : 'none',
+                  pointerEvents: 'auto'
+                }}
+              >
+                Start Game
+              </button>
+              <span
+                style={{
+                  fontSize: isMobile ? shrinkFont(16) : '1rem',
+                  color: 'rgba(226,232,240,0.88)',
+                  textAlign: 'center',
+                  maxWidth: 420,
+                  lineHeight: 1.45
+                }}
+              >
+                {readyToStart ? 'All commanders are ready. Launch when you are!' : 'Waiting for every commander to ready up. Map and market remain locked until then.'}
+              </span>
             </div>
-          ) : (
-            // Desktop table layout
-            <table style={{ width:'100%', borderCollapse:'collapse' }}>
-              <thead>
-                <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
-                  <th style={{ padding:'6px 8px' }}>Good</th>
-                  <th style={{ padding:'6px 8px' }}>Available</th>
-                  <th style={{ padding:'6px 8px' }}>Price</th>
-                  <th style={{ padding:'6px 8px' }}>Range</th>
-                  <th style={{ padding:'6px 8px' }}>% of Max</th>
-                  <th style={{ padding:'6px 8px' }}>Owned</th>
-                  <th style={{ padding:'6px 8px' }}>Buy Qty</th>
-                  <th style={{ padding:'6px 8px' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.keys(goods).map(g => {
-                  const price = prices[g]
-                  const range = priceRanges[g]
-                  const available = goods[g]
-                  const owned = r.you.inventory[g] || 0
-                  const youPaid = r.you.inventoryAvgCost?.[g]
-                  const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
-                  const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
-                  const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
-                  const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
-                    ? (price > youPaid
-                        ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
-                        : price < youPaid
-                          ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
-                          : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
-                    : undefined
-                  const disabledTrade = inTransit
-                  const rangeText = range ? `${range[0]}–${range[1]}` : '—'
-                  const pctText = range ? (()=>{ const max=range[1]; const pct=max>0? Math.max(0, Math.min(100, Math.round((price/max)*100))) : 0; return `${pct}%` })() : '—'
-                  return (
-                    <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
-                      <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
-                      <td style={{ padding:'6px 8px' }}>{available}</td>
-                      <td style={{ padding:'6px 8px' }}>${price}</td>
-                      <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
-                      <td style={{ padding:'6px 8px' }} className="muted">{pctText}</td>
-                      <td style={{ padding:'6px 8px' }}>
-                        {owned}
-                        {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
-                      </td>
-                      <td style={{ padding:'6px 8px' }}>
-                        <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
-                          onChange={e=>{
-                            const v = Number(e.target.value)
-                            const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
-                            setAmountsByGood(s => ({ ...s, [g]: capped }))
-                          }} />
-                      </td>
-                      <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
-                        <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
-                        <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
           )}
         </div>
       </div>
     )}
 
+    {activeTab==='players' && (() => {
+      const playersList = Array.isArray(r.room.players) ? (r.room.players as any[]) : []
+      const readyCount = playersList.filter(pl => pl.ready).length
+      const totalCredits = playersList.reduce((sum: number, pl: any) => (
+        typeof pl.money === 'number' ? sum + pl.money : sum
+      ), 0)
+
+      return (
+        <div style={{ padding: isMobile ? 12 : 16 }}>
+          <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Players</h3>
+          <div className="panel" style={{ padding: isMobile ? 12 : 16 }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: 8,
+              marginBottom: playersList.length > 0 ? (isMobile ? 12 : 10) : 0
+            }}>
+              <span style={{ fontSize: isMobile ? 14 : 13, color: 'var(--muted)' }}>
+                Ready {readyCount}/{playersList.length}
+              </span>
+              {playersList.length > 0 && (
+                <span style={{ fontSize: isMobile ? 14 : 13, color: 'var(--muted)' }}>
+                  Total Credits: ${totalCredits.toLocaleString()}
+                </span>
+              )}
+            </div>
+            {playersList.length === 0 ? (
+              <div style={{ padding: isMobile ? 12 : 16, textAlign: 'center', color: 'var(--muted)' }}>
+                No players are currently in this room.
+              </div>
+            ) : (
+              <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: isMobile ? 10 : 8 }}>
+                {playersList.map(pl => {
+                  const moneyDisplay = typeof pl.money === 'number' ? pl.money.toLocaleString() : pl.money
+                  return (
+                    <li
+                      key={pl.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: isMobile
+                          ? 'auto auto minmax(0,1fr) auto'
+                          : 'auto auto minmax(0,240px) auto auto',
+                        alignItems: 'center',
+                        gap: isMobile ? 10 : 12,
+                        padding: isMobile ? '12px 10px' : '10px 12px',
+                        borderRadius: 8,
+                        border: '1px solid var(--border)',
+                        background: 'rgba(255,255,255,0.02)'
+                      }}
+                    >
+                      <span
+                        title={pl.ready ? 'Ready' : 'Not Ready'}
+                        style={{
+                          width: isMobile ? 10 : 8,
+                          height: isMobile ? 10 : 8,
+                          borderRadius: '50%',
+                          background: pl.ready ? 'var(--good)' : 'var(--bad)'
+                        }}
+                      />
+                      <span
+                        style={{
+                          width: isMobile ? 14 : 12,
+                          height: isMobile ? 14 : 12,
+                          borderRadius: '50%',
+                          background: colorFor(String(pl.id)),
+                          boxShadow: '0 0 0 1px rgba(0,0,0,0.15)'
+                        }}
+                      />
+                      <button
+                        onClick={() => requestPlayerInfo(pl.id)}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          gap: 4,
+                          background: 'transparent',
+                          border: 'none',
+                          padding: 0,
+                          cursor: 'pointer',
+                          color: 'var(--accent2)',
+                          fontSize: isMobile ? shrinkFont(16) : 14,
+                          fontWeight: 600,
+                          textAlign: 'left'
+                        }}
+                        title="View inventory"
+                      >
+                        <span>{pl.name}</span>
+                        <span style={{ fontSize: isMobile ? shrinkFont(12) : 11, color: 'var(--muted)', fontWeight: 400 }}>View inventory</span>
+                      </button>
+                      <span style={{ fontWeight: 600, fontSize: isMobile ? shrinkFont(15) : 13 }}>${moneyDisplay}</span>
+                      <span className="muted" style={{ fontSize: isMobile ? shrinkFont(13) : 12 }}>@ {pl.currentPlanet}</span>
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+      )
+    })()}
+
+    {activeTab==='ship' && (
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Ship</h3>
+        <div
+          className="panel"
+          style={{
+            padding: isMobile ? 12 : 16,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: isMobile ? 12 : 16
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              justifyContent: 'space-between',
+              gap: isMobile ? 8 : 16
+            }}
+          >
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Credits: <strong>${r.you.money.toLocaleString()}</strong>
+            </span>
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Fuel: <strong>{r.you.fuel}</strong>/{(r.you as any).fuelCapacity ?? 100} @ ${fuelPrice}/unit
+            </span>
+            <span style={{ fontSize: isMobile ? shrinkFont(14) : 13, color: 'var(--muted)' }}>
+              Free Slots: <strong>{freeSlots}</strong>
+            </span>
+          </div>
+          {renderShipSections()}
+        </div>
+      </div>
+    )}
+
+    {activeTab==='market' && (() => {
+      const inventory = r.you.inventory || {}
+      const allGoods = Object.keys(goods)
+      const goodsInCargo = allGoods
+        .filter(g => (inventory[g] ?? 0) > 0)
+        .sort((a, b) => a.localeCompare(b))
+      const otherGoods = allGoods
+        .filter(g => (inventory[g] ?? 0) <= 0)
+        .sort((a, b) => a.localeCompare(b))
+  const mobileGridTemplate = 'minmax(0,1.65fr) minmax(0,1fr) minmax(0,1fr) min-content minmax(0,1.25fr) minmax(0,1.25fr)'
+
+  const renderMobileCard = (g: string) => {
+        const price = prices[g]
+        const range = priceRanges[g]
+        const available = goods[g]
+        const owned = r.you.inventory[g] || 0
+        const youPaid = r.you.inventoryAvgCost?.[g]
+        const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+        const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+        const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+        const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+          ? (price > youPaid
+              ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
+              : price < youPaid
+                ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
+          : undefined
+        const disabledTrade = inTransit
+        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+        const pctValue = range ? (() => {
+          const max = range[1]
+          return max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+        })() : null
+        const pctText = pctValue === null ? '—' : `${pctValue}%`
+        const pctStyle: React.CSSProperties = pctValue === null
+          ? { color: 'var(--muted)' }
+          : pctValue <= 50
+            ? { color: 'var(--good)', fontWeight: 600 }
+            : { color: 'var(--bad)', fontWeight: 600 }
+        const qtyId = `qty-${g.replace(/\s+/g, '-').toLowerCase()}`
+
+        return (
+          <div
+            key={g}
+            style={{
+              padding: '10px 12px',
+              border: '1px solid rgba(148,163,184,0.22)',
+              borderRadius: 8,
+              background: 'rgba(4,7,21,0.7)',
+              display: 'grid',
+              gridTemplateColumns: mobileGridTemplate,
+              alignItems: 'stretch',
+              gap: 8
+            }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ fontWeight: 700, fontSize: shrinkFont(15), color: 'var(--text)' }}>{g}</span>
+              <span style={{ fontWeight: 600, fontSize: shrinkFont(13), color: 'var(--muted)' }}>${price}</span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
+              <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{available}</strong> avail</span>
+              <span>Range {rangeText}</span>
+              <span>
+                % Max{' '}
+                <span style={pctStyle}>{pctText}</span>
+              </span>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, fontSize: shrinkFont(11), color: 'var(--muted)' }}>
+              <span><strong style={{ color: 'var(--text)', fontSize: shrinkFont(12) }}>{owned}</strong> owned</span>
+              {owned > 0 && typeof youPaid === 'number' ? (
+                <span>Avg ${youPaid}</span>
+              ) : (
+                <span>Avg —</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, justifySelf: 'start', alignItems: 'flex-start' }}>
+              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(10), color: 'var(--muted)', letterSpacing: 0.4, paddingLeft: 2 }}>Qty</label>
+              <input
+                id={qtyId}
+                style={{
+                  width: 36,
+                  padding: '6px 4px',
+                  fontSize: shrinkFont(12),
+                  minHeight: 34,
+                  borderRadius: 6,
+                  border: '1px solid var(--border)',
+                  background: 'rgba(12,18,38,0.95)',
+                  color: 'var(--text)',
+                  textAlign: 'center',
+                  WebkitAppearance: 'none',
+                  MozAppearance: 'textfield'
+                }}
+                type="number"
+                value={amt}
+                min={0}
+                max={maxBuy}
+                disabled={disabledTrade}
+                onChange={e => {
+                  const sanitized = sanitizeNumeric(e.target.value)
+                  if (sanitized !== e.target.value) {
+                    e.target.value = sanitized
+                  }
+                  const v = Number(sanitized)
+                  const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                  setAmountsByGood(s => ({ ...s, [g]: capped }))
+                }}
+              />
+            </div>
+            <button
+              disabled={disabledTrade || amt <= 0}
+              onClick={() => buy(g, amt)}
+              title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
+              style={{
+                width: '100%',
+                padding: '12px 12px',
+                fontSize: shrinkFont(14),
+                fontWeight: 600,
+                minHeight: 46,
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 6,
+                background: disabledTrade || amt <= 0 ? 'rgba(59,130,246,0.35)' : 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                cursor: disabledTrade || amt <= 0 ? 'not-allowed' : 'pointer'
+              }}
+            >
+              Buy
+            </button>
+            <button
+              disabled={disabledTrade || owned <= 0}
+              onClick={() => sell(g, owned)}
+              style={{
+                width: '100%',
+                padding: '12px 12px',
+                fontSize: shrinkFont(14),
+                fontWeight: 600,
+                minHeight: 46,
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: 6,
+                cursor: disabledTrade || owned <= 0 ? 'not-allowed' : 'pointer',
+                border: '1px solid transparent',
+                background: disabledTrade || owned <= 0 ? 'rgba(148,163,184,0.18)' : 'rgba(15,23,42,0.7)',
+                color: 'var(--text)',
+                ...sellStyle
+              }}
+              title={disabledTrade ? 'Unavailable while in transit' : undefined}
+            >
+              Sell
+            </button>
+          </div>
+        )
+      }
+
+      const renderTableRow = (g: string) => {
+        const price = prices[g]
+        const range = priceRanges[g]
+        const available = goods[g]
+        const owned = r.you.inventory[g] || 0
+        const youPaid = r.you.inventoryAvgCost?.[g]
+        const maxByMoney = price > 0 ? Math.floor(r.you.money / price) : 0
+        const maxBuy = price > 0 ? Math.max(0, Math.min(available, maxByMoney, freeSlots)) : 0
+        const amt = Math.max(0, Math.min(maxBuy, (amountsByGood[g] ?? maxBuy)))
+        const sellStyle: React.CSSProperties | undefined = typeof youPaid === 'number' && owned > 0
+          ? (price > youPaid
+              ? { background:'rgba(52,211,153,0.18)', color:'var(--good)', border:'1px solid rgba(52,211,153,0.35)' }
+              : price < youPaid
+                ? { background:'rgba(248,113,113,0.18)', color:'var(--bad)', border:'1px solid rgba(248,113,113,0.35)' }
+                : { background:'rgba(255,255,255,0.06)', color:'var(--text)', border:'1px solid var(--border)' })
+          : undefined
+        const disabledTrade = inTransit
+        const rangeText = range ? `${range[0]}–${range[1]}` : '—'
+        const pctValue = range ? (() => {
+          const max = range[1]
+          return max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
+        })() : null
+        const pctText = pctValue === null ? '—' : `${pctValue}%`
+        const pctStyle: React.CSSProperties = pctValue === null
+          ? { color: 'var(--muted)' }
+          : pctValue <= 50
+            ? { color: 'var(--good)', fontWeight: 600 }
+            : { color: 'var(--bad)', fontWeight: 600 }
+
+        return (
+          <tr key={g} style={{ borderBottom:'1px solid var(--border)' }}>
+            <td style={{ padding:'6px 8px', fontWeight:700 }}>{g}</td>
+            <td style={{ padding:'6px 8px' }}>{available}</td>
+            <td style={{ padding:'6px 8px' }}>${price}</td>
+            <td style={{ padding:'6px 8px' }} className="muted">{rangeText}</td>
+            <td style={{ padding:'6px 8px' }}>
+              {pctValue === null ? (
+                <span className="muted">{pctText}</span>
+              ) : (
+                <span style={pctStyle}>{pctText}</span>
+              )}
+            </td>
+            <td style={{ padding:'6px 8px' }}>
+              {owned}
+              {owned>0 && typeof youPaid === 'number' ? <span className="muted" style={{ marginLeft:6 }}>(avg ${youPaid})</span> : null}
+            </td>
+            <td style={{ padding:'6px 8px' }}>
+              <input style={{ width: 72 }} type="number" value={amt} min={0} max={maxBuy} disabled={disabledTrade}
+                onChange={e=>{
+                  const v = Number(e.target.value)
+                  const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
+                  setAmountsByGood(s => ({ ...s, [g]: capped }))
+                }} />
+            </td>
+            <td style={{ padding:'6px 8px', whiteSpace:'nowrap' }}>
+              <button disabled={disabledTrade || amt<=0} onClick={()=>buy(g, amt)} title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} style={{ marginRight:6 }}>Buy</button>
+              <button disabled={disabledTrade || owned<=0} onClick={()=>sell(g, owned)} style={sellStyle} title={disabledTrade ? 'Unavailable while in transit' : undefined}>Sell</button>
+            </td>
+          </tr>
+        )
+      }
+
+      const hasCargoGoods = goodsInCargo.length > 0
+      const hasOtherGoods = otherGoods.length > 0
+      const noGoods = !hasCargoGoods && !hasOtherGoods
+
+      return (
+        <div style={{ padding: isMobile ? 12 : 16 }}>
+          <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Market — {visible.name || r.you.currentPlanet}</h3>
+          <div className="panel" style={{ overflowX: 'auto' }}>
+            {noGoods ? (
+              <div style={{ padding: isMobile ? 16 : 24, textAlign: 'center', color: 'var(--muted)' }}>
+                No goods available at this location.
+              </div>
+            ) : isMobile ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {hasCargoGoods && (
+                  <>
+                    <div style={{
+                      margin: '2px 0 4px',
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.6,
+                      color: 'var(--muted)',
+                      fontWeight: 600
+                    }}>In Cargo</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: mobileGridTemplate,
+                          gap: 8,
+                          padding: '0 12px',
+                          fontSize: shrinkFont(11),
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          color: 'var(--muted)'
+                        }}
+                      >
+                        <span>Good</span>
+                        <span>Market</span>
+                        <span>Holdings</span>
+                        <span>Qty</span>
+                        <span>Buy</span>
+                        <span>Sell</span>
+                      </div>
+                      {goodsInCargo.map(renderMobileCard)}
+                    </div>
+                  </>
+                )}
+                {hasOtherGoods && (
+                  <>
+                    {hasCargoGoods && (
+                      <div style={{ height: 1, background: 'rgba(148,163,184,0.18)' }} />
+                    )}
+                    <div style={{
+                      margin: '2px 0 4px',
+                      fontSize: 12,
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.6,
+                      color: 'var(--muted)',
+                      fontWeight: 600
+                    }}>Marketplace</div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: mobileGridTemplate,
+                          gap: 8,
+                          padding: '0 12px',
+                          fontSize: shrinkFont(11),
+                          textTransform: 'uppercase',
+                          letterSpacing: 0.5,
+                          color: 'var(--muted)'
+                        }}
+                      >
+                        <span>Good</span>
+                        <span>Market</span>
+                        <span>Holdings</span>
+                        <span>Qty</span>
+                        <span>Buy</span>
+                        <span>Sell</span>
+                      </div>
+                      {otherGoods.map(renderMobileCard)}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                <thead>
+                  <tr style={{ textAlign:'left', borderBottom:'1px solid var(--border)' }}>
+                    <th style={{ padding:'6px 8px' }}>Good</th>
+                    <th style={{ padding:'6px 8px' }}>Available</th>
+                    <th style={{ padding:'6px 8px' }}>Price</th>
+                    <th style={{ padding:'6px 8px' }}>Range</th>
+                    <th style={{ padding:'6px 8px' }}>% of Max</th>
+                    <th style={{ padding:'6px 8px' }}>Owned</th>
+                    <th style={{ padding:'6px 8px' }}>Buy Qty</th>
+                    <th style={{ padding:'6px 8px' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hasCargoGoods && (
+                    <>
+                      <tr key="cargo-heading" style={{ background:'rgba(148,163,184,0.12)' }}>
+                        <td colSpan={8} style={{ padding:'8px 10px', fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:0.6, color:'var(--muted)' }}>In Cargo</td>
+                      </tr>
+                      {goodsInCargo.map(renderTableRow)}
+                    </>
+                  )}
+                  {hasOtherGoods && (
+                    <>
+                      {hasCargoGoods && (
+                        <tr key="market-heading" style={{ background:'rgba(148,163,184,0.08)' }}>
+                          <td colSpan={8} style={{ padding:'8px 10px', fontSize:12, fontWeight:700, textTransform:'uppercase', letterSpacing:0.6, color:'var(--muted)' }}>Marketplace</td>
+                        </tr>
+                      )}
+                      {otherGoods.map(renderTableRow)}
+                    </>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      )
+    })()}
+
+    {activeTab==='locations' && (() => {
+      const playersList = Array.isArray(r.room.players) ? (r.room.players as any[]) : []
+      const playersById = playersList.reduce<Record<string, any>>((acc, pl: any) => {
+        acc[pl.id] = pl
+        return acc
+      }, {})
+      const facilityRows = playersList
+        .map(pl => ({ id: pl.id, name: pl.name, investment: pl.facilityInvestment ?? 0 }))
+        .filter(row => row.investment > 0)
+        .sort((a, b) => b.investment - a.investment)
+      const totalFacilityInvestment = facilityRows.reduce((sum, row) => sum + row.investment, 0)
+      const marketMemory = ((r.you as any)?.marketMemory ?? {}) as Record<string, MarketSnapshot>
+
+      return (
+      <div style={{ padding: isMobile ? 12 : 16 }}>
+        <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Locations &amp; Facilities</h3>
+        <div style={{
+          display: 'grid',
+          gap: isMobile ? 12 : 16,
+          gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))'
+        }}>
+          {r.room.planets.map(planet => {
+            const facilities = facilitiesByPlanet[planet] ?? []
+            const docked = (r.room.players as any[]).filter((pl: any) => !pl.bankrupt && pl.currentPlanet === planet)
+            const isHome = planet === r.you.currentPlanet
+            const snapshot = marketMemory?.[planet]
+            const goodsKeys = snapshot
+              ? Array.from(new Set([
+                  ...Object.keys(snapshot.goods ?? {}),
+                  ...Object.keys(snapshot.prices ?? {})
+                ])).sort((a, b) => a.localeCompare(b))
+              : []
+            const intelTimestamp = snapshot?.updatedAt ? new Date(snapshot.updatedAt).toLocaleString() : null
+            const gridTemplate = isMobile ? 'minmax(0,1fr) 70px 90px' : 'minmax(0,1fr) 80px 90px 110px'
+            return (
+              <div key={planet} className="panel" style={{
+                padding: isMobile ? 14 : 16,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: isMobile ? 10 : 12
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 12
+                }}>
+                  <span style={{ fontWeight: 600, fontSize: isMobile ? shrinkFont(16) : 18 }}>{planet}</span>
+                  <div style={{
+                    display: 'flex',
+                    gap: 6,
+                    flexWrap: 'wrap',
+                    justifyContent: 'flex-end'
+                  }}>
+                    {snapshot ? (
+                      <span style={{
+                        fontSize: isMobile ? shrinkFont(11) : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(139, 92, 246, 0.18)',
+                        border: '1px solid rgba(139, 92, 246, 0.35)',
+                        color: '#a855f7',
+                        fontWeight: 600
+                      }}>
+                        Intel turn {snapshot.turn}{intelTimestamp ? ` · ${intelTimestamp}` : ''}
+                      </span>
+                    ) : (
+                      <span style={{
+                        fontSize: isMobile ? shrinkFont(11) : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(148, 163, 184, 0.18)',
+                        border: '1px solid rgba(148, 163, 184, 0.3)',
+                        color: 'rgba(226, 232, 240, 0.75)',
+                        fontWeight: 600
+                      }}>
+                        No intel yet
+                      </span>
+                    )}
+                    {isHome && (
+                      <span style={{
+                        fontSize: isMobile ? shrinkFont(11) : 12,
+                        padding: '4px 8px',
+                        borderRadius: 999,
+                        background: 'rgba(56, 189, 248, 0.18)',
+                        border: '1px solid rgba(56, 189, 248, 0.35)',
+                        color: '#38bdf8',
+                        fontWeight: 600
+                      }}>
+                        You are here
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {facilities.length > 0 ? (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 8 : 10 }}>
+                    {facilities.map((facility, idx) => {
+                      const owner = playersById[facility.ownerId]
+                      const ownedByYou = facility.ownerId === r.you.id
+                      const label = facilities.length > 1 ? `Facility ${idx + 1}` : 'Facility'
+                      return (
+                        <div key={facility.id ?? `${facility.ownerId}-${facility.type}-${idx}`}
+                          style={{
+                            padding: isMobile ? 10 : 12,
+                            borderRadius: 8,
+                            border: '1px solid rgba(255,255,255,0.08)',
+                            background: 'rgba(148, 163, 184, 0.06)',
+                            display: 'grid',
+                            gap: 6,
+                            fontSize: isMobile ? 12.5 : 13,
+                            color: 'rgba(255,255,255,0.82)'
+                          }}
+                        >
+                          <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.92)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{label}: {facility.type}</span>
+                            {ownedByYou && (
+                              <span style={{
+                                fontSize: isMobile ? 11 : 12,
+                                padding: '2px 8px',
+                                borderRadius: 999,
+                                background: 'rgba(16, 185, 129, 0.22)',
+                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                color: '#34d399',
+                                fontWeight: 600
+                              }}>
+                                Yours
+                              </span>
+                            )}
+                          </div>
+                          <div>
+                            <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Owner:</strong> {facility.ownerName || owner?.name || 'Unknown commander'}
+                          </div>
+                          {typeof facility.purchasePrice === 'number' && (
+                            <div>
+                              <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Purchase Price:</strong> ${facility.purchasePrice.toLocaleString()}
+                            </div>
+                          )}
+                          <div>
+                            <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Usage Charge:</strong> ${facility.usageCharge.toLocaleString()}
+                          </div>
+                          {typeof facility.accruedMoney === 'number' && (
+                            <div>
+                              <strong style={{ color: 'rgba(255,255,255,0.9)' }}>Accrued Revenue:</strong> ${facility.accruedMoney.toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.65)' }}>
+                    No facilities have been constructed here yet.
+                  </div>
+                )}
+
+                <div>
+                  <div style={{
+                    fontSize: isMobile ? 11 : 12,
+                    letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    color: 'rgba(255,255,255,0.45)',
+                    marginBottom: 6
+                  }}>
+                    Docked Commanders
+                  </div>
+                  {docked.length === 0 ? (
+                    <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>No ships currently docked.</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {docked.map((pl: any) => (
+                        <span key={pl.id} style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          padding: '6px 10px',
+                          background: 'rgba(255,255,255,0.05)',
+                          border: '1px solid rgba(255,255,255,0.1)',
+                          borderRadius: 999,
+                          fontSize: isMobile ? 12 : 12.5
+                        }}>
+                          <span style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            background: colorFor(String(pl.id)),
+                            boxShadow: '0 0 0 1px rgba(0,0,0,0.25)'
+                          }} />
+                          {pl.name}{pl.id === r.you.id ? ' (You)' : ''}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                  <div>
+                    <div style={{
+                      fontSize: isMobile ? 11 : 12,
+                      letterSpacing: '0.04em',
+                      textTransform: 'uppercase',
+                      color: 'rgba(255,255,255,0.45)',
+                      marginBottom: 6
+                    }}>
+                      Your Market Intel
+                    </div>
+                    {snapshot ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.7)' }}>
+                          Last seen turn {snapshot.turn}
+                          {intelTimestamp ? ` · ${intelTimestamp}` : ''}
+                        </div>
+                        <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.7)' }}>
+                          Fuel price: {typeof snapshot.fuelPrice === 'number' ? `$${snapshot.fuelPrice}` : '—'}
+                        </div>
+                        {goodsKeys.length > 0 ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: gridTemplate,
+                              gap: isMobile ? 6 : 8,
+                              fontSize: isMobile ? 11.5 : 12.5,
+                              color: 'rgba(255,255,255,0.75)',
+                              fontWeight: 600
+                            }}>
+                              <span>Good</span>
+                              <span style={{ textAlign: 'right' }}>Qty</span>
+                              <span style={{ textAlign: 'right' }}>Price</span>
+                              {!isMobile && <span style={{ textAlign: 'right' }}>Range</span>}
+                            </div>
+                            {goodsKeys.map(good => {
+                              const qty = snapshot.goods?.[good]
+                              const price = snapshot.prices?.[good]
+                              const range = snapshot.priceRanges?.[good]
+                              const rangeText = Array.isArray(range) ? `${range[0]}–${range[1]}` : '—'
+                              return (
+                                <div key={good} style={{
+                                  display: 'grid',
+                                  gridTemplateColumns: gridTemplate,
+                                  gap: isMobile ? 6 : 8,
+                                  fontSize: isMobile ? 11.5 : 12.5,
+                                  color: 'rgba(255,255,255,0.75)',
+                                  background: 'rgba(255,255,255,0.05)',
+                                  border: '1px solid rgba(255,255,255,0.08)',
+                                  borderRadius: 6,
+                                  padding: '6px 8px'
+                                }}>
+                                  <span style={{ fontWeight: 600, color: 'rgba(255,255,255,0.9)' }}>{good}</span>
+                                  <span style={{ textAlign: 'right' }}>{typeof qty === 'number' ? qty.toLocaleString() : '—'}</span>
+                                  <span style={{ textAlign: 'right' }}>{typeof price === 'number' ? `$${price}` : '—'}</span>
+                                  {!isMobile && <span style={{ textAlign: 'right', color: 'rgba(255,255,255,0.6)' }}>{rangeText}</span>}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>
+                            No goods data recorded yet.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: isMobile ? 12 : 12.5, color: 'rgba(255,255,255,0.5)' }}>
+                        Visit this planet to log current market prices.
+                      </div>
+                    )}
+                  </div>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="panel" style={{
+          marginTop: isMobile ? 16 : 20,
+          padding: isMobile ? 14 : 18
+        }}>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 8 : 12,
+            marginBottom: isMobile ? 12 : 16
+          }}>
+            <h4 style={{ margin: 0, fontSize: isMobile ? 16 : 18 }}>Facility Investments</h4>
+            <span style={{ fontSize: isMobile ? 12 : 13, color: 'rgba(255,255,255,0.65)' }}>
+              Total Invested: ${totalFacilityInvestment.toLocaleString()}
+            </span>
+          </div>
+
+          {facilityRows.length === 0 ? (
+            <div style={{ fontSize: isMobile ? 12.5 : 13, color: 'rgba(255,255,255,0.6)' }}>
+              No facility spending has been recorded yet.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {facilityRows.map(row => (
+                <div key={row.id} style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  justifyContent: 'space-between',
+                  borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  paddingBottom: 8
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <span style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: 6,
+                      background: colorFor(String(row.id)),
+                      boxShadow: '0 0 0 1px rgba(0,0,0,0.28)'
+                    }} />
+                    <span style={{ fontWeight: 600 }}>{row.name}</span>
+                  </div>
+                  <div style={{ fontWeight: 600, color: 'rgba(255,255,255,0.85)' }}>
+                    ${row.investment.toLocaleString()}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      )})()}
+
     {activeTab==='graphs' && (
       <div style={{ padding: isMobile ? 12 : 16 }}>
-        <h3 className="glow" style={{ fontSize: isMobile ? 18 : 'inherit' }}>Wealth Over Time</h3>
+  <h3 className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : 'inherit' }}>Wealth Over Time</h3>
         <div style={{ overflowX: isMobile ? 'auto' : 'visible' }}>
           <WealthCharts 
             history={wealthHistory} 
