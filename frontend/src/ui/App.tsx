@@ -3062,7 +3062,11 @@ export function App() {
             })}
           </ul>
           {/* Destination arrows overlay */}
-          <svg width={containerSize.width} height={containerSize.height} style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <svg
+            width={containerSize.width}
+            height={containerSize.height}
+            style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3 }}
+          >
             {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
               const from = planetPos[pl.currentPlanet]
               const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
