@@ -2959,25 +2959,6 @@ export function App() {
                   borderRadius: isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10, 
                   background:'transparent'
                 }}>
-                  {isHere && (
-                    <span
-                      aria-hidden
-                      style={{
-                        position: 'absolute',
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: highlightSize,
-                        height: highlightSize,
-                        borderRadius: '50%',
-                        border: '2px solid rgba(59,130,246,0.85)',
-                        boxShadow: '0 0 16px rgba(59,130,246,0.45)',
-                        background: 'rgba(59,130,246,0.12)',
-                        pointerEvents: 'none',
-                        zIndex: 0
-                      }}
-                    />
-                  )}
                   <button
                     disabled={disabled}
                     onClick={()=>selectPlanet(p)}
@@ -2992,13 +2973,44 @@ export function App() {
                       touchAction: 'manipulation',
                       opacity: disabled && !isHere ? 0.55 : 1,
                       padding: 0,
-                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80,
-                      position: 'relative',
-                      zIndex: 1
+                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80
                     }}
                     title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
-                    {isStationLocation ? stationIcon : planetIcon}
+                    <div
+                      style={{
+                        position: 'relative',
+                        width: highlightSize,
+                        height: highlightSize,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center'
+                      }}
+                    >
+                      {isHere && (
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            inset: 0,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(59,130,246,0.85)',
+                            boxShadow: '0 0 16px rgba(59,130,246,0.45)',
+                            background: 'rgba(59,130,246,0.12)',
+                            pointerEvents: 'none'
+                          }}
+                        />
+                      )}
+                      <span
+                        style={{
+                          position: 'relative',
+                          zIndex: 1,
+                          display: 'inline-flex'
+                        }}
+                      >
+                        {isStationLocation ? stationIcon : planetIcon}
+                      </span>
+                    </div>
                     <span
                       style={{
                         fontSize: labelFontSize,
