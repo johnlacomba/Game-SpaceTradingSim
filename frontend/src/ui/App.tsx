@@ -1123,6 +1123,14 @@ export function App() {
     return () => clearInterval(t)
   }, [toasts.length])
 
+  useEffect(() => {
+    if (!room) return
+    const hasStarted = Boolean(room.room?.started)
+    if (!hasStarted && activeTab === 'market') {
+      setActiveTab('map')
+    }
+  }, [room?.room?.started, activeTab])
+
   // Track wealth history per turn (numeric money only); reset on room change
   useEffect(() => {
     if (!room) return
@@ -2230,11 +2238,6 @@ export function App() {
   const freeSlots = Math.max(0, capacity - usedSlots)
   const preGame = !r.room.started
   const readyToStart = Boolean(r.room.allReady)
-  useEffect(() => {
-    if (preGame && activeTab === 'market') {
-      setActiveTab('map')
-    }
-  }, [preGame, activeTab])
   const renderShipSections = () => {
     const inventory = r.you.inventory || {}
     const inventoryKeys = Object.keys(inventory).sort()
