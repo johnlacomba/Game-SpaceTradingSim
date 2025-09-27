@@ -3296,63 +3296,104 @@ export function App() {
           const pct = max > 0 ? Math.max(0, Math.min(100, Math.round((price / max) * 100))) : 0
           return `${pct}%`
         })() : '—'
+        const qtyId = `qty-${g.replace(/\s+/g, '-').toLowerCase()}`
 
         return (
-          <div key={g} style={{ 
-            padding: 16, 
-            border: '1px solid var(--border)', 
-            borderRadius: 8,
-            background: 'rgba(255,255,255,0.02)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h4 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{g}</h4>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>${price}</div>
+          <div
+            key={g}
+            style={{
+              padding: 12,
+              border: '1px solid var(--border)',
+              borderRadius: 8,
+              background: 'rgba(4,7,21,0.65)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'baseline',
+                gap: 8
+              }}
+            >
+              <span style={{ fontWeight: 700, fontSize: shrinkFont(15) }}>{g}</span>
+              <span style={{ fontWeight: 600, fontSize: shrinkFont(14) }}>${price}</span>
             </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12, fontSize: 14 }}>
-              <div>Available: {available}</div>
-              <div>Range: {rangeText}</div>
-              <div>Owned: {owned}{owned>0 && typeof youPaid === 'number' ? ` (avg $${youPaid})` : ''}</div>
-              <div>% of Max: {pctText}</div>
+
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0,1fr))',
+                gap: 6,
+                fontSize: shrinkFont(12),
+                color: 'var(--muted)'
+              }}
+            >
+              <span>Avail <strong style={{ color: 'var(--text)' }}>{available}</strong></span>
+              <span>Owned <strong style={{ color: 'var(--text)' }}>{owned}</strong></span>
+              <span>Range {rangeText}</span>
+              <span>% Max {pctText}</span>
+              {owned > 0 && typeof youPaid === 'number' ? (
+                <span style={{ gridColumn: '1 / -1' }}>Avg Paid ${youPaid}</span>
+              ) : null}
             </div>
-            
-            <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', marginBottom: 8, fontSize: 14, fontWeight: 500 }}>Buy Quantity:</label>
-              <input 
-                style={{ 
-                  width: '100%', 
-                  padding: '12px 16px',
-                  fontSize: 16,
-                  minHeight: 48,
+
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8
+              }}
+            >
+              <label htmlFor={qtyId} style={{ fontSize: shrinkFont(12), color: 'var(--muted)' }}>
+                Qty
+              </label>
+              <input
+                id={qtyId}
+                style={{
+                  flex: '0 0 72px',
+                  padding: '8px 10px',
+                  fontSize: shrinkFont(14),
+                  minHeight: 38,
                   borderRadius: 6,
                   border: '1px solid var(--border)',
-                  background: 'var(--bg)'
-                }} 
-                type="number" 
-                value={amt} 
-                min={0} 
-                max={maxBuy} 
+                  background: 'rgba(15,23,42,0.9)',
+                  color: 'var(--text)'
+                }}
+                type="number"
+                value={amt}
+                min={0}
+                max={maxBuy}
                 disabled={disabledTrade}
-                onChange={e=>{
+                onChange={e => {
                   const v = Number(e.target.value)
                   const capped = Math.max(0, Math.min(maxBuy, isNaN(v) ? 0 : v))
                   setAmountsByGood(s => ({ ...s, [g]: capped }))
-                }} 
+                }}
               />
+              <span style={{ fontSize: shrinkFont(11), color: 'var(--muted)' }}>Max {maxBuy}</span>
             </div>
-            
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button 
-                disabled={disabledTrade || amt<=0} 
-                onClick={()=>buy(g, amt)} 
-                title={disabledTrade ? 'Unavailable while in transit' : (freeSlots<=0 ? 'Cargo full' : undefined)} 
-                style={{ 
+
+            <div
+              style={{
+                display: 'flex',
+                gap: 8
+              }}
+            >
+              <button
+                disabled={disabledTrade || amt <= 0}
+                onClick={() => buy(g, amt)}
+                title={disabledTrade ? 'Unavailable while in transit' : freeSlots <= 0 ? 'Cargo full' : undefined}
+                style={{
                   flex: 1,
-                  padding: '16px 24px',
-                  fontSize: 18,
+                  padding: '10px 12px',
+                  fontSize: shrinkFont(14),
                   fontWeight: 600,
-                  minHeight: 56,
-                  borderRadius: 8,
+                  minHeight: 40,
+                  borderRadius: 6,
                   background: 'var(--accent)',
                   color: 'white',
                   border: 'none',
@@ -3361,19 +3402,22 @@ export function App() {
               >
                 Buy
               </button>
-              <button 
-                disabled={disabledTrade || owned<=0} 
-                onClick={()=>sell(g, owned)} 
-                style={{ 
+              <button
+                disabled={disabledTrade || owned <= 0}
+                onClick={() => sell(g, owned)}
+                style={{
                   flex: 1,
-                  padding: '16px 24px',
-                  fontSize: 18,
+                  padding: '10px 12px',
+                  fontSize: shrinkFont(14),
                   fontWeight: 600,
-                  minHeight: 56,
-                  borderRadius: 8,
+                  minHeight: 40,
+                  borderRadius: 6,
                   cursor: 'pointer',
+                  border: '1px solid transparent',
+                  background: 'rgba(15,23,42,0.6)',
+                  color: 'var(--text)',
                   ...sellStyle
-                }} 
+                }}
                 title={disabledTrade ? 'Unavailable while in transit' : undefined}
               >
                 Sell All
@@ -3447,7 +3491,7 @@ export function App() {
                 No goods available at this location.
               </div>
             ) : isMobile ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {hasCargoGoods && (
                   <>
                     <div style={{
