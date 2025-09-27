@@ -3306,54 +3306,6 @@ export function App() {
                       filter: 'drop-shadow(0 0 2px rgba(255,255,255,0.3))'
                     }}
                   />
-                  {preGame && (
-                    <div
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        zIndex: 6,
-                        background: 'rgba(15,23,42,0.55)',
-                        backdropFilter: 'blur(1.5px)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: isMobile ? 12 : 16,
-                        padding: isMobile ? 16 : 24
-                      }}
-                    >
-                      <button
-                        onClick={startGame}
-                        disabled={!readyToStart}
-                        title={readyToStart ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
-                        style={{
-                          padding: isMobile ? '18px 32px' : '16px 36px',
-                          fontSize: isMobile ? shrinkFont(20) : '1.1rem',
-                          fontWeight: 700,
-                          borderRadius: 999,
-                          border: 'none',
-                          color: readyToStart ? '#052e16' : 'rgba(255,255,255,0.8)',
-                          background: readyToStart ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 35%, #16a34a 100%)' : 'linear-gradient(135deg, rgba(148,163,184,0.6) 0%, rgba(71,85,105,0.75) 100%)',
-                          cursor: readyToStart ? 'pointer' : 'not-allowed',
-                          boxShadow: readyToStart ? '0 12px 24px rgba(34,197,94,0.45)' : '0 6px 16px rgba(15,23,42,0.45)',
-                          transition: 'transform 160ms ease, box-shadow 160ms ease',
-                          animation: readyToStart ? 'readyPulse 1.6s ease-in-out infinite' : 'none'
-                        }}
-                      >
-                        Start Game
-                      </button>
-                      <span
-                        style={{
-                          fontSize: isMobile ? shrinkFont(16) : '0.95rem',
-                          color: 'rgba(226,232,240,0.85)',
-                          textAlign: 'center',
-                          maxWidth: 360
-                        }}
-                      >
-                        {readyToStart ? 'All commanders are ready! Launch when you are.' : 'Greyed-out controls will unlock once every commander is marked Ready.'}
-                      </span>
-                    </div>
-                  )}
                   {isYou && pathUnits > 0 && (
                     <text
                       x={midX}
@@ -3378,6 +3330,57 @@ export function App() {
               <circle cx={yourTransitPos.x} cy={yourTransitPos.y} r={isMobile ? 9 : 7} fill={colorFor(String(r.you.id))} stroke="#111" strokeOpacity={0.15} />
             )}
           </svg>
+          {preGame && (
+            <div
+              style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 6,
+                background: 'rgba(10,14,29,0.72)',
+                backdropFilter: 'blur(1.8px)',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: isMobile ? 12 : 18,
+                padding: isMobile ? 16 : 28,
+                pointerEvents: 'auto'
+              }}
+            >
+              <button
+                onClick={startGame}
+                disabled={!readyToStart}
+                title={readyToStart ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
+                style={{
+                  padding: isMobile ? '18px 34px' : '18px 44px',
+                  fontSize: isMobile ? shrinkFont(22) : '1.15rem',
+                  fontWeight: 700,
+                  borderRadius: 999,
+                  border: readyToStart ? '1px solid rgba(21, 128, 61, 0.75)' : '1px solid rgba(148,163,184,0.45)',
+                  color: readyToStart ? '#052e16' : 'rgba(226,232,240,0.9)',
+                  background: readyToStart ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 40%, #16a34a 100%)' : 'linear-gradient(135deg, rgba(148,163,184,0.65) 0%, rgba(71,85,105,0.82) 100%)',
+                  cursor: readyToStart ? 'pointer' : 'not-allowed',
+                  boxShadow: readyToStart ? '0 16px 32px rgba(34,197,94,0.45)' : '0 10px 26px rgba(15,23,42,0.55)',
+                  transition: 'transform 160ms ease, box-shadow 160ms ease',
+                  animation: readyToStart ? 'readyPulse 1.6s ease-in-out infinite' : 'none',
+                  pointerEvents: 'auto'
+                }}
+              >
+                Start Game
+              </button>
+              <span
+                style={{
+                  fontSize: isMobile ? shrinkFont(16) : '1rem',
+                  color: 'rgba(226,232,240,0.88)',
+                  textAlign: 'center',
+                  maxWidth: 420,
+                  lineHeight: 1.45
+                }}
+              >
+                {readyToStart ? 'All commanders are ready. Launch when you are!' : 'Waiting for every commander to ready up. Map and market remain locked until then.'}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     )}
