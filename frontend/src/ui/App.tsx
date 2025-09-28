@@ -1030,6 +1030,8 @@ export function App() {
   const [singleplayerMode, setSingleplayerMode] = useState(false)
   const [lobbyNotice, setLobbyNotice] = useState<string | null>(null)
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
+  const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
+  const restoreTargetRoomRef = useRef<string | null>(null)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
   const currentUserId = useMemo(() => user?.sub || user?.username || '', [user?.sub, user?.username])
@@ -1121,6 +1123,37 @@ export function App() {
       setLobbyNotice(null)
 
       if (
+        pendingRestoreRef.current &&
+        !pendingRestoreRef.current.sent &&
+        currentUserId &&
+        payload?.room?.private &&
+        payload?.room?.creatorId === currentUserId &&
+        payload?.room?.id
+      ) {
+        const pending = pendingRestoreRef.current
+        const sent = send('restoreSingleplayer', {
+          roomId: payload.room.id,
+          save: pending.summary.encoded,
+          ownerId: pending.summary.ownerId,
+          lastTurn: pending.summary.lastTurn,
+        })
+        if (sent) {
+          pendingRestoreRef.current = { summary: pending.summary, sent: true }
+          restoreTargetRoomRef.current = payload.room.id
+        } else {
+          setLobbyNotice('Unable to transmit saved mission data. Please check your connection and try again.')
+          setSingleplayerSaves(prev => {
+            const exists = prev.some(save => save.roomId === pending.summary.roomId)
+            if (exists) return prev
+            return [pending.summary, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
+          })
+          pendingRestoreRef.current = null
+          restoreTargetRoomRef.current = null
+        }
+      }
+
+      if (
+        !pendingRestoreRef.current &&
         currentUserId &&
         payload?.room?.private &&
         payload?.room?.creatorId === currentUserId &&
@@ -1150,7 +1183,44 @@ export function App() {
       setLobbyNotice(reason)
       setStage('lobby')
     }
-  }, [messages, currentUserId])
+    if (last.type === 'restoreAck') {
+      const success = Boolean(last.payload?.success)
+      const roomId = last.payload?.roomId as string | undefined
+      const message = last.payload?.message as string | undefined
+      const pending = pendingRestoreRef.current
+      if (restoreTargetRoomRef.current && roomId && roomId !== restoreTargetRoomRef.current) {
+        return
+      }
+
+      if (success) {
+        if (pending) {
+          removeSingleplayerSave(pending.summary.roomId)
+        }
+        pendingRestoreRef.current = null
+        restoreTargetRoomRef.current = null
+        if (message) {
+          setLobbyNotice(message)
+        } else {
+          setLobbyNotice(null)
+        }
+      } else {
+        if (message) {
+          setLobbyNotice(message)
+        } else {
+          setLobbyNotice('Failed to restore saved mission. You can start a new mission instead.')
+        }
+        if (pending) {
+          setSingleplayerSaves(prev => {
+            const exists = prev.some(save => save.roomId === pending.summary.roomId)
+            if (exists) return prev
+            return [pending.summary, ...prev].sort((a, b) => b.updatedAt - a.updatedAt)
+          })
+        }
+        pendingRestoreRef.current = null
+        restoreTargetRoomRef.current = null
+      }
+    }
+  }, [messages, currentUserId, send])
 
   // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
   useEffect(() => {
@@ -1305,6 +1375,8 @@ export function App() {
       return
     }
 
+    pendingRestoreRef.current = { summary: save, sent: false }
+
     const sanitizedName = sanitizeAlphanumeric(save.roomName || '')
     const desiredName = sanitizedName || 'Solo Mission'
     const payload: Record<string, any> = { singleplayer: true }
@@ -1314,6 +1386,7 @@ export function App() {
 
     const created = send('createRoom', payload)
     if (!created) {
+      pendingRestoreRef.current = null
       setLobbyNotice('Unable to relaunch singleplayer mission. Please check your connection and try again.')
       return
     }
@@ -1321,7 +1394,6 @@ export function App() {
     setSingleplayerMode(true)
     setNewRoomName('')
     setLobbyNotice(`Relaunching singleplayer mission "${desiredName}"...`)
-    removeSingleplayerSave(save.roomId)
     setSingleplayerSaves(prev => prev.filter(entry => entry.roomId !== save.roomId))
   }, [
     joinRoom,
