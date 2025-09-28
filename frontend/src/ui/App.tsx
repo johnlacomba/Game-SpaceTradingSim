@@ -4,6 +4,12 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import LoginForm from '../components/LoginForm.jsx'
 import awsConfig from '../aws-config.js'
+import {
+  listSingleplayerSaves,
+  recordSingleplayerTurn,
+  removeSingleplayerSave,
+  SingleplayerSaveSummary,
+} from '../utils/singleplayerSaves'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -30,6 +36,17 @@ const shrinkFont = (size: number) => Math.max(10, size - 4)
 
 const sanitizeAlphanumeric = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '')
 const sanitizeNumeric = (value: string) => value.replace(/[^0-9]/g, '')
+
+const formatRelativeTime = (timestamp: number) => {
+  const diff = Date.now() - timestamp
+  const minutes = Math.round(diff / 60000)
+  if (minutes <= 0) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  return `${days}d ago`
+}
 
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
@@ -1012,8 +1029,10 @@ export function App() {
   const [newRoomName, setNewRoomName] = useState('')
   const [singleplayerMode, setSingleplayerMode] = useState(false)
   const [lobbyNotice, setLobbyNotice] = useState<string | null>(null)
+  const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  const currentUserId = useMemo(() => user?.sub || user?.username || '', [user?.sub, user?.username])
   const nameTouchedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
   
@@ -1079,6 +1098,16 @@ export function App() {
   }, [])
 
   useEffect(() => {
+    if (stage !== 'lobby') return
+    if (!currentUserId) {
+      setSingleplayerSaves([])
+      return
+    }
+    const saves = listSingleplayerSaves(currentUserId)
+    setSingleplayerSaves(saves)
+  }, [stage, currentUserId])
+
+  useEffect(() => {
     const last = messages[messages.length-1]
     if (!last) return
     if (last.type === 'lobbyState') {
@@ -1086,16 +1115,42 @@ export function App() {
       setStage('lobby')
     }
     if (last.type === 'roomState') {
-      setRoom(last.payload)
+      const payload = last.payload
+      setRoom(payload)
       setStage('room')
       setLobbyNotice(null)
+
+      if (
+        currentUserId &&
+        payload?.room?.private &&
+        payload?.room?.creatorId === currentUserId &&
+        payload?.room?.id
+      ) {
+        const summary = recordSingleplayerTurn({
+          roomId: payload.room.id,
+          roomName: payload.room.name,
+          ownerId: currentUserId,
+          turn: typeof payload.room.turn === 'number' ? payload.room.turn : 0,
+          state: {
+            room: payload.room,
+            you: payload.you,
+            visiblePlanet: payload.visiblePlanet,
+          },
+        })
+        if (summary) {
+          setSingleplayerSaves(prev => {
+            const filtered = prev.filter(save => save.roomId !== summary.roomId)
+            return [summary, ...filtered].sort((a, b) => b.updatedAt - a.updatedAt)
+          })
+        }
+      }
     }
     if (last.type === 'joinDenied') {
       const reason = last.payload?.message || last.payload?.reason || 'Unable to join room.'
       setLobbyNotice(reason)
       setStage('lobby')
     }
-  }, [messages])
+  }, [messages, currentUserId])
 
   // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
   useEffect(() => {
@@ -1241,7 +1296,20 @@ export function App() {
       setNewRoomName('')
     }
   }, [newRoomName, singleplayerMode, send])
-  const joinRoom = (roomId: string) => send('joinRoom', { roomId })
+  const joinRoom = useCallback((roomId: string) => send('joinRoom', { roomId }), [send])
+  const handleContinueSave = useCallback((save: SingleplayerSaveSummary) => {
+    const activeRoom = lobby.rooms.find(r => r.id === save.roomId)
+    if (activeRoom) {
+      joinRoom(save.roomId)
+      setLobbyNotice(null)
+      return
+    }
+    setLobbyNotice(`Saved mission "${save.roomName || 'Unnamed Mission'}" is not currently active. Launch a new singleplayer mission to begin a fresh run.`)
+  }, [joinRoom, lobby.rooms])
+  const handleDeleteSave = useCallback((roomId: string) => {
+    removeSingleplayerSave(roomId)
+    setSingleplayerSaves(prev => prev.filter(save => save.roomId !== roomId))
+  }, [])
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
   const exitRoom = () => send('exitRoom')
@@ -2021,185 +2089,327 @@ export function App() {
               </button>
             </div>
 
-            {/* Active Missions List */}
-            <div style={{
-              background: 'rgba(255, 255, 255, 0.02)',
-              backdropFilter: 'blur(10px)',
-              border: '1px solid rgba(255, 255, 255, 0.1)',
-              borderRadius: isMobile ? 16 : 20,
-              padding: isMobile ? 24 : 32,
-              boxShadow: '0 20px 40px -12px rgba(0, 0, 0, 0.3)'
-            }}>
-              <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 12,
-                marginBottom: 24
-              }}>
-                <span style={{ fontSize: isMobile ? '1.5rem' : '2rem' }}>🌌</span>
-                <h3 style={{
-                  fontSize: isMobile ? '1.3rem' : '1.5rem',
-                  margin: 0,
-                  color: 'white',
-                  fontWeight: 600
-                }}>
-                  Active Missions ({lobby.rooms.length})
-                </h3>
-              </div>
-
-              {lobby.rooms.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 24 : 32 }}>
+              {singleplayerSaves.length > 0 && (
                 <div style={{
-                  textAlign: 'center',
-                  padding: isMobile ? '32px 16px' : '48px 24px',
-                  color: 'rgba(255, 255, 255, 0.5)'
+                  background: 'rgba(255, 255, 255, 0.02)',
+                  backdropFilter: 'blur(10px)',
+                  border: '1px solid rgba(255, 255, 255, 0.1)',
+                  borderRadius: isMobile ? 16 : 20,
+                  padding: isMobile ? 24 : 28,
+                  boxShadow: '0 20px 40px -12px rgba(0, 0, 0, 0.3)'
                 }}>
-                  <div style={{ fontSize: isMobile ? '3rem' : '4rem', marginBottom: 16, opacity: 0.3 }}>
-                    🛸
-                  </div>
-                  <p style={{ 
-                    fontSize: isMobile ? '1rem' : '1.1rem',
-                    margin: 0,
-                    lineHeight: 1.5
+                  <div style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: isMobile ? 'flex-start' : 'center',
+                    flexDirection: isMobile ? 'column' : 'row',
+                    gap: isMobile ? 12 : 16,
+                    marginBottom: isMobile ? 20 : 24
                   }}>
-                    No active missions found.<br />
-                    Create a new game to start trading!
-                  </p>
-                </div>
-              ) : (
-                <div style={{
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: isMobile ? 12 : 16,
-                  maxHeight: isMobile ? '400px' : '500px',
-                  overflowY: 'auto',
-                  paddingRight: 8
-                }}>
-                  {lobby.rooms.map(r => (
-                    <div 
-                      key={r.id}
-                      style={{
-                        background: 'rgba(255, 255, 255, 0.05)',
-                        border: '1px solid rgba(255, 255, 255, 0.1)',
-                        borderRadius: isMobile ? 12 : 14,
-                        padding: isMobile ? 16 : 20,
-                        transition: 'all 0.3s ease',
-                        cursor: 'pointer'
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
-                        e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.3)'
-                        e.currentTarget.style.transform = 'translateY(-2px)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                        e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                        e.currentTarget.style.transform = 'translateY(0)'
-                      }}
-                      onClick={() => joinRoom(r.id)}
-                    >
-                      <div style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: isMobile ? 'flex-start' : 'center',
-                        flexDirection: isMobile ? 'column' : 'row',
-                        gap: isMobile ? 8 : 16
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: isMobile ? '1.5rem' : '2rem' }}>🧭</span>
+                      <h3 style={{
+                        fontSize: isMobile ? '1.25rem' : '1.4rem',
+                        margin: 0,
+                        color: 'white',
+                        fontWeight: 600
                       }}>
-                        <div style={{ flex: 1 }}>
-                          <h4 style={{
-                            fontSize: isMobile ? '1.1rem' : '1.2rem',
-                            margin: '0 0 8px 0',
-                            color: 'white',
-                            fontWeight: 600
-                          }}>
-                            {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
-                            {r.name}
-                          </h4>
-                          <div style={{
+                        Continue Singleplayer
+                      </h3>
+                    </div>
+                    <span style={{
+                      fontSize: isMobile ? '0.8rem' : '0.85rem',
+                      color: 'rgba(255, 255, 255, 0.55)'
+                    }}>
+                      Auto-saved each turn
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16 }}>
+                    {singleplayerSaves.map(save => {
+                      const isActive = lobby.rooms.some(r => r.id === save.roomId)
+                      return (
+                        <div
+                          key={save.roomId}
+                          style={{
                             display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: isMobile ? 8 : 12,
-                            fontSize: isMobile ? '0.85rem' : '0.9rem',
-                            color: 'rgba(255, 255, 255, 0.6)'
-                          }}>
-                            <span style={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 4
-                            }}>
-                              <span style={{ fontSize: '1rem' }}>👥</span>
-                              {r.playerCount} commanders
-                            </span>
-                            {r.started && (
+                            flexDirection: isMobile ? 'column' : 'row',
+                            alignItems: isMobile ? 'flex-start' : 'center',
+                            justifyContent: 'space-between',
+                            gap: isMobile ? 12 : 16,
+                            padding: isMobile ? '14px 16px' : '16px 20px',
+                            borderRadius: isMobile ? 12 : 14,
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.08)'
+                          }}
+                        >
+                          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                              <span style={{
+                                fontSize: isMobile ? '1.05rem' : '1.1rem',
+                                fontWeight: 600,
+                                color: 'white'
+                              }}>
+                                {save.roomName || 'Unnamed Mission'}
+                              </span>
                               <span style={{
                                 display: 'flex',
                                 alignItems: 'center',
-                                gap: 4,
-                                color: '#10b981'
+                                gap: 6,
+                                fontSize: isMobile ? '0.75rem' : '0.75rem',
+                                color: isActive ? '#34d399' : '#fbbf24'
                               }}>
-                                <span style={{ fontSize: '1rem' }}>🎯</span>
-                                Turn {r.turn ?? 0}
+                                <span style={{
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 4,
+                                  background: isActive ? '#34d399' : '#fbbf24'
+                                }} />
+                                {isActive ? 'Room live' : 'Room offline'}
                               </span>
-                            )}
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 8,
+                              fontSize: isMobile ? '0.85rem' : '0.85rem',
+                              color: 'rgba(255, 255, 255, 0.65)'
+                            }}>
+                              <span>Turn {save.lastTurn}</span>
+                              <span>•</span>
+                              <span>{formatRelativeTime(save.updatedAt)}</span>
+                              <span>•</span>
+                              <span>{save.turnCount} snapshot{save.turnCount === 1 ? '' : 's'}</span>
+                            </div>
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: isMobile ? 'column' : 'row',
+                            gap: 8,
+                            width: isMobile ? '100%' : 'auto'
+                          }}>
+                            <button
+                              onClick={() => handleContinueSave(save)}
+                              style={{
+                                padding: isMobile ? '10px 16px' : '10px 18px',
+                                fontSize: isMobile ? '0.9rem' : '0.85rem',
+                                borderRadius: 999,
+                                border: 'none',
+                                background: isActive
+                                  ? 'linear-gradient(135deg, #34d399 0%, #059669 100%)'
+                                  : 'linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%)',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                width: isMobile ? '100%' : undefined
+                              }}
+                            >
+                              {isActive ? 'Continue' : 'Rejoin'}
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSave(save.roomId)}
+                              style={{
+                                padding: isMobile ? '10px 16px' : '10px 18px',
+                                fontSize: isMobile ? '0.9rem' : '0.85rem',
+                                borderRadius: 999,
+                                border: '1px solid rgba(255, 255, 255, 0.25)',
+                                background: 'transparent',
+                                color: 'rgba(255, 255, 255, 0.75)',
+                                cursor: 'pointer',
+                                fontWeight: 600,
+                                width: isMobile ? '100%' : undefined
+                              }}
+                            >
+                              Delete
+                            </button>
                           </div>
                         </div>
-                        <div style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 8
-                        }}>
-                          {r.private && (
-                            <span style={{
-                              padding: isMobile ? '6px 12px' : '4px 8px',
-                              fontSize: isMobile ? '0.75rem' : '0.7rem',
-                              fontWeight: 600,
-                              borderRadius: 20,
-                              background: 'rgba(167, 139, 250, 0.2)',
-                              color: '#a855f7',
-                              border: '1px solid rgba(167, 139, 250, 0.35)'
-                            }}>
-                              PRIVATE
-                            </span>
-                          )}
-                          {r.paused && (
-                            <span style={{
-                              padding: isMobile ? '6px 12px' : '4px 8px',
-                              fontSize: isMobile ? '0.75rem' : '0.7rem',
-                              fontWeight: 600,
-                              borderRadius: 20,
-                              background: 'rgba(251, 191, 36, 0.2)',
-                              color: '#fbbf24',
-                              border: '1px solid rgba(251, 191, 36, 0.35)'
-                            }}>
-                              PAUSED
-                            </span>
-                          )}
-                          <span style={{
-                            padding: isMobile ? '6px 12px' : '4px 8px',
-                            fontSize: isMobile ? '0.75rem' : '0.7rem',
-                            fontWeight: 600,
-                            borderRadius: 20,
-                            background: r.started 
-                              ? 'rgba(16, 185, 129, 0.2)' 
-                              : 'rgba(59, 130, 246, 0.2)',
-                            color: r.started ? '#10b981' : '#3b82f6',
-                            border: `1px solid ${r.started 
-                              ? 'rgba(16, 185, 129, 0.3)' 
-                              : 'rgba(59, 130, 246, 0.3)'}`
-                          }}>
-                            {r.started ? 'IN PROGRESS' : 'RECRUITING'}
-                          </span>
-                          <span style={{ 
-                            fontSize: isMobile ? '1.2rem' : '1.5rem',
-                            opacity: 0.6
-                          }}>
-                            →
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                      )
+                    })}
+                  </div>
                 </div>
               )}
+
+              {/* Active Missions List */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                backdropFilter: 'blur(10px)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: isMobile ? 16 : 20,
+                padding: isMobile ? 24 : 32,
+                boxShadow: '0 20px 40px -12px rgba(0, 0, 0, 0.3)'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  marginBottom: 24
+                }}>
+                  <span style={{ fontSize: isMobile ? '1.5rem' : '2rem' }}>🌌</span>
+                  <h3 style={{
+                    fontSize: isMobile ? '1.3rem' : '1.5rem',
+                    margin: 0,
+                    color: 'white',
+                    fontWeight: 600
+                  }}>
+                    Active Missions ({lobby.rooms.length})
+                  </h3>
+                </div>
+
+                {lobby.rooms.length === 0 ? (
+                  <div style={{
+                    textAlign: 'center',
+                    padding: isMobile ? '32px 16px' : '48px 24px',
+                    color: 'rgba(255, 255, 255, 0.5)'
+                  }}>
+                    <div style={{ fontSize: isMobile ? '3rem' : '4rem', marginBottom: 16, opacity: 0.3 }}>
+                      🛸
+                    </div>
+                    <p style={{ 
+                      fontSize: isMobile ? '1rem' : '1.1rem',
+                      margin: 0,
+                      lineHeight: 1.5
+                    }}>
+                      No active missions found.<br />
+                      Create a new game to start trading!
+                    </p>
+                  </div>
+                ) : (
+                  <div style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: isMobile ? 12 : 16,
+                    maxHeight: isMobile ? '400px' : '500px',
+                    overflowY: 'auto',
+                    paddingRight: 8
+                  }}>
+                    {lobby.rooms.map(r => (
+                      <div 
+                        key={r.id}
+                        style={{
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                          borderRadius: isMobile ? 12 : 14,
+                          padding: isMobile ? 16 : 20,
+                          transition: 'all 0.3s ease',
+                          cursor: 'pointer'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
+                          e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.3)'
+                          e.currentTarget.style.transform = 'translateY(-2px)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                          e.currentTarget.style.transform = 'translateY(0)'
+                        }}
+                        onClick={() => joinRoom(r.id)}
+                      >
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: isMobile ? 'flex-start' : 'center',
+                          flexDirection: isMobile ? 'column' : 'row',
+                          gap: isMobile ? 8 : 16
+                        }}>
+                          <div style={{ flex: 1 }}>
+                            <h4 style={{
+                              fontSize: isMobile ? '1.1rem' : '1.2rem',
+                              margin: '0 0 8px 0',
+                              color: 'white',
+                              fontWeight: 600
+                            }}>
+                              {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
+                              {r.name}
+                            </h4>
+                            <div style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: isMobile ? 8 : 12,
+                              fontSize: isMobile ? '0.85rem' : '0.9rem',
+                              color: 'rgba(255, 255, 255, 0.6)'
+                            }}>
+                              <span style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}>
+                                <span style={{ fontSize: '1rem' }}>👥</span>
+                                {r.playerCount} commanders
+                              </span>
+                              {r.started && (
+                                <span style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  color: '#10b981'
+                                }}>
+                                  <span style={{ fontSize: '1rem' }}>🎯</span>
+                                  Turn {r.turn ?? 0}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8
+                          }}>
+                            {r.private && (
+                              <span style={{
+                                padding: isMobile ? '6px 12px' : '4px 8px',
+                                fontSize: isMobile ? '0.75rem' : '0.7rem',
+                                fontWeight: 600,
+                                borderRadius: 20,
+                                background: 'rgba(167, 139, 250, 0.2)',
+                                color: '#a855f7',
+                                border: '1px solid rgba(167, 139, 250, 0.35)'
+                              }}>
+                                PRIVATE
+                              </span>
+                            )}
+                            {r.paused && (
+                              <span style={{
+                                padding: isMobile ? '6px 12px' : '4px 8px',
+                                fontSize: isMobile ? '0.75rem' : '0.7rem',
+                                fontWeight: 600,
+                                borderRadius: 20,
+                                background: 'rgba(251, 191, 36, 0.2)',
+                                color: '#fbbf24',
+                                border: '1px solid rgba(251, 191, 36, 0.35)'
+                              }}>
+                                PAUSED
+                              </span>
+                            )}
+                            <span style={{
+                              padding: isMobile ? '6px 12px' : '4px 8px',
+                              fontSize: isMobile ? '0.75rem' : '0.7rem',
+                              fontWeight: 600,
+                              borderRadius: 20,
+                              background: r.started 
+                                ? 'rgba(16, 185, 129, 0.2)' 
+                                : 'rgba(59, 130, 246, 0.2)',
+                              color: r.started ? '#10b981' : '#3b82f6',
+                              border: `1px solid ${r.started 
+                                ? 'rgba(16, 185, 129, 0.3)' 
+                                : 'rgba(59, 130, 246, 0.3)'}`
+                            }}>
+                              {r.started ? 'IN PROGRESS' : 'RECRUITING'}
+                            </span>
+                            <span style={{ 
+                              fontSize: isMobile ? '1.2rem' : '1.5rem',
+                              opacity: 0.6
+                            }}>
+                              →
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
