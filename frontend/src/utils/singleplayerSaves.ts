@@ -178,8 +178,28 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
       known.add(youState.destinationPlanet);
     }
 
+    if (existing && Array.isArray(existing.turns)) {
+      for (const previous of existing.turns) {
+        if (!previous || !previous.state) continue;
+        const priorState = previous.state as Record<string, any>;
+        const addFrom = (value: unknown) => {
+          if (!Array.isArray(value)) return;
+          for (const entry of value as unknown[]) {
+            if (typeof entry === 'string' && entry) known.add(entry);
+          }
+        };
+        addFrom(priorState.discoveredPlanets);
+        if (priorState.room && typeof priorState.room === 'object') {
+          addFrom((priorState.room as Record<string, unknown>).planets);
+        }
+        if (priorState.you && typeof priorState.you === 'object') {
+          addFrom((priorState.you as Record<string, unknown>).knownPlanets);
+        }
+      }
+    }
+
     if (known.size > 0) {
-      const discovered = Array.from(known)
+      const discovered = Array.from(known).sort()
       youState.knownPlanets = discovered
       stateAny.discoveredPlanets = discovered
 
