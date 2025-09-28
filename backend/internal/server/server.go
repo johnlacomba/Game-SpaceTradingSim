@@ -35,6 +35,16 @@ const shipCapacity = 200 // maximum total units a ship can carry
 const fuelCapacity = 100 // maximum fuel units (distance units)
 const maxFacilitiesPerPlanet = 3
 
+const (
+	worldWidth             = 5200.0
+	worldHeight            = 5200.0
+	worldPlanetCount       = 100
+	minPlanetSpacingUnits  = 240.0
+	discoveryRadiusStation = 650.0
+	discoveryRadiusTransit = 500.0
+	distanceUnitScale      = 160.0
+)
+
 // Bot names for variety
 var botNames = []string{
 	"Captain Nova", "Admiral Stardust", "Commander Vega", "Captain Nebula", "Admiral Comet",
@@ -43,6 +53,95 @@ var botNames = []string{
 	"Captain Luna", "Commander Titan", "Admiral Helios", "Captain Andromeda", "Commander Pulsar",
 	"Captain Rigel", "Admiral Draco", "Commander Sirius", "Captain Vortex", "Admiral Eclipse",
 	"Captain Zenith", "Commander Nexus", "Admiral Infinity", "Captain Paradox", "Commander Flux",
+}
+
+var locationPrefixes = []string{
+	"Astra", "Nebula", "Ion", "Vanta", "Cypher", "Luma", "Nova", "Zetra", "Omni", "Spectra",
+	"Proto", "Velora", "Lucid", "Hyper", "Quanta", "Delta", "Zerra", "Krios", "Lyra", "Helio",
+	"Solace", "Nyx", "Umbra", "Epsilon", "Omega", "Cobalt", "Axia", "Zenith", "Flux", "Obsidia",
+}
+
+var locationCores = []string{
+	"Arc", "Crown", "Drift", "Spire", "Reach", "Horizon", "Bastion", "Nexus", "Harbor", "Forge",
+	"Haven", "Citadel", "Ridge", "Hollow", "Gate", "Lattice", "Field", "Matrix", "Rift", "Anchor",
+	"Veil", "Vault", "Fathom", "Chorus", "Beacon", "Circuit", "Array", "Orbit", "Signal", "Pulse",
+}
+
+var locationSuffixes = []string{
+	"Station", "Outpost", "Port", "Relay", "Hold", "Terminal", "Sanctum", "Depot", "Garrison", "Anchor",
+	"Dome", "Colony", "Platform", "Span", "Cluster", "Axis", "Stronghold", "Bulwark", "Archive", "Keep",
+	"Dock", "Observatory", "Node", "Vault", "Garden", "Shell", "Cove", "Harbor", "Breach", "Mezzanine",
+}
+
+var locationQualifiers = []string{
+	"Prime", "Sigma", "Omega", "Theta", "V", "VII", "Alpha", "Rho", "Lambda", "Pulse",
+	"Cinder", "Aurora", "Halo", "Specter", "Zen", "Flux", "Parallel", "Eclipse", "Mirage", "Lumen",
+}
+
+var standardGoods = []string{
+	"Sky Kelp",
+	"Moon Ferns",
+	"Desalinated Sodium",
+	"Reticulated Splines",
+	"Zero-G Noodles",
+	"Quantum Bubblegum",
+	"Cosmic Coffee Beans",
+	"Nano Lint",
+}
+
+var uniqueGoodsPool = []string{
+	"Cyber Toasters",
+	"Photon Socks",
+	"Extradimensional Sea Monkeys",
+	"Nebula Nectar",
+	"Depleted Clown Shoes",
+	"Holographic Honey",
+	"Martian Dust Bunnies",
+	"Laser Lemons",
+	"Stellar Marshmallows",
+	"Gamma Grit",
+	"Plasma Donuts",
+	"Ring Popcorn",
+	"Anti-Gravity Paperclips",
+	"Void Raisins",
+	"Galactic Jelly",
+	"Comet Cotton Candy",
+	"Wormhole Licorice",
+	"Singularity Seeds",
+	"Orbital Oregano",
+	"Alien Hot Sauce",
+	"Rocket Rations",
+	"Chrono Crystals",
+	"Aurora Spice",
+	"Solar Syrup",
+	"Plasma Pomegranates",
+	"Ionized Ice Cream",
+	"Nebula Nougat",
+	"Gravimetric Granola",
+	"Quantum Quinoa",
+	"Void Vanilla Beans",
+	"Stasis Sesame",
+	"Phase Fudge",
+	"Auric Anchovies",
+	"Lunar Licorice",
+	"Perigee Peppers",
+	"Aphelion Almonds",
+	"Flux Fennel",
+	"Zenith Ziti",
+	"Kaleido Kale",
+	"Pulsar Pistachios",
+	"Glacier Gelato",
+	"Radiant Ramen",
+	"Echo Espresso Pods",
+	"Prism Pearls",
+	"Nimbus Nougat",
+	"Halo Hazelnut Spread",
+	"Specter Spices",
+	"Driftwood Dulse",
+	"Plasma Pickles",
+	"Nova Noodles",
+	"Cobalt Cereal",
+	"Frostlight Feta",
 }
 
 var alphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
@@ -95,6 +194,7 @@ type Player struct {
 	IsBot             bool            `json:"-"`
 	writeMu           sync.Mutex      // guards conn writes
 	Bankrupt          bool            `json:"-"`
+	KnownPlanets      map[string]bool `json:"-"`
 	// Transit state (server-only)
 	InTransit          bool   `json:"-"`
 	TransitFrom        string `json:"-"`
@@ -267,6 +367,7 @@ type singleplayerPlayerSnapshot struct {
 	UpgradeValue       int                        `json:"upgradeValue"`
 	CargoValue         int                        `json:"cargoValue"`
 	MarketMemory       map[string]*MarketSnapshot `json:"marketMemory"`
+	KnownPlanets       []string                   `json:"knownPlanets"`
 }
 type Planet struct {
 	Name   string         `json:"name"`
@@ -332,6 +433,7 @@ type PersistedPlayer struct {
 	FacilityInvestment int
 	UpgradeInvestment  int
 	MarketMemory       map[string]*MarketSnapshot
+	KnownPlanets       map[string]bool
 }
 
 type GameServer struct {
@@ -505,6 +607,7 @@ func (gs *GameServer) readLoop(p *Player) {
 					FacilityInvestment: p.FacilityInvestment,
 					UpgradeInvestment:  p.UpgradeInvestment,
 					MarketMemory:       cloneMarketMemory(p.MarketMemory),
+					KnownPlanets:       cloneBoolMap(p.KnownPlanets),
 				}
 				delete(room.Players, p.ID)
 				p.roomID = ""
@@ -736,6 +839,9 @@ func (gs *GameServer) readLoop(p *Player) {
 				if p.InTransit {
 					allow = false
 					gs.enqueueModal(p, "In Transit", "You are still in transit towards "+defaultStr(p.DestinationPlanet, "your destination")+".")
+				}
+				if data.Planet != "" && !p.KnownPlanets[data.Planet] {
+					allow = false
 				}
 				if len(room.PlanetPositions) > 0 && data.Planet != "" && data.Planet != p.CurrentPlanet {
 					cost := distanceUnits(room, p.CurrentPlanet, data.Planet)
@@ -1044,6 +1150,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 				FacilityInvestment: p.FacilityInvestment,
 				UpgradeInvestment:  p.UpgradeInvestment,
 				MarketMemory:       cloneMarketMemory(p.MarketMemory),
+				KnownPlanets:       cloneBoolMap(p.KnownPlanets),
 			}
 			delete(old.Players, p.ID)
 			old.mu.Unlock()
@@ -1085,6 +1192,7 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		p.Bankrupt = snap.Bankrupt
 		p.FacilityInvestment = snap.FacilityInvestment
 		p.UpgradeInvestment = snap.UpgradeInvestment
+		p.KnownPlanets = cloneBoolMap(snap.KnownPlanets)
 		// restore per-room action history
 		p.ActionHistory = cloneActionHistory(snap.ActionHistory)
 		// Initialize price memory for bots (important for restored bots)
@@ -1100,7 +1208,13 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	} else {
 		// New room without a snapshot: start with fresh per-room state
 		p.Money = 1000
-		p.CurrentPlanet = "Earth"
+		start := chooseStartingPlanet(room)
+		if start == "" {
+			if names := planetNames(room.Planets); len(names) > 0 {
+				start = names[rand.Intn(len(names))]
+			}
+		}
+		p.CurrentPlanet = start
 		p.DestinationPlanet = ""
 		p.Ready = false
 		p.EndGame = false // Always start with EndGame false in new rooms
@@ -1123,6 +1237,10 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 		// Initialize price memory
 		p.PriceMemory = make(map[string]*PriceMemory)
 		p.MarketMemory = make(map[string]*MarketSnapshot)
+		p.KnownPlanets = make(map[string]bool)
+		if start != "" {
+			p.KnownPlanets[start] = true
+		}
 	}
 	if p.Inventory == nil {
 		p.Inventory = map[string]int{}
@@ -1136,7 +1254,13 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	if p.MarketMemory == nil {
 		p.MarketMemory = make(map[string]*MarketSnapshot)
 	}
+	if p.KnownPlanets == nil {
+		p.KnownPlanets = make(map[string]bool)
+	}
 	room.Players[p.ID] = p
+	if pos, ok := room.PlanetPositions[p.CurrentPlanet]; ok {
+		discoverAroundPosition(room, p, pos, discoveryRadiusStation)
+	}
 	if room.Private && room.CreatorID == p.ID {
 		room.Paused = false
 		if room.Started {
@@ -1525,11 +1649,18 @@ func (gs *GameServer) addBot(roomID string) {
 		botName = availableNames[rand.Intn(len(availableNames))]
 	}
 
+	start := chooseStartingPlanet(room)
+	if start == "" {
+		if names := planetNames(room.Planets); len(names) > 0 {
+			start = names[rand.Intn(len(names))]
+		}
+	}
+
 	b := &Player{
 		ID:                 PlayerID(randID()),
 		Name:               botName,
 		Money:              1000,
-		CurrentPlanet:      "Earth",
+		CurrentPlanet:      start,
 		DestinationPlanet:  "",
 		Inventory:          map[string]int{},
 		InventoryAvgCost:   map[string]int{},
@@ -1540,10 +1671,17 @@ func (gs *GameServer) addBot(roomID string) {
 		MarketMemory:       make(map[string]*MarketSnapshot),
 		LastTripStartMoney: 1000,
 		ConsecutiveVisits:  make(map[string]int),
+		KnownPlanets:       make(map[string]bool),
+	}
+	if start != "" {
+		b.KnownPlanets[start] = true
 	}
 	b.roomID = room.ID
 	room.mu.Lock()
 	room.Players[b.ID] = b
+	if pos, ok := room.PlanetPositions[b.CurrentPlanet]; ok {
+		discoverAroundPosition(room, b, pos, discoveryRadiusStation)
+	}
 	room.mu.Unlock()
 	gs.broadcastRoom(room)
 }
@@ -1778,6 +1916,7 @@ func (gs *GameServer) runTicker(room *Room) {
 						gs.enqueueModal(p, "Insufficient Fuel", "You didn't have enough fuel to make progress toward "+p.DestinationPlanet+".")
 					}
 					// Either we showed a modal (human) and stayed in transit, or we canceled (bot). Proceed to next player.
+					gs.updateDiscoveryForPlayer(room, p)
 					continue
 				}
 				// Consume fuel and reduce remaining distance
@@ -1831,6 +1970,7 @@ func (gs *GameServer) runTicker(room *Room) {
 					}
 				}
 			}
+			gs.updateDiscoveryForPlayer(room, p)
 		}
 
 		// Handle facility charges and collection
@@ -3008,7 +3148,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			break
 		}
 	}
-	players := []map[string]interface{}{}
+	playersBase := []map[string]interface{}{}
 	for _, pp := range room.Players {
 		displayMoney := pp.Money
 		moneyField := interface{}(displayMoney)
@@ -3018,7 +3158,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		cargoValue := inventoryValue(pp.Inventory, pp.InventoryAvgCost)
 		upgradeValue := pp.UpgradeInvestment
 		facilityValue := pp.FacilityInvestment
-		players = append(players, map[string]interface{}{
+		playersBase = append(playersBase, map[string]interface{}{
 			"id":                 pp.ID,
 			"name":               pp.Name,
 			"money":              moneyField,
@@ -3064,41 +3204,126 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			facilityOverview[planetName] = entries
 		}
 	}
-	buildMarketPayload := func(mem map[string]*MarketSnapshot) map[string]interface{} {
-		if len(mem) == 0 {
-			return map[string]interface{}{}
+	const unknownLabel = "Uncharted Space"
+
+	filterPlanets := func(known map[string]bool) ([]string, map[string]map[string]float64) {
+		orderSource := room.PlanetOrder
+		if len(orderSource) == 0 {
+			orderSource = planetNames(room.Planets)
 		}
-		out := make(map[string]interface{}, len(mem))
-		for planetName, snap := range mem {
-			if snap == nil {
+		list := make([]string, 0, len(known))
+		for _, name := range orderSource {
+			if known[name] {
+				list = append(list, name)
+			}
+		}
+		positions := make(map[string]map[string]float64, len(list))
+		for _, name := range list {
+			if pos, ok := room.PlanetPositions[name]; ok {
+				positions[name] = map[string]float64{"x": pos[0], "y": pos[1]}
+			}
+		}
+		return list, positions
+	}
+
+	filterFacilities := func(known map[string]bool) map[string][]map[string]interface{} {
+		if len(facilityOverview) == 0 {
+			return nil
+		}
+		out := make(map[string][]map[string]interface{}, len(facilityOverview))
+		for planet, entries := range facilityOverview {
+			if !known[planet] {
 				continue
 			}
-			entry := map[string]interface{}{
-				"turn":      snap.Turn,
-				"updatedAt": snap.UpdatedAt,
-				"fuelPrice": snap.FuelPrice,
-				"goods":     cloneIntMap(snap.Goods),
-				"prices":    cloneIntMap(snap.Prices),
-			}
-			if len(snap.PriceRanges) > 0 {
-				rangeCopy := make(map[string][2]int, len(snap.PriceRanges))
-				for g, rng := range snap.PriceRanges {
-					rangeCopy[g] = rng
+			clone := make([]map[string]interface{}, 0, len(entries))
+			for _, entry := range entries {
+				if entry == nil {
+					continue
 				}
-				entry["priceRanges"] = rangeCopy
+				copyEntry := make(map[string]interface{}, len(entry))
+				for k, v := range entry {
+					copyEntry[k] = v
+				}
+				clone = append(clone, copyEntry)
 			}
-			out[planetName] = entry
+			if len(clone) > 0 {
+				out[planet] = clone
+			}
 		}
 		if len(out) == 0 {
-			return map[string]interface{}{}
+			return nil
+		}
+		return out
+	}
+
+	filterNews := func(known map[string]bool) []map[string]interface{} {
+		if len(room.News) == 0 {
+			return nil
+		}
+		arr := make([]map[string]interface{}, 0, len(room.News))
+		for _, n := range room.News {
+			if n.Planet != "" && !known[n.Planet] {
+				continue
+			}
+			arr = append(arr, map[string]interface{}{
+				"headline":       n.Headline,
+				"planet":         n.Planet,
+				"turnsRemaining": n.TurnsRemaining,
+			})
+		}
+		if len(arr) == 0 {
+			return nil
+		}
+		return arr
+	}
+
+	buildPlayersView := func(base []map[string]interface{}, known map[string]bool, selfID PlayerID) []map[string]interface{} {
+		out := make([]map[string]interface{}, 0, len(base))
+		for _, entry := range base {
+			if entry == nil {
+				continue
+			}
+			clone := make(map[string]interface{}, len(entry))
+			for k, v := range entry {
+				clone[k] = v
+			}
+			var idVal PlayerID
+			switch v := clone["id"].(type) {
+			case PlayerID:
+				idVal = v
+			case string:
+				idVal = PlayerID(v)
+			}
+			if idVal != selfID {
+				if cp, ok := clone["currentPlanet"].(string); ok && cp != "" && !known[cp] {
+					clone["currentPlanet"] = unknownLabel
+				}
+				if dp, ok := clone["destinationPlanet"].(string); ok && dp != "" && !known[dp] {
+					clone["destinationPlanet"] = unknownLabel
+				}
+			}
+			out = append(out, clone)
 		}
 		return out
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
 	recipients := make([]*Player, 0, len(room.Players))
 	for id, pp := range room.Players {
+		if pp.KnownPlanets == nil {
+			pp.KnownPlanets = make(map[string]bool)
+		}
+		if pp.CurrentPlanet != "" {
+			pp.KnownPlanets[pp.CurrentPlanet] = true
+		}
+		knownOrder, positionsView := filterPlanets(pp.KnownPlanets)
+		facilitiesView := filterFacilities(pp.KnownPlanets)
+		newsView := filterNews(pp.KnownPlanets)
+		playersView := buildPlayersView(playersBase, pp.KnownPlanets, id)
+		marketMemoryView := buildMarketPayload(pp.MarketMemory, pp.KnownPlanets)
+		knownList := make([]string, len(knownOrder))
+		copy(knownList, knownOrder)
+
 		if pp.Bankrupt {
-			// Build next modal if any (bankrupt players still see modals like Game Over)
 			var nm map[string]interface{}
 			if len(pp.Modals) > 0 {
 				nm = map[string]interface{}{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
@@ -3141,46 +3366,29 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			} else {
 				nm = map[string]interface{}{}
 			}
-			// Bankrupt players see no planet detail and cannot interact
 			payloadByPlayer[id] = map[string]interface{}{
 				"room": map[string]interface{}{
 					"id":         room.ID,
 					"name":       room.Name,
 					"started":    room.Started,
 					"turn":       room.Turn,
-					"players":    players,
+					"players":    playersView,
 					"turnEndsAt": room.TurnEndsAt.UnixMilli(),
 					"allReady":   allReady,
-					"planets": func() []string {
-						if len(room.PlanetOrder) > 0 {
-							out := make([]string, len(room.PlanetOrder))
-							copy(out, room.PlanetOrder)
-							return out
-						}
-						return planetNames(room.Planets)
-					}(),
+					"planets":    knownOrder,
 					"planetPositions": func() map[string]map[string]float64 {
-						if len(room.PlanetPositions) == 0 {
+						if len(positionsView) == 0 {
 							return nil
 						}
-						out := make(map[string]map[string]float64, len(room.PlanetPositions))
-						for k, v := range room.PlanetPositions {
-							out[k] = map[string]float64{"x": v[0], "y": v[1]}
-						}
-						return out
+						return positionsView
 					}(),
-					"news": func() []map[string]interface{} {
-						arr := make([]map[string]interface{}, 0, len(room.News))
-						for _, n := range room.News {
-							arr = append(arr, map[string]interface{}{
-								"headline":       n.Headline,
-								"planet":         n.Planet,
-								"turnsRemaining": n.TurnsRemaining,
-							})
-						}
-						return arr
-					}(),
-					"facilities": facilityOverview,
+					"news":       newsView,
+					"facilities": facilitiesView,
+					"world": map[string]float64{
+						"width":     worldWidth,
+						"height":    worldHeight,
+						"unitScale": distanceUnitScale,
+					},
 				},
 				"you": map[string]interface{}{
 					"id":                 pp.ID,
@@ -3206,7 +3414,8 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"upgradeValue":       pp.UpgradeInvestment,
 					"cargoValue":         0,
 					"modal":              nm,
-					"marketMemory":       buildMarketPayload(pp.MarketMemory),
+					"marketMemory":       marketMemoryView,
+					"knownPlanets":       knownList,
 				},
 				"visiblePlanet": map[string]interface{}{},
 			}
@@ -3215,10 +3424,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			}
 			continue
 		}
+
 		planet := room.Planets[pp.CurrentPlanet]
 		visible := map[string]interface{}{}
 		if planet != nil {
-			// copy goods so we can add zero-stock for player's inventory
 			visGoods := map[string]int{}
 			for k, v := range planet.Goods {
 				visGoods[k] = v
@@ -3228,12 +3437,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					visGoods[g] = 0
 				}
 			}
-			// copy prices map to avoid concurrent mutation during encoding
 			visPrices := map[string]int{}
 			for k, v := range planet.Prices {
 				visPrices[k] = v
 			}
-			// attach static price ranges for each visible good
 			ranges := defaultPriceRanges()
 			visRanges := map[string][2]int{}
 			for g := range visGoods {
@@ -3266,6 +3473,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"fuelPrice":   planet.FuelPrice,
 			}
 		}
+
 		var nextModal map[string]interface{}
 		if len(pp.Modals) > 0 {
 			nm := map[string]interface{}{"id": pp.Modals[0].ID, "title": pp.Modals[0].Title, "body": pp.Modals[0].Body}
@@ -3309,48 +3517,33 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		} else {
 			nextModal = map[string]interface{}{}
 		}
+
 		payloadByPlayer[id] = map[string]interface{}{
 			"room": map[string]interface{}{
 				"id":         room.ID,
 				"name":       room.Name,
 				"started":    room.Started,
 				"turn":       room.Turn,
-				"players":    players,
+				"players":    playersView,
 				"turnEndsAt": room.TurnEndsAt.UnixMilli(),
 				"private":    room.Private,
 				"paused":     room.Paused,
 				"creatorId":  string(room.CreatorID),
 				"allReady":   allReady,
-				"planets": func() []string {
-					if len(room.PlanetOrder) > 0 {
-						out := make([]string, len(room.PlanetOrder))
-						copy(out, room.PlanetOrder)
-						return out
-					}
-					return planetNames(room.Planets)
-				}(),
+				"planets":    knownOrder,
 				"planetPositions": func() map[string]map[string]float64 {
-					if len(room.PlanetPositions) == 0 {
+					if len(positionsView) == 0 {
 						return nil
 					}
-					out := make(map[string]map[string]float64, len(room.PlanetPositions))
-					for k, v := range room.PlanetPositions {
-						out[k] = map[string]float64{"x": v[0], "y": v[1]}
-					}
-					return out
+					return positionsView
 				}(),
-				"news": func() []map[string]interface{} {
-					arr := make([]map[string]interface{}, 0, len(room.News))
-					for _, n := range room.News {
-						arr = append(arr, map[string]interface{}{
-							"headline":       n.Headline,
-							"planet":         n.Planet,
-							"turnsRemaining": n.TurnsRemaining,
-						})
-					}
-					return arr
-				}(),
-				"facilities": facilityOverview,
+				"news":       newsView,
+				"facilities": facilitiesView,
+				"world": map[string]float64{
+					"width":     worldWidth,
+					"height":    worldHeight,
+					"unitScale": distanceUnitScale,
+				},
 			},
 			"you": map[string]interface{}{
 				"id":                 pp.ID,
@@ -3376,7 +3569,8 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"upgradeValue":       pp.UpgradeInvestment,
 				"cargoValue":         inventoryValue(pp.Inventory, pp.InventoryAvgCost),
 				"modal":              nextModal,
-				"marketMemory":       buildMarketPayload(pp.MarketMemory),
+				"marketMemory":       marketMemoryView,
+				"knownPlanets":       knownList,
 			},
 			"visiblePlanet": visible,
 		}
@@ -3454,43 +3648,71 @@ func planetNames(m map[string]*Planet) []string {
 	return keys
 }
 
+func generateLocationNames(count int) []string {
+	used := make(map[string]bool)
+	names := make([]string, 0, count)
+	for len(names) < count {
+		name := randomLocationName(used)
+		if !used[name] {
+			used[name] = true
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func randomLocationName(used map[string]bool) string {
+	for tries := 0; tries < 500; tries++ {
+		prefix := locationPrefixes[rand.Intn(len(locationPrefixes))]
+		core := locationCores[rand.Intn(len(locationCores))]
+		suffix := locationSuffixes[rand.Intn(len(locationSuffixes))]
+		name := strings.TrimSpace(fmt.Sprintf("%s %s %s", prefix, core, suffix))
+		if rand.Intn(4) == 0 {
+			qual := locationQualifiers[rand.Intn(len(locationQualifiers))]
+			name = strings.TrimSpace(name + " " + qual)
+		}
+		if !used[name] {
+			return name
+		}
+	}
+	return "Sector " + strings.ToUpper(randID())
+}
+
+func pickUniqueGoods(pool []string, count int) []string {
+	if count <= 0 || len(pool) == 0 {
+		return nil
+	}
+	if count >= len(pool) {
+		out := make([]string, len(pool))
+		copy(out, pool)
+		rand.Shuffle(len(out), func(i, j int) {
+			out[i], out[j] = out[j], out[i]
+		})
+		return out
+	}
+	used := make(map[string]bool)
+	out := make([]string, 0, count)
+	for len(out) < count {
+		candidate := pool[rand.Intn(len(pool))]
+		if used[candidate] {
+			continue
+		}
+		used[candidate] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
 func defaultPlanets() map[string]*Planet {
-	// All 8 planets + a few stations
-	names := []string{"Mercury", "Venus", "Earth", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto Station", "Titan Station", "Ceres Station"}
-	// Standard goods produced broadly (Fuel is not a trade good)
-	standard := []string{
-		"Sky Kelp",
-		"Moon Ferns",
-		"Desalinated Sodium",
-		"Reticulated Splines",
-		"Zero-G Noodles",
-		"Quantum Bubblegum",
-		"Cosmic Coffee Beans",
-		"Nano Lint",
-	}
-	// Unique per-location goods (whimsical)
-	uniqueByLoc := map[string][]string{
-		"Mercury":       {"Cyber Toasters", "Photon Socks"},
-		"Venus":         {"Extradimensional Sea Monkeys", "Nebula Nectar"},
-		"Earth":         {"Depleted Clown Shoes", "Holographic Honey"},
-		"Mars":          {"Martian Dust Bunnies", "Laser Lemons"},
-		"Jupiter":       {"Stellar Marshmallows", "Gamma Grit"},
-		"Saturn":        {"Plasma Donuts", "Ring Popcorn"},
-		"Uranus":        {"Anti-Gravity Paperclips", "Void Raisins"},
-		"Neptune":       {"Galactic Jelly", "Comet Cotton Candy"},
-		"Pluto Station": {"Wormhole Licorice", "Singularity Seeds"},
-		"Titan Station": {"Orbital Oregano", "Alien Hot Sauce"},
-		"Ceres Station": {"Rocket Rations", "Chrono Crystals"},
-	}
-	// Union of all goods for global pricing presence
+	names := generateLocationNames(worldPlanetCount)
+	ranges := defaultPriceRanges()
+
 	allGoodsSet := map[string]struct{}{}
-	for _, g := range standard {
+	for _, g := range standardGoods {
 		allGoodsSet[g] = struct{}{}
 	}
-	for _, arr := range uniqueByLoc {
-		for _, g := range arr {
-			allGoodsSet[g] = struct{}{}
-		}
+	for _, g := range uniqueGoodsPool {
+		allGoodsSet[g] = struct{}{}
 	}
 	allGoods := make([]string, 0, len(allGoodsSet))
 	for g := range allGoodsSet {
@@ -3498,44 +3720,49 @@ func defaultPlanets() map[string]*Planet {
 	}
 	sort.Strings(allGoods)
 
-	// Static price ranges per good
-	ranges := defaultPriceRanges()
-
-	m := map[string]*Planet{}
+	m := make(map[string]*Planet, len(names))
 	for _, n := range names {
-		goods := map[string]int{}
-		prices := map[string]int{}
-		prod := map[string]int{}
-		trend := map[string]int{}
-		for _, g := range standard {
-			goods[g] = 20 + rand.Intn(30)
+		goods := make(map[string]int)
+		prices := make(map[string]int)
+		prod := make(map[string]int)
+		trend := make(map[string]int)
+
+		for _, g := range standardGoods {
+			goods[g] = 18 + rand.Intn(28)
 			if r, ok := ranges[g]; ok {
 				prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
 			} else {
-				prices[g] = 10 + rand.Intn(15)
+				prices[g] = 12 + rand.Intn(18)
 			}
-			prod[g] = 2 + rand.Intn(4) // 2-5 per turn
+			prod[g] = 2 + rand.Intn(4)
 			trend[g] = 0
 		}
-		for _, g := range uniqueByLoc[n] {
-			goods[g] = 10 + rand.Intn(20)
-			prod[g] = 1 + rand.Intn(3) // 1-3 per turn
+
+		uniqueCount := 2 + rand.Intn(2) // 2-3 unique goods per location
+		for _, g := range pickUniqueGoods(uniqueGoodsPool, uniqueCount) {
+			goods[g] = 8 + rand.Intn(18)
+			prod[g] = 1 + rand.Intn(3)
 			trend[g] = 0
+			if r, ok := ranges[g]; ok {
+				prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
+			} else {
+				prices[g] = 14 + rand.Intn(20)
+			}
 		}
-		// ensure price exists for every good to allow selling anywhere
+
 		for _, g := range allGoods {
 			if _, ok := prices[g]; !ok {
 				if r, ok := ranges[g]; ok {
 					prices[g] = r[0] + rand.Intn(r[1]-r[0]+1)
 				} else {
-					prices[g] = 8 + rand.Intn(25)
-				}
-				if _, ok := trend[g]; !ok {
-					trend[g] = 0
+					prices[g] = 10 + rand.Intn(22)
 				}
 			}
+			if _, ok := trend[g]; !ok {
+				trend[g] = 0
+			}
 		}
-		// Keep baselines for dynamic news effects
+
 		basePrices := make(map[string]int, len(prices))
 		for k, v := range prices {
 			basePrices[k] = v
@@ -3544,57 +3771,32 @@ func defaultPlanets() map[string]*Planet {
 		for k, v := range prod {
 			baseProd[k] = v
 		}
-		// Initialize separate per-planet ship fuel price (~$10 average)
-		fp := 8 + rand.Intn(5) // 8..12
-		m[n] = &Planet{Name: n, Goods: goods, Prices: prices, Prod: prod, BasePrices: basePrices, BaseProd: baseProd, PriceTrend: trend, FuelPrice: fp, BaseFuelPrice: fp, Facilities: []*Facility{}}
+
+		fp := 7 + rand.Intn(7) // 7..13
+		m[n] = &Planet{
+			Name:          n,
+			Goods:         goods,
+			Prices:        prices,
+			Prod:          prod,
+			BasePrices:    basePrices,
+			BaseProd:      baseProd,
+			PriceTrend:    trend,
+			FuelPrice:     fp,
+			BaseFuelPrice: fp,
+			Facilities:    []*Facility{},
+		}
 	}
+
 	return m
 }
 
 // defaultPriceRanges returns a static min/max range for each good.
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
-	// Keep canonical lists in a fixed order for deterministic ranges
-	standard := []string{
-		"Sky Kelp",
-		"Moon Ferns",
-		"Desalinated Sodium",
-		"Reticulated Splines",
-		"Zero-G Noodles",
-		"Quantum Bubblegum",
-		"Cosmic Coffee Beans",
-		"Nano Lint",
-	}
-	unique := []string{
-		"Cyber Toasters",
-		"Extradimensional Sea Monkeys",
-		"Depleted Clown Shoes",
-		"Photon Socks",
-		"Nebula Nectar",
-		"Holographic Honey",
-		"Martian Dust Bunnies",
-		"Laser Lemons",
-		"Stellar Marshmallows",
-		"Gamma Grit",
-		"Plasma Donuts",
-		"Ring Popcorn",
-		"Anti-Gravity Paperclips",
-		"Void Raisins",
-		"Galactic Jelly",
-		"Comet Cotton Candy",
-		"Wormhole Licorice",
-		"Singularity Seeds",
-		"Orbital Oregano",
-		"Alien Hot Sauce",
-		"Rocket Rations",
-		"Chrono Crystals",
-	}
-	m := map[string][2]int{}
-	// Generate a unique [min,max] for every good using a deterministic pattern.
-	// We ensure uniqueness by giving each good a distinct min; widths vary slightly.
-	combined := make([]string, 0, len(standard)+len(unique))
-	combined = append(combined, standard...)
-	combined = append(combined, unique...)
+	m := make(map[string][2]int)
+	combined := make([]string, 0, len(standardGoods)+len(uniqueGoodsPool))
+	combined = append(combined, standardGoods...)
+	combined = append(combined, uniqueGoodsPool...)
 	for idx, g := range combined {
 		min := 5 + idx          // strictly increasing min ensures unique ranges
 		width := 16 + (idx % 7) // widths between 16..22 to add variety
@@ -3663,12 +3865,64 @@ func cloneMarketMemory(in map[string]*MarketSnapshot) map[string]*MarketSnapshot
 	return out
 }
 
+func buildMarketPayload(memory map[string]*MarketSnapshot, known map[string]bool) map[string]map[string]interface{} {
+	result := make(map[string]map[string]interface{})
+	if len(memory) == 0 {
+		return result
+	}
+	for planet, snapshot := range memory {
+		if known != nil && !known[planet] {
+			continue
+		}
+		if snapshot == nil {
+			continue
+		}
+		entry := map[string]interface{}{
+			"turn":      snapshot.Turn,
+			"updatedAt": snapshot.UpdatedAt,
+			"fuelPrice": snapshot.FuelPrice,
+		}
+		if snapshot.Goods != nil {
+			entry["goods"] = cloneIntMap(snapshot.Goods)
+		} else {
+			entry["goods"] = map[string]int{}
+		}
+		if snapshot.Prices != nil {
+			entry["prices"] = cloneIntMap(snapshot.Prices)
+		} else {
+			entry["prices"] = map[string]int{}
+		}
+		if snapshot.PriceRanges != nil {
+			ranges := make(map[string][2]int, len(snapshot.PriceRanges))
+			for g, rng := range snapshot.PriceRanges {
+				ranges[g] = rng
+			}
+			entry["priceRanges"] = ranges
+		} else {
+			entry["priceRanges"] = map[string][2]int{}
+		}
+		result[planet] = entry
+	}
+	return result
+}
+
 func cloneModals(in []ModalItem) []ModalItem {
 	if in == nil {
 		return nil
 	}
 	out := make([]ModalItem, len(in))
 	copy(out, in)
+	return out
+}
+
+func cloneBoolMap(in map[string]bool) map[string]bool {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
 	return out
 }
 
@@ -3882,20 +4136,16 @@ func generatePlanetPositions(names []string) map[string][2]float64 {
 	if len(names) == 0 {
 		return m
 	}
-	minDist := 0.18 // minimal distance between planets (normalized)
-	margin := 0.08  // keep away from edges
 	placed := make([][2]float64, 0, len(names))
 	for _, n := range names {
 		var x, y float64
 		ok := false
-		for tries := 0; tries < 200; tries++ {
-			x = margin + rand.Float64()*(1-2*margin)
-			y = margin + rand.Float64()*(1-2*margin)
+		for tries := 0; tries < 400; tries++ {
+			x = rand.Float64() * worldWidth
+			y = rand.Float64() * worldHeight
 			good := true
 			for _, p := range placed {
-				dx := p[0] - x
-				dy := p[1] - y
-				if math.Hypot(dx, dy) < minDist {
+				if math.Hypot(p[0]-x, p[1]-y) < minPlanetSpacingUnits {
 					good = false
 					break
 				}
@@ -3906,9 +4156,8 @@ func generatePlanetPositions(names []string) map[string][2]float64 {
 			}
 		}
 		if !ok {
-			// fallback without spacing guarantee
-			x = margin + rand.Float64()*(1-2*margin)
-			y = margin + rand.Float64()*(1-2*margin)
+			x = rand.Float64() * worldWidth
+			y = rand.Float64() * worldHeight
 		}
 		placed = append(placed, [2]float64{x, y})
 		m[n] = [2]float64{x, y}
@@ -3935,13 +4184,131 @@ func distanceUnits(room *Room, from, to string) int {
 	dx := a[0] - b[0]
 	dy := a[1] - b[1]
 	d := math.Hypot(dx, dy)
-	// scale normalized distance (~0..1.4) to a reasonable unit cost range
-	// Use ceil to make longer hops cost a bit more; ensure minimum 1
-	units := int(math.Ceil(d * 40))
+	if distanceUnitScale <= 0 {
+		return int(math.Ceil(d))
+	}
+	units := int(math.Ceil(d / distanceUnitScale))
 	if units < 1 {
 		units = 1
 	}
 	return units
+}
+
+func chooseStartingPlanet(room *Room) string {
+	if room == nil || len(room.Planets) == 0 {
+		return ""
+	}
+	occupied := make(map[string]bool)
+	for _, pl := range room.Players {
+		if pl.CurrentPlanet != "" {
+			occupied[pl.CurrentPlanet] = true
+		}
+		if pl.DestinationPlanet != "" {
+			occupied[pl.DestinationPlanet] = true
+		}
+	}
+	candidates := make([]string, 0, len(room.Planets))
+	for name := range room.Planets {
+		if !occupied[name] {
+			candidates = append(candidates, name)
+		}
+	}
+	if len(candidates) == 0 {
+		candidates = planetNames(room.Planets)
+	}
+	return candidates[rand.Intn(len(candidates))]
+}
+
+func discoverAroundPosition(room *Room, p *Player, center [2]float64, radius float64) []string {
+	if room == nil || p == nil || radius <= 0 {
+		return nil
+	}
+	if p.KnownPlanets == nil {
+		p.KnownPlanets = make(map[string]bool)
+	}
+	positions := room.PlanetPositions
+	if len(positions) == 0 {
+		return nil
+	}
+	r2 := radius * radius
+	added := make([]string, 0)
+	for name, pos := range positions {
+		dx := pos[0] - center[0]
+		dy := pos[1] - center[1]
+		if dx*dx+dy*dy <= r2 {
+			if !p.KnownPlanets[name] {
+				p.KnownPlanets[name] = true
+				added = append(added, name)
+			}
+		}
+	}
+	if len(added) > 1 {
+		sort.Strings(added)
+	}
+	return added
+}
+
+func (gs *GameServer) updateDiscoveryForPlayer(room *Room, p *Player) {
+	if room == nil || p == nil {
+		return
+	}
+	if p.KnownPlanets == nil {
+		p.KnownPlanets = make(map[string]bool)
+	}
+	positions := room.PlanetPositions
+	if len(positions) == 0 {
+		return
+	}
+	newly := make([]string, 0, 4)
+	if pos, ok := positions[p.CurrentPlanet]; ok {
+		newly = append(newly, discoverAroundPosition(room, p, pos, discoveryRadiusStation)...)
+	}
+	if p.InTransit && p.TransitTotal > 0 && p.TransitFrom != "" && p.DestinationPlanet != "" {
+		start, okStart := positions[p.TransitFrom]
+		dest, okDest := positions[p.DestinationPlanet]
+		if okStart && okDest {
+			progress := 1 - float64(p.TransitRemaining)/math.Max(float64(p.TransitTotal), 1)
+			if progress < 0 {
+				progress = 0
+			}
+			if progress > 1 {
+				progress = 1
+			}
+			mid := [2]float64{
+				start[0] + (dest[0]-start[0])*progress,
+				start[1] + (dest[1]-start[1])*progress,
+			}
+			newly = append(newly, discoverAroundPosition(room, p, mid, discoveryRadiusTransit)...)
+		}
+	}
+	if len(newly) == 0 {
+		return
+	}
+	sort.Strings(newly)
+	unique := newly[:0]
+	var last string
+	for _, name := range newly {
+		if name == last {
+			continue
+		}
+		unique = append(unique, name)
+		last = name
+	}
+	if len(unique) == 0 {
+		return
+	}
+	var message string
+	if len(unique) == 1 {
+		message = "Charted new location: " + unique[0]
+	} else if len(unique) <= 3 {
+		message = "Charted new locations: " + strings.Join(unique, ", ")
+	} else {
+		message = fmt.Sprintf("Charted %d new locations", len(unique))
+	}
+	gs.logAction(room, p, message)
+	if !p.IsBot {
+		gs.enqueueModal(p, "New Sector Charted", message)
+	}
 }
 
 // handleRefuel processes a refuel request for the player.
