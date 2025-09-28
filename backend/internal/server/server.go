@@ -143,14 +143,10 @@ type SingleplayerSnapshot struct {
 	Players map[string]*SingleplayerPlayerSnapshot `json:"players"`
 }
 
-type SingleplayerTurnState struct {
-	Snapshot *SingleplayerSnapshot `json:"snapshot"`
-}
-
 type SingleplayerTurnEntry struct {
-	Turn       int                   `json:"turn"`
-	RecordedAt int64                 `json:"recordedAt"`
-	State      SingleplayerTurnState `json:"state"`
+	Turn       int             `json:"turn"`
+	RecordedAt int64           `json:"recordedAt"`
+	State      json.RawMessage `json:"state"`
 }
 
 type SingleplayerSaveRecord struct {
@@ -520,11 +516,13 @@ func (gs *GameServer) HandleRestoreSingleplayer(w http.ResponseWriter, r *http.R
 			latest = entry
 		}
 	}
-	if latest.State.Snapshot == nil {
-		http.Error(w, "Save record missing snapshot data", http.StatusBadRequest)
+	snapshot, err := extractSnapshotFromEntry(latest)
+	if err != nil {
+		log.Printf("restore singleplayer decode failed: %v", err)
+		http.Error(w, "Save record is missing snapshot data", http.StatusBadRequest)
 		return
 	}
-	room, err := gs.restoreSingleplayerRoom(user.Sub, latest.State.Snapshot)
+	room, err := gs.restoreSingleplayerRoom(user.Sub, snapshot)
 	if err != nil {
 		log.Printf("restore singleplayer failed: %v", err)
 		http.Error(w, "Unable to restore singleplayer session", http.StatusInternalServerError)
@@ -3668,6 +3666,389 @@ func clonePersistedPlayer(src *PersistedPlayer) *PersistedPlayer {
 		UpgradeInvestment:  src.UpgradeInvestment,
 		MarketMemory:       cloneMarketMemory(src.MarketMemory),
 	}
+}
+
+func extractSnapshotFromEntry(entry SingleplayerTurnEntry) (*SingleplayerSnapshot, error) {
+	if len(entry.State) == 0 {
+		return nil, fmt.Errorf("state payload missing")
+	}
+	var envelope struct {
+		Snapshot       *SingleplayerSnapshot  `json:"snapshot"`
+		LegacySnapshot *SingleplayerSnapshot  `json:"singleplayerSnapshot"`
+		DirectSnapshot *SingleplayerSnapshot  `json:"directSnapshot"`
+		ClientView     map[string]interface{} `json:"clientView"`
+	}
+	if err := json.Unmarshal(entry.State, &envelope); err == nil {
+		if envelope.Snapshot != nil {
+			return envelope.Snapshot, nil
+		}
+		if envelope.LegacySnapshot != nil {
+			return envelope.LegacySnapshot, nil
+		}
+		if envelope.DirectSnapshot != nil {
+			return envelope.DirectSnapshot, nil
+		}
+		if envelope.ClientView != nil {
+			snap, err := buildSnapshotFromClientView(envelope.ClientView)
+			if err == nil {
+				return snap, nil
+			}
+		}
+	}
+	var snap SingleplayerSnapshot
+	if err := json.Unmarshal(entry.State, &snap); err == nil && snap.Room.ID != "" {
+		return &snap, nil
+	}
+	var generic map[string]interface{}
+	if err := json.Unmarshal(entry.State, &generic); err != nil {
+		return nil, err
+	}
+	if raw, ok := generic["singleplayerSnapshot"]; ok && raw != nil {
+		if b, err := json.Marshal(raw); err == nil {
+			var rawSnap SingleplayerSnapshot
+			if err := json.Unmarshal(b, &rawSnap); err == nil && rawSnap.Room.ID != "" {
+				return &rawSnap, nil
+			}
+		}
+	}
+	if raw, ok := generic["snapshot"]; ok && raw != nil {
+		if b, err := json.Marshal(raw); err == nil {
+			var rawSnap SingleplayerSnapshot
+			if err := json.Unmarshal(b, &rawSnap); err == nil && rawSnap.Room.ID != "" {
+				return &rawSnap, nil
+			}
+		}
+	}
+	return buildSnapshotFromClientView(generic)
+}
+
+func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSnapshot, error) {
+	view := state
+	if cv, ok := state["clientView"]; ok {
+		if m, ok := cv.(map[string]interface{}); ok {
+			view = m
+		}
+	}
+	roomMap, ok := view["room"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("client view missing room data")
+	}
+	youMap, ok := view["you"].(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("client view missing player data")
+	}
+	playerID := toString(youMap["id"])
+	if playerID == "" {
+		playerID = randID()
+	}
+	creatorID := toString(roomMap["creatorId"])
+	if creatorID == "" {
+		creatorID = playerID
+	}
+	turnEndsAt := toInt64(roomMap["turnEndsAt"])
+	if turnEndsAt == 0 {
+		turnEndsAt = time.Now().Add(turnDuration).UnixMilli()
+	}
+	defaultPlanetsMap := defaultPlanets()
+	planetSnapshots := make(map[string]SingleplayerPlanetSnapshot, len(defaultPlanetsMap))
+	planetNames := make([]string, 0, len(defaultPlanetsMap))
+	for name, planet := range defaultPlanetsMap {
+		planetSnapshots[name] = SingleplayerPlanetSnapshot{
+			Name:          planet.Name,
+			Goods:         cloneIntMap(planet.Goods),
+			Prices:        cloneIntMap(planet.Prices),
+			Prod:          cloneIntMap(planet.Prod),
+			BasePrices:    cloneIntMap(planet.BasePrices),
+			BaseProd:      cloneIntMap(planet.BaseProd),
+			PriceTrend:    cloneIntMap(planet.PriceTrend),
+			FuelPrice:     planet.FuelPrice,
+			BaseFuelPrice: planet.BaseFuelPrice,
+			Facilities:    cloneFacilities(planet.Facilities),
+		}
+		planetNames = append(planetNames, name)
+	}
+	planetOrder := toStringSlice(roomMap["planets"])
+	if len(planetOrder) == 0 {
+		sort.Strings(planetNames)
+		snapshotOrder := make([]string, len(planetNames))
+		copy(snapshotOrder, planetNames)
+		planetOrder = snapshotOrder
+	}
+	snap := &SingleplayerSnapshot{
+		Version: 1,
+		Room: SingleplayerRoomSnapshot{
+			ID:              toString(roomMap["id"]),
+			Name:            toString(roomMap["name"]),
+			Started:         toBool(roomMap["started"]),
+			Turn:            toInt(roomMap["turn"]),
+			Private:         true,
+			Paused:          toBool(roomMap["paused"]),
+			CreatorID:       creatorID,
+			TurnEndsAt:      turnEndsAt,
+			PlanetOrder:     planetOrder,
+			PlanetPositions: nil,
+			Planets:         planetSnapshots,
+			News:            []NewsItem{},
+		},
+		Players: make(map[string]*SingleplayerPlayerSnapshot),
+	}
+	if val, ok := roomMap["private"]; ok {
+		snap.Room.Private = toBool(val)
+	}
+	if snap.Room.ID == "" {
+		snap.Room.ID = randID()
+	}
+	goods := mapToIntMap(youMap["inventory"])
+	avgCost := mapToIntMap(youMap["inventoryAvgCost"])
+	facilityInvestment := toInt(youMap["facilityInvestment"])
+	upgradeInvestment := toInt(youMap["upgradeInvestment"])
+	marketMemory := convertMarketMemory(youMap["marketMemory"])
+	playerMoney := toInt(youMap["cashValue"])
+	if playerMoney == 0 {
+		playerMoney = toInt(youMap["money"])
+	}
+	playerSnapshot := &SingleplayerPlayerSnapshot{
+		ID:                 playerID,
+		Name:               toString(youMap["name"]),
+		IsBot:              false,
+		Money:              playerMoney,
+		CurrentPlanet:      toString(youMap["currentPlanet"]),
+		DestinationPlanet:  toString(youMap["destinationPlanet"]),
+		Inventory:          goods,
+		InventoryAvgCost:   avgCost,
+		Ready:              toBool(youMap["ready"]),
+		EndGame:            toBool(youMap["endGame"]),
+		Fuel:               toInt(youMap["fuel"]),
+		Bankrupt:           toBool(youMap["bankrupt"]),
+		InTransit:          toBool(youMap["inTransit"]),
+		TransitFrom:        toString(youMap["transitFrom"]),
+		TransitRemaining:   toInt(youMap["transitRemaining"]),
+		TransitTotal:       toInt(youMap["transitTotal"]),
+		CapacityBonus:      0,
+		SpeedBonus:         0,
+		FuelCapacityBonus:  0,
+		FacilityInvestment: facilityInvestment,
+		UpgradeInvestment:  upgradeInvestment,
+		ActionHistory:      nil,
+		MarketMemory:       marketMemory,
+		PriceMemory:        nil,
+		LastTripStartMoney: 0,
+		ConsecutiveVisits:  nil,
+	}
+	persist := &PersistedPlayer{
+		Money:              playerSnapshot.Money,
+		CurrentPlanet:      playerSnapshot.CurrentPlanet,
+		DestinationPlanet:  playerSnapshot.DestinationPlanet,
+		Inventory:          cloneIntMap(playerSnapshot.Inventory),
+		InventoryAvgCost:   cloneIntMap(playerSnapshot.InventoryAvgCost),
+		Ready:              playerSnapshot.Ready,
+		EndGame:            playerSnapshot.EndGame,
+		Modals:             nil,
+		Fuel:               playerSnapshot.Fuel,
+		Bankrupt:           playerSnapshot.Bankrupt,
+		InTransit:          playerSnapshot.InTransit,
+		TransitFrom:        playerSnapshot.TransitFrom,
+		TransitRemaining:   playerSnapshot.TransitRemaining,
+		TransitTotal:       playerSnapshot.TransitTotal,
+		CapacityBonus:      playerSnapshot.CapacityBonus,
+		SpeedBonus:         playerSnapshot.SpeedBonus,
+		FuelCapacityBonus:  playerSnapshot.FuelCapacityBonus,
+		ActionHistory:      nil,
+		FacilityInvestment: playerSnapshot.FacilityInvestment,
+		UpgradeInvestment:  playerSnapshot.UpgradeInvestment,
+		MarketMemory:       playerSnapshot.MarketMemory,
+	}
+	playerSnapshot.Persist = persist
+	snap.Players[playerID] = playerSnapshot
+	snap.Room.Private = true
+	visiblePlanet := view["visiblePlanet"]
+	if vp, ok := visiblePlanet.(map[string]interface{}); ok {
+		name := toString(vp["name"])
+		if name != "" {
+			planet := snap.Room.Planets[name]
+			if planet.Name == "" {
+				planet.Name = name
+			}
+			if goods := mapToIntMap(vp["goods"]); len(goods) > 0 {
+				planet.Goods = goods
+			}
+			if prices := mapToIntMap(vp["prices"]); len(prices) > 0 {
+				planet.Prices = prices
+			}
+			if fuel := toInt(vp["fuelPrice"]); fuel != 0 {
+				planet.FuelPrice = fuel
+			}
+			snap.Room.Planets[name] = planet
+		}
+	}
+	return snap, nil
+}
+
+func extractPriceRanges(value interface{}) map[string][2]int {
+	m := map[string][2]int{}
+	if rawMap, ok := value.(map[string]interface{}); ok {
+		for key, raw := range rawMap {
+			if arr, ok := raw.([]interface{}); ok && len(arr) == 2 {
+				m[key] = [2]int{toInt(arr[0]), toInt(arr[1])}
+			}
+		}
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
+}
+
+func mapToIntMap(value interface{}) map[string]int {
+	if value == nil {
+		return map[string]int{}
+	}
+	if src, ok := value.(map[string]interface{}); ok {
+		out := make(map[string]int, len(src))
+		for k, v := range src {
+			out[k] = toInt(v)
+		}
+		return out
+	}
+	return map[string]int{}
+}
+
+func convertMarketMemory(value interface{}) map[string]*MarketSnapshot {
+	src, ok := value.(map[string]interface{})
+	if !ok || len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]*MarketSnapshot, len(src))
+	for planet, raw := range src {
+		entry, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		snap := &MarketSnapshot{
+			Turn:      toInt(entry["turn"]),
+			UpdatedAt: toInt64(entry["updatedAt"]),
+			Goods:     mapToIntMap(entry["goods"]),
+			Prices:    mapToIntMap(entry["prices"]),
+			FuelPrice: toInt(entry["fuelPrice"]),
+		}
+		if ranges := extractPriceRanges(entry["priceRanges"]); ranges != nil {
+			snap.PriceRanges = ranges
+		}
+		out[planet] = snap
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func toStringSlice(value interface{}) []string {
+	arr, ok := value.([]interface{})
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		if s := toString(item); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func toString(value interface{}) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case fmt.Stringer:
+		return v.String()
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	default:
+		return ""
+	}
+}
+
+func toBool(value interface{}) bool {
+	switch v := value.(type) {
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case int:
+		return v != 0
+	case int64:
+		return v != 0
+	case string:
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return false
+}
+
+func toInt(value interface{}) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case float32:
+		return int(v)
+	case int:
+		return v
+	case int8:
+		return int(v)
+	case int16:
+		return int(v)
+	case int32:
+		return int(v)
+	case int64:
+		return int(v)
+	case uint:
+		return int(v)
+	case uint8:
+		return int(v)
+	case uint16:
+		return int(v)
+	case uint32:
+		return int(v)
+	case uint64:
+		return int(v)
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		if i, err := strconv.Atoi(v); err == nil {
+			return i
+		}
+	}
+	return 0
+}
+
+func toInt64(value interface{}) int64 {
+	switch v := value.(type) {
+	case float64:
+		return int64(v)
+	case float32:
+		return int64(v)
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+	case string:
+		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 func buildSingleplayerSnapshot(room *Room) *SingleplayerSnapshot {
