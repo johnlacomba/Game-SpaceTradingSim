@@ -325,6 +325,7 @@ type singleplayerRoomSnapshot struct {
 	TurnEndsAt int64                            `json:"turnEndsAt"`
 	Players    []singleplayerRoomPlayerSnapshot `json:"players"`
 	News       []singleplayerNewsSnapshot       `json:"news"`
+	Planets    []string                         `json:"planets"`
 }
 
 type singleplayerRoomPlayerSnapshot struct {
@@ -1495,6 +1496,25 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		p.MarketMemory = make(map[string]*MarketSnapshot)
 	}
 	p.Modals = []ModalItem{}
+	knownPlanets := make(map[string]bool)
+	addKnown := func(name string) {
+		if name == "" {
+			return
+		}
+		knownPlanets[name] = true
+	}
+	for _, name := range state.Room.Planets {
+		addKnown(name)
+	}
+	for _, name := range you.KnownPlanets {
+		addKnown(name)
+	}
+	addKnown(p.CurrentPlanet)
+	addKnown(p.DestinationPlanet)
+	if len(knownPlanets) == 0 && p.CurrentPlanet != "" {
+		knownPlanets[p.CurrentPlanet] = true
+	}
+	p.KnownPlanets = knownPlanets
 	capacityBonus := you.Capacity - shipCapacity
 	if capacityBonus < 0 {
 		capacityBonus = 0

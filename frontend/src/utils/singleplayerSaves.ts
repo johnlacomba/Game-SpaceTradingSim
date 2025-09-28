@@ -151,6 +151,38 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
 
   const snapshotState = JSON.parse(JSON.stringify(input.state ?? {}));
 
+  if (snapshotState && typeof snapshotState === 'object') {
+    const stateAny = snapshotState as Record<string, any>;
+    if (stateAny.you == null || typeof stateAny.you !== 'object') {
+      stateAny.you = {};
+    }
+    const youState = stateAny.you as Record<string, any>;
+    const known = new Set<string>();
+
+    if (Array.isArray(youState.knownPlanets)) {
+      for (const value of youState.knownPlanets as unknown[]) {
+        if (typeof value === 'string' && value) known.add(value);
+      }
+    }
+
+    if (stateAny.room && typeof stateAny.room === 'object' && Array.isArray(stateAny.room.planets)) {
+      for (const value of stateAny.room.planets as unknown[]) {
+        if (typeof value === 'string' && value) known.add(value);
+      }
+    }
+
+    if (typeof youState.currentPlanet === 'string' && youState.currentPlanet) {
+      known.add(youState.currentPlanet);
+    }
+    if (typeof youState.destinationPlanet === 'string' && youState.destinationPlanet) {
+      known.add(youState.destinationPlanet);
+    }
+
+    if (known.size > 0) {
+      youState.knownPlanets = Array.from(known);
+    }
+  }
+
   const base: SingleplayerSave = existing ?? {
     version: 1,
     roomId: input.roomId,

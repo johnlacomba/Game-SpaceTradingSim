@@ -1062,7 +1062,21 @@ export function App() {
   const mapViewRef = useRef(mapView)
   const scaleRef = useRef(1)
   const [isDraggingMap, setIsDraggingMap] = useState(false)
-  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; hasCapture: boolean; interactiveTarget: boolean }>({
+  const panStateRef = useRef<{
+    active: boolean
+    pointerId: number | null
+    startX: number
+    startY: number
+    lastX: number
+    lastY: number
+    moved: boolean
+    hasCapture: boolean
+    interactiveTarget: boolean
+    pointerType: string | null
+    fallbackActive: boolean
+    fallbackMove: ((event: PointerEvent) => void) | null
+    fallbackUp: ((event: PointerEvent) => void) | null
+  }>({
     active: false,
     pointerId: null,
     startX: 0,
@@ -1072,6 +1086,10 @@ export function App() {
     moved: false,
     hasCapture: false,
     interactiveTarget: false,
+    pointerType: null,
+    fallbackActive: false,
+    fallbackMove: null,
+    fallbackUp: null,
   })
   const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
@@ -1264,12 +1282,25 @@ export function App() {
       moved: false,
       hasCapture: false,
       interactiveTarget: Boolean(clickable && !isDisabledButton),
+      pointerType: event.pointerType || (isMobile ? 'touch' : 'mouse'),
+      fallbackActive: false,
+      fallbackMove: null,
+      fallbackUp: null,
     }
   }, [mapLocked])
 
   const endPan = useCallback((pointerId: number) => {
     const container = planetsContainerRef.current
     const previousState = { ...panStateRef.current }
+    if (previousState.fallbackActive) {
+      if (previousState.fallbackMove) {
+        window.removeEventListener('pointermove', previousState.fallbackMove)
+      }
+      if (previousState.fallbackUp) {
+        window.removeEventListener('pointerup', previousState.fallbackUp)
+        window.removeEventListener('pointercancel', previousState.fallbackUp)
+      }
+    }
     if (previousState.hasCapture && container && container.hasPointerCapture(pointerId)) {
       try {
         container.releasePointerCapture(pointerId)
@@ -1285,6 +1316,10 @@ export function App() {
       moved: false,
       hasCapture: false,
       interactiveTarget: false,
+      pointerType: null,
+      fallbackActive: false,
+      fallbackMove: null,
+      fallbackUp: null,
     }
     setIsDraggingMap(false)
     return previousState
@@ -1295,6 +1330,13 @@ export function App() {
     if (!state.active || state.pointerId !== event.pointerId) return
     const base = baseScale
     if (base <= 0) return
+    if (state.fallbackActive && !state.hasCapture) {
+      const container = planetsContainerRef.current
+      if (container && event.currentTarget === container) {
+        return
+      }
+    }
+    const pointerType = state.pointerType || event.pointerType || 'mouse'
     const scale = base * mapViewRef.current.zoom
     const dx = event.clientX - state.lastX
     const dy = event.clientY - state.lastY
@@ -1313,11 +1355,30 @@ export function App() {
             state.hasCapture = true
           } catch {}
         }
+        if (pointerType === 'touch' && !state.hasCapture && !state.fallbackActive) {
+          const moveListener = (nativeEvent: PointerEvent) => {
+            if (nativeEvent.pointerId !== event.pointerId) return
+            handlePointerMove(nativeEvent as unknown as React.PointerEvent<HTMLDivElement>)
+          }
+          const upListener = (nativeEvent: PointerEvent) => {
+            if (nativeEvent.pointerId !== event.pointerId) return
+            endPan(nativeEvent.pointerId)
+          }
+          window.addEventListener('pointermove', moveListener, { passive: false })
+          window.addEventListener('pointerup', upListener)
+          window.addEventListener('pointercancel', upListener)
+          state.fallbackMove = moveListener
+          state.fallbackUp = upListener
+          state.fallbackActive = true
+        }
         setIsDraggingMap(true)
       }
     }
 
     if (state.moved && scale > 0) {
+      if (pointerType === 'touch') {
+        event.preventDefault()
+      }
       const dxWorld = dx / scale
       const dyWorld = dy / scale
       updateMapView(prev => ({
@@ -1326,7 +1387,7 @@ export function App() {
         zoom: prev.zoom,
       }))
     }
-  }, [baseScale, isMobile, updateMapView])
+  }, [baseScale, endPan, isMobile, updateMapView])
 
   const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const state = panStateRef.current
@@ -1337,6 +1398,8 @@ export function App() {
   const handlePointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
+    const pointerType = state.pointerType || event.pointerType || 'mouse'
+    if (pointerType === 'touch') return
     endPan(event.pointerId)
   }, [endPan])
 
