@@ -1062,17 +1062,19 @@ export function App() {
   const mapViewRef = useRef(mapView)
   const scaleRef = useRef(1)
   const [isDraggingMap, setIsDraggingMap] = useState(false)
-  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean }>({
+  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; clickTarget: HTMLElement | null }>({
     active: false,
     pointerId: null,
     startX: 0,
     startY: 0,
     lastX: 0,
     lastY: 0,
-    moved: false
+    moved: false,
+    clickTarget: null
   })
   const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
+  const mapLocked = !Boolean(room?.room?.started)
   // Tabs: map | market | locations | players | ship | graphs
   const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'ship'|'graphs'>('map')
   // Wealth history per room: per-player series of {turn, money}
@@ -1219,6 +1221,7 @@ export function App() {
   }, [getWorldPosition, room, stage, updateMapView])
 
   const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (mapLocked) return
     if (containerSize.width <= 0 || containerSize.height <= 0 || baseScale <= 0) return
     const container = planetsContainerRef.current
     if (!container) return
@@ -1240,14 +1243,15 @@ export function App() {
       const centerY = worldY - offsetY / nextScale
       return { centerX, centerY, zoom: nextZoom }
     })
-  }, [baseScale, containerSize.height, containerSize.width, updateMapView])
+  }, [baseScale, containerSize.height, containerSize.width, mapLocked, updateMapView])
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (mapLocked) return
     if (event.button !== 0) return
     const target = event.target as HTMLElement | null
-    if (target && target.closest('[data-nodrag="true"]')) return
     const container = planetsContainerRef.current
     if (!container) return
+    const clickTarget = target ? target.closest<HTMLElement>('button, a, [role="button"], input, textarea, [data-clickable="true"]') : null
     panStateRef.current = {
       active: true,
       pointerId: event.pointerId,
@@ -1256,11 +1260,12 @@ export function App() {
       lastX: event.clientX,
       lastY: event.clientY,
       moved: false,
+      clickTarget: clickTarget ?? null,
     }
     try {
       container.setPointerCapture(event.pointerId)
     } catch {}
-  }, [])
+  }, [mapLocked])
 
   const endPan = useCallback((pointerId: number) => {
     const container = planetsContainerRef.current
@@ -1269,6 +1274,7 @@ export function App() {
         container.releasePointerCapture(pointerId)
       } catch {}
     }
+    const previousState = { ...panStateRef.current }
     panStateRef.current = {
       active: false,
       pointerId: null,
@@ -1277,8 +1283,10 @@ export function App() {
       lastX: 0,
       lastY: 0,
       moved: false,
+      clickTarget: null,
     }
     setIsDraggingMap(false)
+    return previousState
   }, [])
 
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -1314,7 +1322,19 @@ export function App() {
   const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
-    endPan(event.pointerId)
+    const previousState = endPan(event.pointerId)
+    if (!previousState || previousState.moved) return
+    const clickable = previousState.clickTarget
+    if (!clickable) return
+    const container = planetsContainerRef.current
+    if (clickable === container) return
+    if (!document.contains(clickable)) return
+    if ((clickable instanceof HTMLButtonElement || clickable instanceof HTMLInputElement) && clickable.disabled) return
+    window.setTimeout(() => {
+      if (!document.contains(clickable)) return
+      if ((clickable instanceof HTMLButtonElement || clickable instanceof HTMLInputElement) && clickable.disabled) return
+      clickable.click()
+    }, 0)
   }, [endPan])
 
   const handlePointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
@@ -3138,7 +3158,6 @@ export function App() {
               minHeight: isMobile ? 44 : 'auto'
             }}>Map</button>
                   <button
-                    data-nodrag="true"
               onClick={() => {
                 if (preGame) return
                 setActiveTab('market')
