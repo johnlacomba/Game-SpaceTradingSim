@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import LoginForm from '../components/LoginForm.jsx'
 import awsConfig from '../aws-config.js'
+import { deleteSingleplayerSave, listSingleplayerSaves, recordSingleplayerTurn, type SingleplayerSaveSummary } from '../utils/singleplayerProgress'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -30,6 +31,27 @@ const shrinkFont = (size: number) => Math.max(10, size - 4)
 
 const sanitizeAlphanumeric = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '')
 const sanitizeNumeric = (value: string) => value.replace(/[^0-9]/g, '')
+
+const formatRelativeTime = (timestamp?: number) => {
+  if (!timestamp) return ''
+  const now = Date.now()
+  const diff = now - timestamp
+  if (!isFinite(diff) || diff < 0) return ''
+  const seconds = Math.round(diff / 1000)
+  if (seconds < 60) return `${seconds}s ago`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.round(hours / 24)
+  if (days < 7) return `${days}d ago`
+  const weeks = Math.round(days / 7)
+  if (weeks < 5) return `${weeks}w ago`
+  const months = Math.round(days / 30)
+  if (months < 12) return `${months}mo ago`
+  const years = Math.round(days / 365)
+  return `${years}y ago`
+}
 
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
@@ -1035,6 +1057,16 @@ export function App() {
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
+  const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
+  const lastRecordedSingleplayerTurn = useRef<{ roomId?: string; turn?: number }>({})
+  const playerAccountId = useMemo(() => user?.sub || user?.username || 'guest', [user?.sub, user?.username])
+  const refreshSingleplayerSaves = useCallback(() => {
+    setSingleplayerSaves(listSingleplayerSaves({ playerId: playerAccountId }))
+  }, [playerAccountId])
+  const handleForgetSingleplayerSave = useCallback((key: string) => {
+    deleteSingleplayerSave(key)
+    refreshSingleplayerSaves()
+  }, [refreshSingleplayerSaves])
 
   useEffect(() => {
     const root = document.documentElement
@@ -1048,6 +1080,12 @@ export function App() {
       root.style.fontSize = previous
     }
   }, [isMobile])
+
+  useEffect(() => {
+    if (stage === 'lobby') {
+      refreshSingleplayerSaves()
+    }
+  }, [stage, refreshSingleplayerSaves])
 
   // Set name from authenticated user once per login, without overriding manual edits
   useEffect(() => {
@@ -1096,6 +1134,12 @@ export function App() {
       setStage('lobby')
     }
   }, [messages])
+
+  useEffect(() => {
+    if (!room) {
+      lastRecordedSingleplayerTurn.current = {}
+    }
+  }, [room])
 
   // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
   useEffect(() => {
@@ -1167,6 +1211,75 @@ export function App() {
       return next
     })
   }, [room?.room?.id, room?.room?.turn, room?.room?.players])
+
+  useEffect(() => {
+    if (!room) return
+    const roomState = room.room
+    const you = room.you
+    if (!roomState || !you) return
+    if (!roomState.private || !roomState.creatorId || roomState.creatorId !== you.id) return
+    const turn = typeof roomState.turn === 'number' ? roomState.turn : undefined
+    if (turn == null) return
+    const last = lastRecordedSingleplayerTurn.current
+    if (last.roomId === roomState.id && last.turn === turn) return
+
+    const snapshot = {
+      you: {
+        id: you.id,
+        name: you.name,
+        money: you.money,
+        cashValue: you.cashValue,
+        fuel: you.fuel,
+        currentPlanet: you.currentPlanet,
+        destinationPlanet: you.destinationPlanet,
+        inventory: you.inventory,
+        inventoryAvgCost: you.inventoryAvgCost,
+        ready: you.ready,
+        endGame: you.endGame,
+        inTransit: (you as any)?.inTransit,
+        transitFrom: (you as any)?.transitFrom,
+        transitRemaining: (you as any)?.transitRemaining,
+        transitTotal: (you as any)?.transitTotal,
+        cargoValue: you.cargoValue,
+        upgradeValue: you.upgradeValue,
+        facilityInvestment: you.facilityInvestment,
+        upgradeInvestment: you.upgradeInvestment,
+        marketMemory: you.marketMemory,
+        modal: you.modal,
+      },
+      room: {
+        id: roomState.id,
+        name: roomState.name,
+        started: roomState.started,
+        paused: roomState.paused,
+        private: roomState.private,
+        creatorId: roomState.creatorId,
+        turn: roomState.turn,
+        turnEndsAt: roomState.turnEndsAt,
+        players: roomState.players,
+        planets: roomState.planets,
+        facilities: roomState.facilities,
+        news: roomState.news,
+      },
+      visiblePlanet: room.visiblePlanet,
+    }
+
+    const persisted = recordSingleplayerTurn({
+      playerId: playerAccountId,
+      playerName: user?.name || user?.username || you.name,
+      roomId: roomState.id,
+      roomName: roomState.name,
+      turn,
+      turnState: snapshot,
+    })
+
+    if (persisted) {
+      lastRecordedSingleplayerTurn.current = { roomId: roomState.id, turn }
+      if (stage === 'lobby') {
+        refreshSingleplayerSaves()
+      }
+    }
+  }, [playerAccountId, refreshSingleplayerSaves, room, stage, user?.name, user?.username])
 
   // Close Ship Inventory menu on outside click
 
@@ -2046,6 +2159,138 @@ export function App() {
                   Active Missions ({lobby.rooms.length})
                 </h3>
               </div>
+
+              {singleplayerSaves.length > 0 && (
+                <div style={{
+                  marginBottom: isMobile ? 20 : 24,
+                  padding: isMobile ? '16px 18px' : '18px 22px',
+                  borderRadius: isMobile ? 12 : 14,
+                  background: 'rgba(16, 185, 129, 0.12)',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  boxShadow: '0 12px 24px -12px rgba(16, 185, 129, 0.35)'
+                }}>
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    marginBottom: isMobile ? 12 : 16
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: isMobile ? '1.5rem' : '1.8rem' }}>🧭</span>
+                      <div>
+                        <h4 style={{
+                          margin: 0,
+                          fontSize: isMobile ? '1.05rem' : '1.15rem',
+                          color: 'white',
+                          fontWeight: 600
+                        }}>
+                          Resume Singleplayer Missions
+                        </h4>
+                        <p style={{
+                          margin: '4px 0 0',
+                          color: 'rgba(209, 250, 229, 0.75)',
+                          fontSize: isMobile ? '0.8rem' : '0.85rem'
+                        }}>
+                          {singleplayerSaves.length} saved {singleplayerSaves.length === 1 ? 'mission' : 'missions'} detected in this browser.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 14 }}>
+                    {singleplayerSaves.map(save => {
+                      const latestTurn = save.record.turns[save.record.turns.length - 1]
+                      const state = (latestTurn?.state ?? {}) as any
+                      const available = lobby.rooms.some(r => r.id === save.record.roomId)
+                      const turnLabel = typeof latestTurn?.turn === 'number' ? latestTurn.turn : 0
+                      const updatedLabel = formatRelativeTime(latestTurn?.recordedAt)
+                      const playerCount = Array.isArray(state?.room?.players) ? state.room.players.length : 1
+                      return (
+                        <div
+                          key={save.key}
+                          style={{
+                            display: 'flex',
+                            flexDirection: isMobile ? 'column' : 'row',
+                            gap: isMobile ? 12 : 16,
+                            justifyContent: 'space-between',
+                            alignItems: isMobile ? 'flex-start' : 'center',
+                            padding: isMobile ? '12px 14px' : '12px 16px',
+                            borderRadius: isMobile ? 10 : 12,
+                            background: 'rgba(15, 23, 42, 0.65)',
+                            border: '1px solid rgba(16, 185, 129, 0.25)'
+                          }}
+                        >
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <strong style={{ fontSize: isMobile ? '1rem' : '1.05rem', color: 'white' }}>
+                              {save.record.roomName || 'Unnamed Mission'}
+                            </strong>
+                            <div style={{
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              gap: 12,
+                              fontSize: isMobile ? '0.85rem' : '0.9rem',
+                              color: 'rgba(209, 250, 229, 0.75)'
+                            }}>
+                              <span>Turn {turnLabel}</span>
+                              {updatedLabel && <span>Updated {updatedLabel}</span>}
+                              <span>{playerCount} crew</span>
+                              <span style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 6,
+                                color: available ? '#34d399' : '#fbbf24'
+                              }}>
+                                <span style={{ fontSize: '0.85rem' }} aria-hidden="true">
+                                  {available ? '🟢' : '🟡'}
+                                </span>
+                                {available ? 'Room online' : 'Waiting for room'}
+                              </span>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 10 }}>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation()
+                                joinRoom(save.record.roomId)
+                              }}
+                              style={{
+                                padding: isMobile ? '10px 18px' : '8px 18px',
+                                fontSize: isMobile ? '0.95rem' : '0.9rem',
+                                fontWeight: 600,
+                                borderRadius: 999,
+                                border: 'none',
+                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                color: 'white',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Continue
+                            </button>
+                            <button
+                              onClick={e => {
+                                e.stopPropagation()
+                                handleForgetSingleplayerSave(save.key)
+                              }}
+                              style={{
+                                padding: isMobile ? '10px 16px' : '8px 16px',
+                                fontSize: isMobile ? '0.9rem' : '0.85rem',
+                                fontWeight: 600,
+                                borderRadius: 999,
+                                border: '1px solid rgba(209, 250, 229, 0.35)',
+                                background: 'transparent',
+                                color: 'rgba(209, 250, 229, 0.75)',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              Forget
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {lobby.rooms.length === 0 ? (
                 <div style={{
