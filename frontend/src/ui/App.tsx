@@ -1355,6 +1355,15 @@ export function App() {
     }
   }, [newRoomName, singleplayerMode, send])
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
+  const handleContinueSingleplayerSave = useCallback((save: SingleplayerSaveSummary) => {
+    const available = lobby.rooms.some(r => r.id === save.record.roomId)
+    if (available) {
+      joinRoom(save.record.roomId)
+      return
+    }
+    const roomName = save.record.roomName || 'Saved Mission'
+    setLobbyNotice(`We couldn't find "${roomName}" on the server. It may have ended or the server was restarted. You can start a fresh mission or forget this saved copy.`)
+  }, [joinRoom, lobby.rooms])
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
   const exitRoom = () => send('exitRoom')
@@ -2251,17 +2260,20 @@ export function App() {
                             <button
                               onClick={e => {
                                 e.stopPropagation()
-                                joinRoom(save.record.roomId)
+                                handleContinueSingleplayerSave(save)
                               }}
+                              disabled={!available}
                               style={{
                                 padding: isMobile ? '10px 18px' : '8px 18px',
                                 fontSize: isMobile ? '0.95rem' : '0.9rem',
                                 fontWeight: 600,
                                 borderRadius: 999,
                                 border: 'none',
-                                background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-                                color: 'white',
-                                cursor: 'pointer'
+                                background: available
+                                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                                  : 'rgba(15, 118, 110, 0.4)',
+                                color: available ? 'white' : 'rgba(209, 250, 229, 0.6)',
+                                cursor: available ? 'pointer' : 'not-allowed'
                               }}
                             >
                               Continue
