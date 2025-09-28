@@ -1308,6 +1308,7 @@ func (gs *GameServer) exitRoom(p *Player) {
 		FacilityInvestment: p.FacilityInvestment,
 		UpgradeInvestment:  p.UpgradeInvestment,
 		MarketMemory:       cloneMarketMemory(p.MarketMemory),
+		KnownPlanets:       cloneBoolMap(p.KnownPlanets),
 	}
 	delete(room.Players, p.ID)
 	p.roomID = ""
