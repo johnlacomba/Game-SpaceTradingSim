@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -192,6 +193,80 @@ type NewsItem struct {
 	ProdDelta      map[string]int `json:"prodDelta,omitempty"`
 	TurnsRemaining int            `json:"turnsRemaining"`
 	FuelPriceDelta int            `json:"-"`
+}
+
+type singleplayerSavePayload struct {
+	Version  int                        `json:"version"`
+	RoomID   string                     `json:"roomId"`
+	RoomName string                     `json:"roomName"`
+	OwnerID  string                     `json:"ownerId"`
+	Turns    []singleplayerTurnSnapshot `json:"turns"`
+}
+
+type singleplayerTurnSnapshot struct {
+	Turn       int                       `json:"turn"`
+	RecordedAt int64                     `json:"recordedAt"`
+	State      singleplayerStateSnapshot `json:"state"`
+}
+
+type singleplayerStateSnapshot struct {
+	Room singleplayerRoomSnapshot   `json:"room"`
+	You  singleplayerPlayerSnapshot `json:"you"`
+}
+
+type singleplayerRoomSnapshot struct {
+	ID         string                           `json:"id"`
+	Name       string                           `json:"name"`
+	Started    bool                             `json:"started"`
+	Turn       int                              `json:"turn"`
+	Private    bool                             `json:"private"`
+	Paused     bool                             `json:"paused"`
+	CreatorID  string                           `json:"creatorId"`
+	TurnEndsAt int64                            `json:"turnEndsAt"`
+	Players    []singleplayerRoomPlayerSnapshot `json:"players"`
+	News       []singleplayerNewsSnapshot       `json:"news"`
+}
+
+type singleplayerRoomPlayerSnapshot struct {
+	ID                string `json:"id"`
+	Name              string `json:"name"`
+	CurrentPlanet     string `json:"currentPlanet"`
+	DestinationPlanet string `json:"destinationPlanet"`
+	Ready             bool   `json:"ready"`
+	EndGame           bool   `json:"endGame"`
+	Bankrupt          bool   `json:"bankrupt"`
+	CashValue         int    `json:"cashValue"`
+}
+
+type singleplayerNewsSnapshot struct {
+	Headline       string `json:"headline"`
+	Planet         string `json:"planet"`
+	TurnsRemaining int    `json:"turnsRemaining"`
+}
+
+type singleplayerPlayerSnapshot struct {
+	ID                 string                     `json:"id"`
+	Name               string                     `json:"name"`
+	Money              int                        `json:"cashValue"`
+	CurrentPlanet      string                     `json:"currentPlanet"`
+	DestinationPlanet  string                     `json:"destinationPlanet"`
+	Ready              bool                       `json:"ready"`
+	EndGame            bool                       `json:"endGame"`
+	Fuel               int                        `json:"fuel"`
+	Inventory          map[string]int             `json:"inventory"`
+	InventoryAvgCost   map[string]int             `json:"inventoryAvgCost"`
+	InTransit          bool                       `json:"inTransit"`
+	TransitFrom        string                     `json:"transitFrom"`
+	TransitRemaining   int                        `json:"transitRemaining"`
+	TransitTotal       int                        `json:"transitTotal"`
+	Capacity           int                        `json:"capacity"`
+	FuelCapacity       int                        `json:"fuelCapacity"`
+	SpeedPerTurn       int                        `json:"speedPerTurn"`
+	FacilityInvestment int                        `json:"facilityInvestment"`
+	UpgradeInvestment  int                        `json:"upgradeInvestment"`
+	UpgradeValue       int                        `json:"upgradeValue"`
+	CargoValue         int                        `json:"cargoValue"`
+	MarketMemory       map[string]*MarketSnapshot `json:"marketMemory"`
 }
 type Planet struct {
 	Name   string         `json:"name"`
@@ -532,6 +607,8 @@ func (gs *GameServer) readLoop(p *Player) {
 			if data.RoomID != "" {
 				gs.joinRoom(p, data.RoomID)
 			}
+		case "restoreSingleplayer":
+			gs.handleRestoreSingleplayer(p, msg.Payload)
 		case "ackModal":
 			// payload: { id }
 			var data struct {
@@ -1160,6 +1237,206 @@ func (gs *GameServer) exitRoom(p *Player) {
 	if p.conn != nil {
 		gs.sendLobbyState(p)
 	}
+}
+
+func (gs *GameServer) handleRestoreSingleplayer(p *Player, payload json.RawMessage) {
+	var data struct {
+		RoomID  string `json:"roomId"`
+		Save    string `json:"save"`
+		OwnerID string `json:"ownerId"`
+	}
+	if err := json.Unmarshal(payload, &data); err != nil {
+		gs.sendRestoreAck(p, "", false, "Invalid restore request.")
+		return
+	}
+
+	room, startTicker, err := gs.restoreSingleplayerSnapshot(p, data.RoomID, data.Save, data.OwnerID)
+	if err != nil {
+		gs.sendRestoreAck(p, data.RoomID, false, err.Error())
+		return
+	}
+
+	if startTicker {
+		go gs.runTicker(room)
+	}
+	gs.sendRoomState(room, nil)
+	gs.sendRestoreAck(p, room.ID, true, "Singleplayer mission restored.")
+}
+
+func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ownerID string) (*Room, bool, error) {
+	if roomID == "" {
+		return nil, false, fmt.Errorf("missing room identifier")
+	}
+	if encoded == "" {
+		return nil, false, fmt.Errorf("missing saved mission payload")
+	}
+	room := gs.getRoom(roomID)
+	if room == nil {
+		return nil, false, fmt.Errorf("room no longer exists")
+	}
+
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, false, fmt.Errorf("unable to decode saved mission snapshot")
+	}
+	var save singleplayerSavePayload
+	if err := json.Unmarshal(raw, &save); err != nil {
+		return nil, false, fmt.Errorf("unable to parse saved mission snapshot")
+	}
+	if len(save.Turns) == 0 {
+		return nil, false, fmt.Errorf("saved mission contains no turns")
+	}
+	if ownerID != "" && ownerID != string(p.ID) {
+		return nil, false, fmt.Errorf("restore request owner mismatch")
+	}
+	if save.OwnerID != "" && save.OwnerID != string(p.ID) {
+		return nil, false, fmt.Errorf("saved mission belongs to another commander")
+	}
+
+	room.mu.Lock()
+	defer room.mu.Unlock()
+
+	if !room.Private {
+		return nil, false, fmt.Errorf("cannot restore into a public room")
+	}
+	if room.CreatorID != "" && room.CreatorID != p.ID {
+		return nil, false, fmt.Errorf("you are not the owner of this room")
+	}
+
+	snap := save.Turns[len(save.Turns)-1]
+	state := snap.State
+
+	originalStarted := room.Started
+
+	room.Name = defaultStr(state.Room.Name, room.Name)
+	room.Started = state.Room.Started
+	room.Paused = state.Room.Paused
+	room.Turn = state.Room.Turn
+	if state.Room.CreatorID != "" {
+		room.CreatorID = PlayerID(state.Room.CreatorID)
+	} else if room.CreatorID == "" {
+		room.CreatorID = p.ID
+	}
+	if state.Room.TurnEndsAt > 0 {
+		room.TurnEndsAt = time.UnixMilli(state.Room.TurnEndsAt)
+	} else if room.Started {
+		room.TurnEndsAt = time.Now().Add(turnDuration)
+	} else {
+		room.TurnEndsAt = time.Now()
+	}
+
+	if len(state.Room.News) > 0 {
+		news := make([]NewsItem, 0, len(state.Room.News))
+		for _, n := range state.Room.News {
+			news = append(news, NewsItem{
+				Headline:       n.Headline,
+				Planet:         n.Planet,
+				TurnsRemaining: n.TurnsRemaining,
+			})
+		}
+		room.News = news
+	} else {
+		room.News = nil
+	}
+
+	delete(room.Persist, p.ID)
+
+	you := state.You
+	p.Name = defaultStr(you.Name, p.Name)
+	p.Money = you.Money
+	p.CurrentPlanet = defaultStr(you.CurrentPlanet, p.CurrentPlanet)
+	p.DestinationPlanet = you.DestinationPlanet
+	p.Ready = you.Ready
+	p.EndGame = you.EndGame
+	p.Fuel = maxInt(0, you.Fuel)
+	if you.Inventory != nil {
+		p.Inventory = cloneIntMap(you.Inventory)
+	} else {
+		p.Inventory = map[string]int{}
+	}
+	if you.InventoryAvgCost != nil {
+		p.InventoryAvgCost = cloneIntMap(you.InventoryAvgCost)
+	} else {
+		p.InventoryAvgCost = map[string]int{}
+	}
+	p.InTransit = you.InTransit
+	p.TransitFrom = you.TransitFrom
+	p.TransitRemaining = you.TransitRemaining
+	p.TransitTotal = you.TransitTotal
+	p.FacilityInvestment = you.FacilityInvestment
+	p.UpgradeInvestment = you.UpgradeInvestment
+	if you.MarketMemory != nil {
+		p.MarketMemory = cloneMarketMemory(you.MarketMemory)
+	} else {
+		p.MarketMemory = make(map[string]*MarketSnapshot)
+	}
+	p.Modals = []ModalItem{}
+	capacityBonus := you.Capacity - shipCapacity
+	if capacityBonus < 0 {
+		capacityBonus = 0
+	}
+	p.CapacityBonus = capacityBonus
+	speedBonus := you.SpeedPerTurn - 20
+	if speedBonus < 0 {
+		speedBonus = 0
+	}
+	p.SpeedBonus = speedBonus
+	fuelBonus := you.FuelCapacity - fuelCapacity
+	if fuelBonus < 0 {
+		fuelBonus = 0
+	}
+	p.FuelCapacityBonus = fuelBonus
+	p.Bankrupt = false
+	p.roomID = room.ID
+
+	room.Players[p.ID] = p
+
+	for _, ps := range state.Room.Players {
+		pid := PlayerID(ps.ID)
+		if pid == "" {
+			continue
+		}
+		if pid == p.ID {
+			p.Bankrupt = ps.Bankrupt
+			continue
+		}
+		if other := room.Players[pid]; other != nil {
+			other.Name = defaultStr(ps.Name, other.Name)
+			other.CurrentPlanet = defaultStr(ps.CurrentPlanet, other.CurrentPlanet)
+			other.DestinationPlanet = ps.DestinationPlanet
+			other.Ready = ps.Ready
+			other.EndGame = ps.EndGame
+			other.Bankrupt = ps.Bankrupt
+			if ps.CashValue != 0 {
+				other.Money = ps.CashValue
+			}
+		}
+	}
+
+	startTicker := state.Room.Started && !originalStarted
+
+	select {
+	case room.stateCh <- struct{}{}:
+	default:
+	}
+
+	return room, startTicker, nil
+}
+
+func (gs *GameServer) sendRestoreAck(p *Player, roomID string, success bool, message string) {
+	if p == nil || p.conn == nil {
+		return
+	}
+	payload := map[string]interface{}{
+		"roomId":  roomID,
+		"success": success,
+	}
+	if message != "" {
+		payload["message"] = message
+	}
+	p.writeMu.Lock()
+	defer p.writeMu.Unlock()
+	p.conn.WriteJSON(WSOut{Type: "restoreAck", Payload: payload})
 }
 
 func (gs *GameServer) startGame(roomID string) {
