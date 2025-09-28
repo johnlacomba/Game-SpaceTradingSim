@@ -1458,7 +1458,11 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		}
 		sort.Strings(rebuilt)
 		state.DiscoveredPlanets = rebuilt
+		state.Room.Planets = rebuilt
+		state.You.KnownPlanets = rebuilt
 	}
+	snap.State = state
+	save.Turns[len(save.Turns)-1] = snap
 
 	originalStarted := room.Started
 
