@@ -95,6 +95,12 @@ type MarketSnapshot = {
   fuelPrice?: number
 }
 
+type MapViewState = {
+  centerX: number
+  centerY: number
+  zoom: number
+}
+
 type RoomState = {
   room: {
     id: string
@@ -106,8 +112,9 @@ type RoomState = {
     private?: boolean
     paused?: boolean
     creatorId?: string
-  facilities?: Record<string, FacilitySummary[]>
+    facilities?: Record<string, FacilitySummary[]>
     planetPositions?: Record<string, { x: number; y: number }>
+    world?: { width: number; height: number; unitScale?: number }
     allReady?: boolean
     turnEndsAt?: number
     news?: { headline: string; planet: string; turnsRemaining: number }[]
@@ -144,6 +151,7 @@ type RoomState = {
     upgradeValue?: number
     cargoValue?: number
     marketMemory?: Record<string, MarketSnapshot>
+    knownPlanets?: string[]
   }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
 }
@@ -1046,8 +1054,24 @@ export function App() {
   const [amountsByGood, setAmountsByGood] = useState<Record<string, number>>({})
   const planetsContainerRef = useRef<HTMLDivElement | null>(null)
   const planetRefs = useRef<Record<string, HTMLLIElement | null>>({})
-  const [planetPos, setPlanetPos] = useState<Record<string, { x: number; y: number }>>({})
+  const [planetWorldPos, setPlanetWorldPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
+  const [worldBounds, setWorldBounds] = useState<{ width: number; height: number; unitScale: number }>({ width: 1, height: 1, unitScale: 160 })
+  const defaultZoomRef = useRef(isMobile ? 1.6 : 2.3)
+  const [mapView, setMapView] = useState<{ centerX: number; centerY: number; zoom: number }>({ centerX: 0, centerY: 0, zoom: defaultZoomRef.current })
+  const mapViewRef = useRef(mapView)
+  const scaleRef = useRef(1)
+  const [isDraggingMap, setIsDraggingMap] = useState(false)
+  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean }>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    moved: false
+  })
+  const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
   // Tabs: map | market | locations | players | ship | graphs
   const [activeTab, setActiveTab] = useState<'map'|'market'|'locations'|'players'|'ship'|'graphs'>('map')
@@ -1056,6 +1080,257 @@ export function App() {
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const lastDockHandled = useRef<string | null>(null)
+
+  useEffect(() => {
+    defaultZoomRef.current = isMobile ? 1.6 : 2.3
+  }, [isMobile])
+
+  useEffect(() => {
+    mapViewRef.current = mapView
+  }, [mapView])
+
+  const clampView = useCallback((state: MapViewState): MapViewState => {
+    const minZoom = 0.45
+    const maxZoom = 6
+    const width = Math.max(worldBounds.width, 1)
+    const height = Math.max(worldBounds.height, 1)
+    const containerWidth = Math.max(containerSize.width, 0)
+    const containerHeight = Math.max(containerSize.height, 0)
+    const baseScale = containerWidth > 0 && containerHeight > 0
+      ? Math.min(containerWidth / width, containerHeight / height)
+      : 0
+    const zoom = Math.min(Math.max(state.zoom, minZoom), maxZoom)
+
+    let centerX = state.centerX
+    let centerY = state.centerY
+
+    if (baseScale > 0) {
+      const visibleWidth = containerWidth / (baseScale * zoom)
+      const visibleHeight = containerHeight / (baseScale * zoom)
+      const halfW = visibleWidth / 2
+      const halfH = visibleHeight / 2
+      const minX = halfW
+      const maxX = width - halfW
+      const minY = halfH
+      const maxY = height - halfH
+      centerX = maxX < minX ? width / 2 : Math.min(Math.max(centerX, minX), maxX)
+      centerY = maxY < minY ? height / 2 : Math.min(Math.max(centerY, minY), maxY)
+    } else {
+      centerX = Math.min(Math.max(centerX, 0), width)
+      centerY = Math.min(Math.max(centerY, 0), height)
+    }
+
+    return { centerX, centerY, zoom }
+  }, [containerSize.height, containerSize.width, worldBounds.height, worldBounds.width])
+
+  const updateMapView = useCallback((updater: (prev: MapViewState) => MapViewState) => {
+    setMapView(prev => {
+      const next = clampView(updater(prev))
+      if (next.centerX === prev.centerX && next.centerY === prev.centerY && next.zoom === prev.zoom) {
+        mapViewRef.current = prev
+        return prev
+      }
+      mapViewRef.current = next
+      return next
+    })
+  }, [clampView])
+
+  useEffect(() => {
+    setMapView(prev => {
+      const clamped = clampView(prev)
+      if (clamped.centerX === prev.centerX && clamped.centerY === prev.centerY && clamped.zoom === prev.zoom) {
+        mapViewRef.current = prev
+        return prev
+      }
+      mapViewRef.current = clamped
+      return clamped
+    })
+  }, [clampView])
+
+  const baseScale = useMemo(() => {
+    if (containerSize.width <= 0 || containerSize.height <= 0) return 0
+    return Math.min(
+      containerSize.width / Math.max(worldBounds.width, 1),
+      containerSize.height / Math.max(worldBounds.height, 1)
+    )
+  }, [containerSize.height, containerSize.width, worldBounds.height, worldBounds.width])
+
+  const effectiveScale = useMemo(() => {
+    const scale = baseScale * mapView.zoom
+    return scale > 0 ? scale : 1
+  }, [baseScale, mapView.zoom])
+
+  useEffect(() => {
+    scaleRef.current = effectiveScale
+  }, [effectiveScale])
+
+  const worldToScreen = useCallback((pos?: { x: number; y: number }) => {
+    if (!pos) return undefined
+    if (containerSize.width <= 0 || containerSize.height <= 0) return undefined
+    const x = containerSize.width / 2 + (pos.x - mapView.centerX) * effectiveScale
+    const y = containerSize.height / 2 + (pos.y - mapView.centerY) * effectiveScale
+    return { x, y }
+  }, [containerSize.height, containerSize.width, effectiveScale, mapView.centerX, mapView.centerY])
+
+  const screenToWorld = useCallback((screenX: number, screenY: number, zoomOverride?: number) => {
+    if (containerSize.width <= 0 || containerSize.height <= 0 || baseScale <= 0) {
+      return { x: mapViewRef.current.centerX, y: mapViewRef.current.centerY }
+    }
+    const zoom = zoomOverride ?? mapViewRef.current.zoom
+    const scale = baseScale * zoom
+    if (scale <= 0) {
+      return { x: mapViewRef.current.centerX, y: mapViewRef.current.centerY }
+    }
+    return {
+      x: mapViewRef.current.centerX + (screenX - containerSize.width / 2) / scale,
+      y: mapViewRef.current.centerY + (screenY - containerSize.height / 2) / scale,
+    }
+  }, [baseScale, containerSize.height, containerSize.width])
+
+  const planetScreenPos = useMemo(() => {
+    const entries: Record<string, { x: number; y: number }> = {}
+    Object.entries(planetWorldPos).forEach(([name, pos]) => {
+      const screen = worldToScreen(pos)
+      if (screen) {
+        entries[name] = screen
+      }
+    })
+    return entries
+  }, [planetWorldPos, worldToScreen])
+
+  const getWorldPosition = useCallback((name?: string) => {
+    if (!name) return undefined
+    return planetWorldPos[name]
+  }, [planetWorldPos])
+
+  useEffect(() => {
+    if (stage !== 'room') {
+      initialCenterRef.current = null
+      return
+    }
+    if (!room) return
+    const key = `${room.room.id}:${room.you.id}`
+    const current = getWorldPosition(room.you.currentPlanet)
+    if (!current) return
+    if (initialCenterRef.current !== key) {
+      initialCenterRef.current = key
+      updateMapView(() => ({ centerX: current.x, centerY: current.y, zoom: defaultZoomRef.current }))
+    }
+  }, [getWorldPosition, room, stage, updateMapView])
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (containerSize.width <= 0 || containerSize.height <= 0 || baseScale <= 0) return
+    const container = planetsContainerRef.current
+    if (!container) return
+    event.preventDefault()
+    const rect = container.getBoundingClientRect()
+    const pointerX = event.clientX - rect.left
+    const pointerY = event.clientY - rect.top
+    const clampedDelta = Math.max(-250, Math.min(250, event.deltaY))
+    const factor = Math.exp(-clampedDelta * 0.0012)
+    updateMapView(prev => {
+      const prevScale = baseScale * prev.zoom
+      const nextZoom = prev.zoom * factor
+      const nextScale = baseScale * nextZoom
+      const offsetX = pointerX - containerSize.width / 2
+      const offsetY = pointerY - containerSize.height / 2
+      const worldX = prev.centerX + offsetX / prevScale
+      const worldY = prev.centerY + offsetY / prevScale
+      const centerX = worldX - offsetX / nextScale
+      const centerY = worldY - offsetY / nextScale
+      return { centerX, centerY, zoom: nextZoom }
+    })
+  }, [baseScale, containerSize.height, containerSize.width, updateMapView])
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    const target = event.target as HTMLElement | null
+    if (target && target.closest('[data-nodrag="true"]')) return
+    const container = planetsContainerRef.current
+    if (!container) return
+    panStateRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      moved: false,
+    }
+    try {
+      container.setPointerCapture(event.pointerId)
+    } catch {}
+  }, [])
+
+  const endPan = useCallback((pointerId: number) => {
+    const container = planetsContainerRef.current
+    if (container && container.hasPointerCapture(pointerId)) {
+      try {
+        container.releasePointerCapture(pointerId)
+      } catch {}
+    }
+    panStateRef.current = {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      lastX: 0,
+      lastY: 0,
+      moved: false,
+    }
+    setIsDraggingMap(false)
+  }, [])
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const state = panStateRef.current
+    if (!state.active || state.pointerId !== event.pointerId) return
+    const base = baseScale
+    if (base <= 0) return
+    const scale = base * mapViewRef.current.zoom
+    const dx = event.clientX - state.lastX
+    const dy = event.clientY - state.lastY
+    state.lastX = event.clientX
+    state.lastY = event.clientY
+
+    if (!state.moved) {
+      const total = Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
+      if (total > 4) {
+        state.moved = true
+        setIsDraggingMap(true)
+      }
+    }
+
+    if (state.moved && scale > 0) {
+      const dxWorld = dx / scale
+      const dyWorld = dy / scale
+      updateMapView(prev => ({
+        centerX: prev.centerX - dxWorld,
+        centerY: prev.centerY - dyWorld,
+        zoom: prev.zoom,
+      }))
+    }
+  }, [baseScale, updateMapView])
+
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const state = panStateRef.current
+    if (!state.active || state.pointerId !== event.pointerId) return
+    endPan(event.pointerId)
+  }, [endPan])
+
+  const handlePointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const state = panStateRef.current
+    if (!state.active || state.pointerId !== event.pointerId) return
+    endPan(event.pointerId)
+  }, [endPan])
+
+  useEffect(() => {
+    return () => {
+      const state = panStateRef.current
+      if (state.pointerId != null) {
+        endPan(state.pointerId)
+      }
+    }
+  }, [endPan])
 
   useEffect(() => {
     const root = document.documentElement
@@ -1468,72 +1743,55 @@ export function App() {
   useEffect(() => {
     if (!room) return
     const container = planetsContainerRef.current
-    if (!container) return
-    const rect = container.getBoundingClientRect()
-    setContainerSize({ width: rect.width, height: rect.height })
-    const next: Record<string, { x: number; y: number }> = {}
-    const serverPos = (room.room as any).planetPositions as Record<string, { x: number; y: number }> | undefined
-    // Fallback: place planets around a circle with small deterministic jitter
+    if (container) {
+      const rect = container.getBoundingClientRect()
+      setContainerSize({ width: rect.width, height: rect.height })
+    }
+    const world = ((room.room as any).world ?? {}) as { width?: number; height?: number; unitScale?: number }
+    const width = Math.max(1, world.width ?? 5200)
+    const height = Math.max(1, world.height ?? 5200)
+    const unitScale = Math.max(0.1, world.unitScale ?? 160)
+    setWorldBounds({ width, height, unitScale })
+
     const names = room.room.planets
-    const N = Math.max(1, names.length)
-    const fallback: Record<string, { x: number; y: number }> = {}
+    const count = Math.max(1, names.length)
+    const fallbackNorm: Record<string, { x: number; y: number }> = {}
     names.forEach((name, i) => {
-      const angle = (i / N) * Math.PI * 2
+      const angle = (i / count) * Math.PI * 2
       let h = 0
       for (let k = 0; k < name.length; k++) h = (h * 31 + name.charCodeAt(k)) >>> 0
-      const jitter = ((h % 1000) / 1000 - 0.5) * 0.08 // +-0.04
+      const jitter = ((h % 1000) / 1000 - 0.5) * 0.08
       const radius = 0.42 + (((h >> 4) % 1000) / 1000 - 0.5) * 0.06
-      const x = 0.5 + (radius + jitter) * Math.cos(angle)
-      const y = 0.5 + (radius - jitter) * Math.sin(angle)
-      // clamp away from edges
-      const cx = Math.min(0.92, Math.max(0.08, x)) * rect.width
-      const cy = Math.min(0.92, Math.max(0.08, y)) * rect.height
-      fallback[name] = { x: cx, y: cy }
+      const x = Math.min(0.92, Math.max(0.08, 0.5 + (radius + jitter) * Math.cos(angle)))
+      const y = Math.min(0.92, Math.max(0.08, 0.5 + (radius - jitter) * Math.sin(angle)))
+      fallbackNorm[name] = { x, y }
     })
-    for (const p of names) {
-      const pos = serverPos?.[p]
-      if (pos) {
-        next[p] = { x: pos.x * rect.width, y: pos.y * rect.height }
+
+    const serverPos = (room.room as any).planetPositions as Record<string, { x: number; y: number }> | undefined
+    const next: Record<string, { x: number; y: number }> = {}
+    for (const name of names) {
+      const pos = serverPos?.[name]
+      if (pos && typeof pos.x === 'number' && typeof pos.y === 'number') {
+        next[name] = { x: pos.x, y: pos.y }
       } else {
-        next[p] = fallback[p]
+        const fallback = fallbackNorm[name]
+        next[name] = { x: fallback.x * width, y: fallback.y * height }
       }
     }
-    setPlanetPos(next)
-  }, [room?.room.planets, room?.room.players, stage])
+    setPlanetWorldPos(next)
+  }, [room?.room.planets, room?.room.world, room?.room.id, stage])
 
   // Recompute on resize
   useEffect(() => {
     const onResize = () => {
-      if (!room) return
       const container = planetsContainerRef.current
       if (!container) return
       const rect = container.getBoundingClientRect()
       setContainerSize({ width: rect.width, height: rect.height })
-      const positions = (room.room as any).planetPositions as Record<string, { x: number; y: number }> | undefined
-      const next: Record<string, { x: number; y: number }> = {}
-      const names = room.room.planets
-      const N = Math.max(1, names.length)
-      const fallback: Record<string, { x: number; y: number }> = {}
-      names.forEach((name, i) => {
-        const angle = (i / N) * Math.PI * 2
-        let h = 0
-        for (let k = 0; k < name.length; k++) h = (h * 31 + name.charCodeAt(k)) >>> 0
-        const jitter = ((h % 1000) / 1000 - 0.5) * 0.08
-        const radius = 0.42 + (((h >> 4) % 1000) / 1000 - 0.5) * 0.06
-        const x = 0.5 + (radius + jitter) * Math.cos(angle)
-        const y = 0.5 + (radius - jitter) * Math.sin(angle)
-        fallback[name] = { x: Math.min(0.92, Math.max(0.08, x)) * rect.width, y: Math.min(0.92, Math.max(0.08, y)) * rect.height }
-      })
-      for (const p of names) {
-        const pos = positions?.[p]
-        if (pos) next[p] = { x: pos.x * rect.width, y: pos.y * rect.height }
-        else next[p] = fallback[p]
-      }
-      setPlanetPos(next)
     }
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
-  }, [room?.room.planets, stage])
+  }, [stage])
 
   // Generate a starfield background as a data-URL SVG sized to the map container
   const starfieldUrl = useMemo(() => {
@@ -2647,46 +2905,37 @@ export function App() {
       </>
     )
   }
-  // Compute map distance between current and selected destination using normalized positions
-  const getNormPos = (name?: string): { x: number; y: number } | undefined => {
-    if (!name) return undefined
-    const serverPos = (r.room as any).planetPositions?.[name] as { x: number; y: number } | undefined
-    if (serverPos) return serverPos
-    const px = planetPos[name]
-    if (px && containerSize.width > 0 && containerSize.height > 0) {
-      return { x: px.x / containerSize.width, y: px.y / containerSize.height }
-    }
-    return undefined
-  }
   const destName = r.you.destinationPlanet
   const inTransit = Boolean((r.you as any).inTransit)
-  // Helper to compute fuel cost between two planets (server-aligned scaling)
-  const travelUnits = (from?: string, to?: string) => {
+  const transitFrom = (r.you as any).transitFrom || r.you.currentPlanet
+  const transitRemaining: number = (r.you as any).transitRemaining ?? 0
+  const transitTotal: number = (r.you as any).transitTotal ?? 0
+
+  const travelUnits = useCallback((from?: string, to?: string) => {
     if (!from || !to || from === to) return 0
-    const a = getNormPos(from)
-    const b = getNormPos(to)
+    const a = getWorldPosition(from)
+    const b = getWorldPosition(to)
     if (!a || !b) return 0
     const dx = a.x - b.x
     const dy = a.y - b.y
-    const d = Math.sqrt(dx*dx + dy*dy)
-    return Math.max(1, Math.ceil(d * 40))
-  }
-  // Interpolate your ship position if in transit
-  const yourTransitPos = (() => {
+    const distance = Math.sqrt(dx * dx + dy * dy)
+    const scale = Math.max(worldBounds.unitScale, 0.1)
+    return Math.max(1, Math.ceil(distance / scale))
+  }, [getWorldPosition, worldBounds.unitScale])
+
+  const yourTransitPos = useMemo(() => {
     if (!inTransit) return undefined as undefined | { x: number; y: number }
-    const from = (r.you as any).transitFrom || r.you.currentPlanet
-    const to = r.you.destinationPlanet
-    const rem: number = (r.you as any).transitRemaining ?? 0
-    const total: number = (r.you as any).transitTotal ?? 0
-    if (!from || !to || total <= 0) return undefined
-    const a = getNormPos(from)
-    const b = getNormPos(to)
-    if (!a || !b) return undefined
-    const progressed = Math.max(0, Math.min(1, (total - rem) / total))
-    const x = (a.x + (b.x - a.x) * progressed) * containerSize.width
-    const y = (a.y + (b.y - a.y) * progressed) * containerSize.height
-    return { x, y }
-  })()
+    if (!transitFrom || !destName || transitTotal <= 0) return undefined
+    const start = getWorldPosition(transitFrom)
+    const end = getWorldPosition(destName)
+    if (!start || !end) return undefined
+    const progress = Math.max(0, Math.min(1, (transitTotal - transitRemaining) / transitTotal))
+    const world = {
+      x: start.x + (end.x - start.x) * progress,
+      y: start.y + (end.y - start.y) * progress,
+    }
+    return worldToScreen(world)
+  }, [destName, getWorldPosition, inTransit, transitFrom, transitRemaining, transitTotal, worldToScreen])
 
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
@@ -2888,7 +3137,8 @@ export function App() {
               fontSize: isMobile ? shrinkFont(14) : 'inherit',
               minHeight: isMobile ? 44 : 'auto'
             }}>Map</button>
-            <button
+                  <button
+                    data-nodrag="true"
               onClick={() => {
                 if (preGame) return
                 setActiveTab('market')
@@ -3272,7 +3522,16 @@ export function App() {
   <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column' }}>
     {activeTab==='map' && (
       <div style={{ flex:1, minHeight:0, display:'flex', flexDirection:'column', padding: isMobile ? '0 12px 12px' : '0 16px 16px' }}>
-        <div ref={planetsContainerRef} className="panel" style={{ 
+        <div
+          ref={planetsContainerRef}
+          className="panel"
+          onWheel={handleWheel}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerLeave={handlePointerLeave}
+          onPointerCancel={handlePointerUp}
+          style={{ 
           position:'relative', 
           flex:1, 
           minHeight: isMobile ? 300 : 0, 
@@ -3282,7 +3541,9 @@ export function App() {
           backgroundSize:'cover', 
           backgroundPosition:'center', 
           backgroundRepeat:'no-repeat',
-          touchAction: isMobile ? 'pan-x pan-y' : 'auto',
+          touchAction:'none',
+          userSelect:'none',
+          cursor: isDraggingMap ? 'grabbing' : 'grab',
           filter: preGame ? 'grayscale(0.55) brightness(0.85)' : 'none',
           transition: 'filter 220ms ease'
         }}>
@@ -3303,9 +3564,12 @@ export function App() {
           <ul style={{ listStyle:'none', padding:0, margin:0, position:'absolute', inset:0, zIndex:1 }}>
             {r.room.planets.map(p => {
               const onPlanet = (r.room.players as any[]).filter(pl => pl.currentPlanet === p && !(pl as any).bankrupt)
-              const center = planetPos[p]
-              const left = center ? center.x : 0
-              const top = center ? center.y : 0
+              const center = planetScreenPos[p]
+              if (!center) {
+                return null
+              }
+              const left = center.x
+              const top = center.y
               const need = travelUnits(r.you.currentPlanet, p)
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
@@ -3591,8 +3855,8 @@ export function App() {
             style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 3 }}
           >
             {(r.room.players as any[]).filter(pl => !(pl as any).bankrupt).map(pl => {
-              const from = planetPos[pl.currentPlanet]
-              const to = pl.destinationPlanet ? planetPos[pl.destinationPlanet] : undefined
+              const from = planetScreenPos[pl.currentPlanet]
+              const to = pl.destinationPlanet ? planetScreenPos[pl.destinationPlanet] : undefined
               if (!from || !to) return null
               if (pl.destinationPlanet === pl.currentPlanet) return null
               const x1 = from.x, y1 = from.y
