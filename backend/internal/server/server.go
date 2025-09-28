@@ -1419,6 +1419,26 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		return nil, false, fmt.Errorf("saved mission belongs to another commander")
 	}
 
+	allKnown := make(map[string]struct{})
+	for _, turn := range save.Turns {
+		state := turn.State
+		for _, name := range state.DiscoveredPlanets {
+			if name != "" {
+				allKnown[name] = struct{}{}
+			}
+		}
+		for _, name := range state.Room.Planets {
+			if name != "" {
+				allKnown[name] = struct{}{}
+			}
+		}
+		for _, name := range state.You.KnownPlanets {
+			if name != "" {
+				allKnown[name] = struct{}{}
+			}
+		}
+	}
+
 	room.mu.Lock()
 	defer room.mu.Unlock()
 
@@ -1431,6 +1451,14 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 
 	snap := save.Turns[len(save.Turns)-1]
 	state := snap.State
+	if len(allKnown) > 0 {
+		rebuilt := make([]string, 0, len(allKnown))
+		for name := range allKnown {
+			rebuilt = append(rebuilt, name)
+		}
+		sort.Strings(rebuilt)
+		state.DiscoveredPlanets = rebuilt
+	}
 
 	originalStarted := room.Started
 
