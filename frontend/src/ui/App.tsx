@@ -1304,8 +1304,34 @@ export function App() {
       setLobbyNotice(null)
       return
     }
-    setLobbyNotice(`Saved mission "${save.roomName || 'Unnamed Mission'}" is not currently active. Launch a new singleplayer mission to begin a fresh run.`)
-  }, [joinRoom, lobby.rooms])
+
+    const sanitizedName = sanitizeAlphanumeric(save.roomName || '')
+    const desiredName = sanitizedName || 'Solo Mission'
+    const payload: Record<string, any> = { singleplayer: true }
+    if (sanitizedName) {
+      payload.name = sanitizedName
+    }
+
+    const created = send('createRoom', payload)
+    if (!created) {
+      setLobbyNotice('Unable to relaunch singleplayer mission. Please check your connection and try again.')
+      return
+    }
+
+    setSingleplayerMode(true)
+    setNewRoomName('')
+    setLobbyNotice(`Relaunching singleplayer mission "${desiredName}"...`)
+    removeSingleplayerSave(save.roomId)
+    setSingleplayerSaves(prev => prev.filter(entry => entry.roomId !== save.roomId))
+  }, [
+    joinRoom,
+    lobby.rooms,
+    send,
+    setLobbyNotice,
+    setNewRoomName,
+    setSingleplayerMode,
+    setSingleplayerSaves,
+  ])
   const handleDeleteSave = useCallback((roomId: string) => {
     removeSingleplayerSave(roomId)
     setSingleplayerSaves(prev => prev.filter(save => save.roomId !== roomId))
