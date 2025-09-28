@@ -182,6 +182,10 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
       const discovered = Array.from(known)
       youState.knownPlanets = discovered
       stateAny.discoveredPlanets = discovered
+
+      if (stateAny.room && typeof stateAny.room === 'object') {
+        stateAny.room.planets = discovered
+      }
     }
   }
 
