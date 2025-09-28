@@ -113,6 +113,14 @@ func main() {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	})
 
+	protected.HandleFunc("/singleplayer/restore", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			gs.HandleRestoreSingleplayer(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	})
+
 	// User profile endpoint
 	protected.HandleFunc("/profile", func(w http.ResponseWriter, r *http.Request) {
 		gs.HandleGetProfile(w, r)

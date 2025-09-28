@@ -187,3 +187,25 @@ export function deleteSingleplayerSave(key: string) {
 export function loadSingleplayerSave(encoded: string): SingleplayerSaveRecord | null {
   return decodeRecord(encoded)
 }
+
+export function rekeySingleplayerSave<TState = unknown>(oldKey: string, newRoomId: string, record: SingleplayerSaveRecord<TState>): { key: string; encoded: string } | null {
+  const storage = getSessionStorage()
+  if (!storage) return null
+  try {
+    storage.removeItem(oldKey)
+  } catch (error) {
+    console.warn('Failed to remove old singleplayer save key:', error)
+  }
+  record.roomId = newRoomId
+  record.updatedAt = Date.now()
+  const encoded = encodeRecord(record)
+  if (!encoded) return null
+  const key = `${STORAGE_PREFIX}${newRoomId}`
+  try {
+    storage.setItem(key, encoded)
+  } catch (error) {
+    console.warn('Failed to persist rekeyed singleplayer save:', error)
+    return null
+  }
+  return { key, encoded }
+}

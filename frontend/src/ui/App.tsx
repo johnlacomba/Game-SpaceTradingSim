@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
 import LoginForm from '../components/LoginForm.jsx'
 import awsConfig from '../aws-config.js'
-import { deleteSingleplayerSave, listSingleplayerSaves, recordSingleplayerTurn, type SingleplayerSaveSummary } from '../utils/singleplayerProgress'
+import { deleteSingleplayerSave, listSingleplayerSaves, recordSingleplayerTurn, rekeySingleplayerSave, type SingleplayerSaveSummary } from '../utils/singleplayerProgress'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -1067,6 +1067,7 @@ export function App() {
     deleteSingleplayerSave(key)
     refreshSingleplayerSaves()
   }, [refreshSingleplayerSaves])
+  const [restoringSaveKey, setRestoringSaveKey] = useState<string | null>(null)
 
   useEffect(() => {
     const root = document.documentElement
@@ -1223,6 +1224,9 @@ export function App() {
     const last = lastRecordedSingleplayerTurn.current
     if (last.roomId === roomState.id && last.turn === turn) return
 
+    const serverSnapshot = (room as any)?.singleplayerSnapshot
+    if (!serverSnapshot) return
+
     const snapshot = {
       you: {
         id: you.id,
@@ -1262,6 +1266,7 @@ export function App() {
         news: roomState.news,
       },
       visiblePlanet: room.visiblePlanet,
+      singleplayerSnapshot: serverSnapshot,
     }
 
     const persisted = recordSingleplayerTurn({
@@ -1355,15 +1360,57 @@ export function App() {
     }
   }, [newRoomName, singleplayerMode, send])
   const joinRoom = (roomId: string) => send('joinRoom', { roomId })
-  const handleContinueSingleplayerSave = useCallback((save: SingleplayerSaveSummary) => {
+  const handleContinueSingleplayerSave = useCallback(async (save: SingleplayerSaveSummary) => {
     const available = lobby.rooms.some(r => r.id === save.record.roomId)
     if (available) {
       joinRoom(save.record.roomId)
       return
     }
+
     const roomName = save.record.roomName || 'Saved Mission'
-    setLobbyNotice(`We couldn't find "${roomName}" on the server. It may have ended or the server was restarted. You can start a fresh mission or forget this saved copy.`)
-  }, [joinRoom, lobby.rooms])
+    setRestoringSaveKey(save.key)
+
+    try {
+      const token = await getAccessToken()
+      if (!token) {
+        setLobbyNotice('We need to refresh your login before restoring a singleplayer mission. Please sign in again.')
+        return
+      }
+
+      const response = await fetch('/api/singleplayer/restore', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ encoded: save.encoded })
+      })
+
+      if (!response.ok) {
+        const text = await response.text()
+        console.warn('Failed to restore singleplayer room:', response.status, text)
+        setLobbyNotice('We tried to restore that mission but the server declined the request. You can start a fresh mission or forget the saved copy.')
+        return
+      }
+
+      const result = await response.json() as { roomId?: string; roomName?: string; turn?: number }
+      const restoredRoomId = (result.roomId && typeof result.roomId === 'string') ? result.roomId : save.record.roomId
+
+      if (restoredRoomId !== save.record.roomId) {
+        rekeySingleplayerSave(save.key, restoredRoomId, save.record)
+      }
+
+      refreshSingleplayerSaves()
+      const resumeTurn = typeof result.turn === 'number' ? result.turn : (save.record.turns?.[save.record.turns.length - 1]?.turn ?? 'unknown')
+      setLobbyNotice(`Restored “${result.roomName || roomName}” at turn ${resumeTurn} — joining now.`)
+      joinRoom(restoredRoomId)
+    } catch (error) {
+      console.warn('Error restoring singleplayer mission', error)
+      setLobbyNotice('We hit an unexpected error while restoring that mission. Please try again in a moment.')
+    } finally {
+      setRestoringSaveKey(null)
+    }
+  }, [getAccessToken, joinRoom, lobby.rooms, refreshSingleplayerSaves, setLobbyNotice])
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
   const exitRoom = () => send('exitRoom')
@@ -2262,27 +2309,28 @@ export function App() {
                                 e.stopPropagation()
                                 handleContinueSingleplayerSave(save)
                               }}
-                              disabled={!available}
+                              disabled={restoringSaveKey === save.key}
                               style={{
                                 padding: isMobile ? '10px 18px' : '8px 18px',
                                 fontSize: isMobile ? '0.95rem' : '0.9rem',
                                 fontWeight: 600,
                                 borderRadius: 999,
                                 border: 'none',
-                                background: available
-                                  ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
-                                  : 'rgba(15, 118, 110, 0.4)',
-                                color: available ? 'white' : 'rgba(209, 250, 229, 0.6)',
-                                cursor: available ? 'pointer' : 'not-allowed'
+                                background: restoringSaveKey === save.key
+                                  ? 'rgba(15, 118, 110, 0.45)'
+                                  : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+                                color: restoringSaveKey === save.key ? 'rgba(209, 250, 229, 0.8)' : 'white',
+                                cursor: restoringSaveKey === save.key ? 'wait' : 'pointer'
                               }}
                             >
-                              Continue
+                              {restoringSaveKey === save.key ? 'Restoring…' : 'Continue'}
                             </button>
                             <button
                               onClick={e => {
                                 e.stopPropagation()
                                 handleForgetSingleplayerSave(save.key)
                               }}
+                              disabled={restoringSaveKey === save.key}
                               style={{
                                 padding: isMobile ? '10px 16px' : '8px 16px',
                                 fontSize: isMobile ? '0.9rem' : '0.85rem',
@@ -2291,7 +2339,8 @@ export function App() {
                                 border: '1px solid rgba(209, 250, 229, 0.35)',
                                 background: 'transparent',
                                 color: 'rgba(209, 250, 229, 0.75)',
-                                cursor: 'pointer'
+                                cursor: restoringSaveKey === save.key ? 'not-allowed' : 'pointer',
+                                opacity: restoringSaveKey === save.key ? 0.6 : 1
                               }}
                             >
                               Forget

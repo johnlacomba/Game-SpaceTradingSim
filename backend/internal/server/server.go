@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,6 +76,92 @@ type MarketSnapshot struct {
 	Prices      map[string]int    `json:"prices"`
 	PriceRanges map[string][2]int `json:"priceRanges"`
 	FuelPrice   int               `json:"fuelPrice"`
+}
+
+type SingleplayerPlanetSnapshot struct {
+	Name          string         `json:"name"`
+	Goods         map[string]int `json:"goods"`
+	Prices        map[string]int `json:"prices"`
+	Prod          map[string]int `json:"prod"`
+	BasePrices    map[string]int `json:"basePrices"`
+	BaseProd      map[string]int `json:"baseProd"`
+	PriceTrend    map[string]int `json:"priceTrend"`
+	FuelPrice     int            `json:"fuelPrice"`
+	BaseFuelPrice int            `json:"baseFuelPrice"`
+	Facilities    []*Facility    `json:"facilities"`
+}
+
+type SingleplayerPlayerSnapshot struct {
+	ID                 string                     `json:"id"`
+	Name               string                     `json:"name"`
+	IsBot              bool                       `json:"isBot"`
+	Money              int                        `json:"money"`
+	CurrentPlanet      string                     `json:"currentPlanet"`
+	DestinationPlanet  string                     `json:"destinationPlanet"`
+	Inventory          map[string]int             `json:"inventory"`
+	InventoryAvgCost   map[string]int             `json:"inventoryAvgCost"`
+	Ready              bool                       `json:"ready"`
+	EndGame            bool                       `json:"endGame"`
+	Fuel               int                        `json:"fuel"`
+	Bankrupt           bool                       `json:"bankrupt"`
+	InTransit          bool                       `json:"inTransit"`
+	TransitFrom        string                     `json:"transitFrom"`
+	TransitRemaining   int                        `json:"transitRemaining"`
+	TransitTotal       int                        `json:"transitTotal"`
+	CapacityBonus      int                        `json:"capacityBonus"`
+	SpeedBonus         int                        `json:"speedBonus"`
+	FuelCapacityBonus  int                        `json:"fuelCapacityBonus"`
+	FacilityInvestment int                        `json:"facilityInvestment"`
+	UpgradeInvestment  int                        `json:"upgradeInvestment"`
+	ActionHistory      []ActionLog                `json:"actionHistory"`
+	MarketMemory       map[string]*MarketSnapshot `json:"marketMemory"`
+	PriceMemory        map[string]*PriceMemory    `json:"priceMemory"`
+	LastTripStartMoney int                        `json:"lastTripStartMoney"`
+	ConsecutiveVisits  map[string]int             `json:"consecutiveVisits"`
+	Persist            *PersistedPlayer           `json:"persist"`
+}
+
+type SingleplayerRoomSnapshot struct {
+	ID              string                                `json:"id"`
+	Name            string                                `json:"name"`
+	Started         bool                                  `json:"started"`
+	Turn            int                                   `json:"turn"`
+	Private         bool                                  `json:"private"`
+	Paused          bool                                  `json:"paused"`
+	CreatorID       string                                `json:"creatorId"`
+	TurnEndsAt      int64                                 `json:"turnEndsAt"`
+	PlanetOrder     []string                              `json:"planetOrder"`
+	PlanetPositions map[string][2]float64                 `json:"planetPositions"`
+	Planets         map[string]SingleplayerPlanetSnapshot `json:"planets"`
+	News            []NewsItem                            `json:"news"`
+	ActiveAuction   *FederationAuction                    `json:"activeAuction,omitempty"`
+}
+
+type SingleplayerSnapshot struct {
+	Version int                                    `json:"version"`
+	Room    SingleplayerRoomSnapshot               `json:"room"`
+	Players map[string]*SingleplayerPlayerSnapshot `json:"players"`
+}
+
+type SingleplayerTurnState struct {
+	Snapshot *SingleplayerSnapshot `json:"snapshot"`
+}
+
+type SingleplayerTurnEntry struct {
+	Turn       int                   `json:"turn"`
+	RecordedAt int64                 `json:"recordedAt"`
+	State      SingleplayerTurnState `json:"state"`
+}
+
+type SingleplayerSaveRecord struct {
+	Version    int                     `json:"version"`
+	PlayerID   string                  `json:"playerId"`
+	PlayerName string                  `json:"playerName"`
+	RoomID     string                  `json:"roomId"`
+	RoomName   string                  `json:"roomName"`
+	CreatedAt  int64                   `json:"createdAt"`
+	UpdatedAt  int64                   `json:"updatedAt"`
+	Turns      []SingleplayerTurnEntry `json:"turns"`
 }
 
 type Player struct {
@@ -390,6 +477,66 @@ func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	room := gs.createRoom(data.Name, "", data.Singleplayer)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": room.ID, "name": room.Name})
+}
+
+func (gs *GameServer) HandleRestoreSingleplayer(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.GetUserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+	var req struct {
+		Encoded string `json:"encoded"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request payload", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Encoded) == "" {
+		http.Error(w, "Missing encoded save data", http.StatusBadRequest)
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(req.Encoded)
+	if err != nil {
+		http.Error(w, "Unable to decode save data", http.StatusBadRequest)
+		return
+	}
+	var record SingleplayerSaveRecord
+	if err := json.Unmarshal(data, &record); err != nil {
+		http.Error(w, "Unable to parse save record", http.StatusBadRequest)
+		return
+	}
+	if record.PlayerID != "" && record.PlayerID != user.Sub {
+		http.Error(w, "Save record does not belong to this player", http.StatusForbidden)
+		return
+	}
+	if len(record.Turns) == 0 {
+		http.Error(w, "Save record contains no turns", http.StatusBadRequest)
+		return
+	}
+	latest := record.Turns[len(record.Turns)-1]
+	for _, entry := range record.Turns {
+		if entry.Turn > latest.Turn || (entry.Turn == latest.Turn && entry.RecordedAt > latest.RecordedAt) {
+			latest = entry
+		}
+	}
+	if latest.State.Snapshot == nil {
+		http.Error(w, "Save record missing snapshot data", http.StatusBadRequest)
+		return
+	}
+	room, err := gs.restoreSingleplayerRoom(user.Sub, latest.State.Snapshot)
+	if err != nil {
+		log.Printf("restore singleplayer failed: %v", err)
+		http.Error(w, "Unable to restore singleplayer session", http.StatusInternalServerError)
+		return
+	}
+	resp := map[string]interface{}{
+		"roomId":   room.ID,
+		"roomName": room.Name,
+		"turn":     room.Turn,
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
 }
 
 // WebSocket read loop
@@ -2819,6 +2966,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	}
 	payloadByPlayer := map[PlayerID]interface{}{}
 	recipients := make([]*Player, 0, len(room.Players))
+	var singleplayerSnapshot *SingleplayerSnapshot
 	for id, pp := range room.Players {
 		if pp.Bankrupt {
 			// Build next modal if any (bankrupt players still see modals like Game Over)
@@ -3032,7 +3180,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		} else {
 			nextModal = map[string]interface{}{}
 		}
-		payloadByPlayer[id] = map[string]interface{}{
+		payload := map[string]interface{}{
 			"room": map[string]interface{}{
 				"id":         room.ID,
 				"name":       room.Name,
@@ -3103,6 +3251,13 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			},
 			"visiblePlanet": visible,
 		}
+		if room.Private && room.CreatorID != "" && room.CreatorID == pp.ID && !pp.IsBot {
+			if singleplayerSnapshot == nil {
+				singleplayerSnapshot = buildSingleplayerSnapshot(room)
+			}
+			payload["singleplayerSnapshot"] = singleplayerSnapshot
+		}
+		payloadByPlayer[id] = payload
 		if pp.conn != nil {
 			recipients = append(recipients, pp)
 		}
@@ -3384,6 +3539,419 @@ func cloneMarketMemory(in map[string]*MarketSnapshot) map[string]*MarketSnapshot
 		out[planet] = copySnap
 	}
 	return out
+}
+
+func clonePriceMemory(in map[string]*PriceMemory) map[string]*PriceMemory {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]*PriceMemory, len(in))
+	for planet, entry := range in {
+		if entry == nil {
+			continue
+		}
+		copyEntry := &PriceMemory{
+			Turn:          entry.Turn,
+			GoodsAvg:      entry.GoodsAvg,
+			VisitCount:    entry.VisitCount,
+			LastProfit:    entry.LastProfit,
+			ProfitHistory: append([]int(nil), entry.ProfitHistory...),
+		}
+		if entry.Prices != nil {
+			copyEntry.Prices = cloneIntMap(entry.Prices)
+		}
+		if entry.LastPurchased != nil {
+			copyEntry.LastPurchased = cloneIntMap(entry.LastPurchased)
+		}
+		if entry.PurchaseAmounts != nil {
+			copyEntry.PurchaseAmounts = cloneIntMap(entry.PurchaseAmounts)
+		}
+		out[planet] = copyEntry
+	}
+	return out
+}
+
+func cloneFacilities(src []*Facility) []*Facility {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]*Facility, 0, len(src))
+	for _, f := range src {
+		if f == nil {
+			continue
+		}
+		copyFacility := *f
+		out = append(out, &copyFacility)
+	}
+	return out
+}
+
+func clonePlanetPositions(in map[string][2]float64) map[string][2]float64 {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string][2]float64, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneNewsItems(src []NewsItem) []NewsItem {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]NewsItem, len(src))
+	copy(out, src)
+	return out
+}
+
+func cloneStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
+}
+
+func makePersistedPlayerSnapshot(p *Player) *PersistedPlayer {
+	return &PersistedPlayer{
+		Money:              p.Money,
+		CurrentPlanet:      p.CurrentPlanet,
+		DestinationPlanet:  p.DestinationPlanet,
+		Inventory:          cloneIntMap(p.Inventory),
+		InventoryAvgCost:   cloneIntMap(p.InventoryAvgCost),
+		Ready:              p.Ready,
+		EndGame:            p.EndGame,
+		Modals:             cloneModals(p.Modals),
+		Fuel:               p.Fuel,
+		Bankrupt:           p.Bankrupt,
+		InTransit:          p.InTransit,
+		TransitFrom:        p.TransitFrom,
+		TransitRemaining:   p.TransitRemaining,
+		TransitTotal:       p.TransitTotal,
+		CapacityBonus:      p.CapacityBonus,
+		SpeedBonus:         p.SpeedBonus,
+		FuelCapacityBonus:  p.FuelCapacityBonus,
+		ActionHistory:      cloneActionHistory(p.ActionHistory),
+		FacilityInvestment: p.FacilityInvestment,
+		UpgradeInvestment:  p.UpgradeInvestment,
+		MarketMemory:       cloneMarketMemory(p.MarketMemory),
+	}
+}
+
+func clonePersistedPlayer(src *PersistedPlayer) *PersistedPlayer {
+	if src == nil {
+		return nil
+	}
+	return &PersistedPlayer{
+		Money:              src.Money,
+		CurrentPlanet:      src.CurrentPlanet,
+		DestinationPlanet:  src.DestinationPlanet,
+		Inventory:          cloneIntMap(src.Inventory),
+		InventoryAvgCost:   cloneIntMap(src.InventoryAvgCost),
+		Ready:              src.Ready,
+		EndGame:            src.EndGame,
+		Modals:             cloneModals(src.Modals),
+		Fuel:               src.Fuel,
+		Bankrupt:           src.Bankrupt,
+		InTransit:          src.InTransit,
+		TransitFrom:        src.TransitFrom,
+		TransitRemaining:   src.TransitRemaining,
+		TransitTotal:       src.TransitTotal,
+		CapacityBonus:      src.CapacityBonus,
+		SpeedBonus:         src.SpeedBonus,
+		FuelCapacityBonus:  src.FuelCapacityBonus,
+		ActionHistory:      cloneActionHistory(src.ActionHistory),
+		FacilityInvestment: src.FacilityInvestment,
+		UpgradeInvestment:  src.UpgradeInvestment,
+		MarketMemory:       cloneMarketMemory(src.MarketMemory),
+	}
+}
+
+func buildSingleplayerSnapshot(room *Room) *SingleplayerSnapshot {
+	snapshot := &SingleplayerSnapshot{
+		Version: 1,
+		Room: SingleplayerRoomSnapshot{
+			ID:              room.ID,
+			Name:            room.Name,
+			Started:         room.Started,
+			Turn:            room.Turn,
+			Private:         room.Private,
+			Paused:          room.Paused,
+			CreatorID:       string(room.CreatorID),
+			TurnEndsAt:      room.TurnEndsAt.UnixMilli(),
+			PlanetOrder:     cloneStringSlice(room.PlanetOrder),
+			PlanetPositions: clonePlanetPositions(room.PlanetPositions),
+			Planets:         make(map[string]SingleplayerPlanetSnapshot, len(room.Planets)),
+			News:            cloneNewsItems(room.News),
+			ActiveAuction:   nil,
+		},
+		Players: make(map[string]*SingleplayerPlayerSnapshot, len(room.Players)+len(room.Persist)),
+	}
+
+	if room.ActiveAuction != nil {
+		auctionCopy := *room.ActiveAuction
+		if auctionCopy.Bids != nil {
+			bids := make(map[PlayerID]int, len(auctionCopy.Bids))
+			for k, v := range auctionCopy.Bids {
+				bids[k] = v
+			}
+			auctionCopy.Bids = bids
+		}
+		snapshot.Room.ActiveAuction = &auctionCopy
+	}
+
+	for name, planet := range room.Planets {
+		if planet == nil {
+			continue
+		}
+		snapshot.Room.Planets[name] = SingleplayerPlanetSnapshot{
+			Name:          planet.Name,
+			Goods:         cloneIntMap(planet.Goods),
+			Prices:        cloneIntMap(planet.Prices),
+			Prod:          cloneIntMap(planet.Prod),
+			BasePrices:    cloneIntMap(planet.BasePrices),
+			BaseProd:      cloneIntMap(planet.BaseProd),
+			PriceTrend:    cloneIntMap(planet.PriceTrend),
+			FuelPrice:     planet.FuelPrice,
+			BaseFuelPrice: planet.BaseFuelPrice,
+			Facilities:    cloneFacilities(planet.Facilities),
+		}
+	}
+
+	for id, player := range room.Players {
+		persist := makePersistedPlayerSnapshot(player)
+		snapshot.Players[string(id)] = &SingleplayerPlayerSnapshot{
+			ID:                 string(player.ID),
+			Name:               player.Name,
+			IsBot:              player.IsBot,
+			Money:              player.Money,
+			CurrentPlanet:      player.CurrentPlanet,
+			DestinationPlanet:  player.DestinationPlanet,
+			Inventory:          cloneIntMap(player.Inventory),
+			InventoryAvgCost:   cloneIntMap(player.InventoryAvgCost),
+			Ready:              player.Ready,
+			EndGame:            player.EndGame,
+			Fuel:               player.Fuel,
+			Bankrupt:           player.Bankrupt,
+			InTransit:          player.InTransit,
+			TransitFrom:        player.TransitFrom,
+			TransitRemaining:   player.TransitRemaining,
+			TransitTotal:       player.TransitTotal,
+			CapacityBonus:      player.CapacityBonus,
+			SpeedBonus:         player.SpeedBonus,
+			FuelCapacityBonus:  player.FuelCapacityBonus,
+			FacilityInvestment: player.FacilityInvestment,
+			UpgradeInvestment:  player.UpgradeInvestment,
+			ActionHistory:      cloneActionHistory(player.ActionHistory),
+			MarketMemory:       cloneMarketMemory(player.MarketMemory),
+			PriceMemory:        clonePriceMemory(player.PriceMemory),
+			LastTripStartMoney: player.LastTripStartMoney,
+			ConsecutiveVisits:  cloneIntMap(player.ConsecutiveVisits),
+			Persist:            persist,
+		}
+	}
+
+	for id, persisted := range room.Persist {
+		if _, exists := snapshot.Players[string(id)]; exists {
+			continue
+		}
+		snapshot.Players[string(id)] = &SingleplayerPlayerSnapshot{
+			ID:                 string(id),
+			Name:               string(id),
+			IsBot:              false,
+			Money:              persisted.Money,
+			CurrentPlanet:      persisted.CurrentPlanet,
+			DestinationPlanet:  persisted.DestinationPlanet,
+			Inventory:          cloneIntMap(persisted.Inventory),
+			InventoryAvgCost:   cloneIntMap(persisted.InventoryAvgCost),
+			Ready:              persisted.Ready,
+			EndGame:            persisted.EndGame,
+			Fuel:               persisted.Fuel,
+			Bankrupt:           persisted.Bankrupt,
+			InTransit:          persisted.InTransit,
+			TransitFrom:        persisted.TransitFrom,
+			TransitRemaining:   persisted.TransitRemaining,
+			TransitTotal:       persisted.TransitTotal,
+			CapacityBonus:      persisted.CapacityBonus,
+			SpeedBonus:         persisted.SpeedBonus,
+			FuelCapacityBonus:  persisted.FuelCapacityBonus,
+			FacilityInvestment: persisted.FacilityInvestment,
+			UpgradeInvestment:  persisted.UpgradeInvestment,
+			ActionHistory:      cloneActionHistory(persisted.ActionHistory),
+			MarketMemory:       cloneMarketMemory(persisted.MarketMemory),
+			PriceMemory:        nil,
+			LastTripStartMoney: 0,
+			ConsecutiveVisits:  nil,
+			Persist: &PersistedPlayer{
+				Money:              persisted.Money,
+				CurrentPlanet:      persisted.CurrentPlanet,
+				DestinationPlanet:  persisted.DestinationPlanet,
+				Inventory:          cloneIntMap(persisted.Inventory),
+				InventoryAvgCost:   cloneIntMap(persisted.InventoryAvgCost),
+				Ready:              persisted.Ready,
+				EndGame:            persisted.EndGame,
+				Modals:             cloneModals(persisted.Modals),
+				Fuel:               persisted.Fuel,
+				Bankrupt:           persisted.Bankrupt,
+				InTransit:          persisted.InTransit,
+				TransitFrom:        persisted.TransitFrom,
+				TransitRemaining:   persisted.TransitRemaining,
+				TransitTotal:       persisted.TransitTotal,
+				CapacityBonus:      persisted.CapacityBonus,
+				SpeedBonus:         persisted.SpeedBonus,
+				FuelCapacityBonus:  persisted.FuelCapacityBonus,
+				ActionHistory:      cloneActionHistory(persisted.ActionHistory),
+				FacilityInvestment: persisted.FacilityInvestment,
+				UpgradeInvestment:  persisted.UpgradeInvestment,
+				MarketMemory:       cloneMarketMemory(persisted.MarketMemory),
+			},
+		}
+	}
+
+	return snapshot
+}
+
+func (gs *GameServer) restoreSingleplayerRoom(ownerID string, snapshot *SingleplayerSnapshot) (*Room, error) {
+	if snapshot == nil {
+		return nil, fmt.Errorf("missing snapshot")
+	}
+	if snapshot.Room.ID == "" {
+		return nil, fmt.Errorf("snapshot missing room id")
+	}
+	if !snapshot.Room.Private {
+		return nil, fmt.Errorf("snapshot room is not private")
+	}
+	room := &Room{
+		ID:              snapshot.Room.ID,
+		Name:            snapshot.Room.Name,
+		Started:         snapshot.Room.Started,
+		Players:         make(map[PlayerID]*Player),
+		Planets:         make(map[string]*Planet),
+		Persist:         make(map[PlayerID]*PersistedPlayer),
+		readyCh:         make(chan struct{}, 1),
+		closeCh:         make(chan struct{}),
+		Private:         true,
+		CreatorID:       PlayerID(ownerID),
+		Paused:          snapshot.Room.Paused,
+		stateCh:         make(chan struct{}, 1),
+		Turn:            snapshot.Room.Turn,
+		News:            cloneNewsItems(snapshot.Room.News),
+		PlanetOrder:     cloneStringSlice(snapshot.Room.PlanetOrder),
+		PlanetPositions: clonePlanetPositions(snapshot.Room.PlanetPositions),
+	}
+	if snapshot.Room.TurnEndsAt > 0 {
+		room.TurnEndsAt = time.Unix(0, snapshot.Room.TurnEndsAt*int64(time.Millisecond))
+	} else {
+		room.TurnEndsAt = time.Now().Add(turnDuration)
+	}
+	if snapshot.Room.ActiveAuction != nil {
+		auctionCopy := *snapshot.Room.ActiveAuction
+		if auctionCopy.Bids != nil {
+			bids := make(map[PlayerID]int, len(auctionCopy.Bids))
+			for k, v := range auctionCopy.Bids {
+				bids[k] = v
+			}
+			auctionCopy.Bids = bids
+		}
+		room.ActiveAuction = &auctionCopy
+	}
+	for name, planetSnap := range snapshot.Room.Planets {
+		planet := &Planet{
+			Name:          planetSnap.Name,
+			Goods:         cloneIntMap(planetSnap.Goods),
+			Prices:        cloneIntMap(planetSnap.Prices),
+			Prod:          cloneIntMap(planetSnap.Prod),
+			BasePrices:    cloneIntMap(planetSnap.BasePrices),
+			BaseProd:      cloneIntMap(planetSnap.BaseProd),
+			PriceTrend:    cloneIntMap(planetSnap.PriceTrend),
+			FuelPrice:     planetSnap.FuelPrice,
+			BaseFuelPrice: planetSnap.BaseFuelPrice,
+			Facilities:    cloneFacilities(planetSnap.Facilities),
+		}
+		room.Planets[name] = planet
+	}
+	for idStr, playerSnap := range snapshot.Players {
+		pid := PlayerID(idStr)
+		persist := clonePersistedPlayer(playerSnap.Persist)
+		if persist == nil {
+			persist = &PersistedPlayer{
+				Money:              playerSnap.Money,
+				CurrentPlanet:      playerSnap.CurrentPlanet,
+				DestinationPlanet:  playerSnap.DestinationPlanet,
+				Inventory:          cloneIntMap(playerSnap.Inventory),
+				InventoryAvgCost:   cloneIntMap(playerSnap.InventoryAvgCost),
+				Ready:              playerSnap.Ready,
+				EndGame:            playerSnap.EndGame,
+				Modals:             []ModalItem{},
+				Fuel:               playerSnap.Fuel,
+				Bankrupt:           playerSnap.Bankrupt,
+				InTransit:          playerSnap.InTransit,
+				TransitFrom:        playerSnap.TransitFrom,
+				TransitRemaining:   playerSnap.TransitRemaining,
+				TransitTotal:       playerSnap.TransitTotal,
+				CapacityBonus:      playerSnap.CapacityBonus,
+				SpeedBonus:         playerSnap.SpeedBonus,
+				FuelCapacityBonus:  playerSnap.FuelCapacityBonus,
+				ActionHistory:      cloneActionHistory(playerSnap.ActionHistory),
+				FacilityInvestment: playerSnap.FacilityInvestment,
+				UpgradeInvestment:  playerSnap.UpgradeInvestment,
+				MarketMemory:       cloneMarketMemory(playerSnap.MarketMemory),
+			}
+		}
+		room.Persist[pid] = persist
+		if playerSnap.IsBot {
+			bot := &Player{
+				ID:                 pid,
+				Name:               playerSnap.Name,
+				Money:              playerSnap.Money,
+				CurrentPlanet:      defaultStr(playerSnap.CurrentPlanet, "Earth"),
+				DestinationPlanet:  playerSnap.DestinationPlanet,
+				Inventory:          cloneIntMap(playerSnap.Inventory),
+				InventoryAvgCost:   cloneIntMap(playerSnap.InventoryAvgCost),
+				Ready:              playerSnap.Ready,
+				EndGame:            playerSnap.EndGame,
+				Fuel:               playerSnap.Fuel,
+				Bankrupt:           playerSnap.Bankrupt,
+				InTransit:          playerSnap.InTransit,
+				TransitFrom:        playerSnap.TransitFrom,
+				TransitRemaining:   playerSnap.TransitRemaining,
+				TransitTotal:       playerSnap.TransitTotal,
+				CapacityBonus:      playerSnap.CapacityBonus,
+				SpeedBonus:         playerSnap.SpeedBonus,
+				FuelCapacityBonus:  playerSnap.FuelCapacityBonus,
+				FacilityInvestment: playerSnap.FacilityInvestment,
+				UpgradeInvestment:  playerSnap.UpgradeInvestment,
+				PriceMemory:        clonePriceMemory(playerSnap.PriceMemory),
+				MarketMemory:       cloneMarketMemory(playerSnap.MarketMemory),
+				ActionHistory:      cloneActionHistory(playerSnap.ActionHistory),
+				LastTripStartMoney: playerSnap.LastTripStartMoney,
+				ConsecutiveVisits:  cloneIntMap(playerSnap.ConsecutiveVisits),
+				IsBot:              true,
+				roomID:             room.ID,
+			}
+			if bot.Inventory == nil {
+				bot.Inventory = map[string]int{}
+			}
+			if bot.InventoryAvgCost == nil {
+				bot.InventoryAvgCost = map[string]int{}
+			}
+			room.Players[pid] = bot
+		}
+	}
+	gs.roomsMu.Lock()
+	if _, exists := gs.rooms[room.ID]; exists {
+		gs.roomsMu.Unlock()
+		return nil, fmt.Errorf("room %s already exists", room.ID)
+	}
+	gs.rooms[room.ID] = room
+	gs.roomsMu.Unlock()
+	if room.Started {
+		go gs.runTicker(room)
+	}
+	return room, nil
 }
 
 func cloneModals(in []ModalItem) []ModalItem {
