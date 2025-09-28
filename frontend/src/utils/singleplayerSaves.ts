@@ -179,7 +179,9 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
     }
 
     if (known.size > 0) {
-      youState.knownPlanets = Array.from(known);
+      const discovered = Array.from(known)
+      youState.knownPlanets = discovered
+      stateAny.discoveredPlanets = discovered
     }
   }
 

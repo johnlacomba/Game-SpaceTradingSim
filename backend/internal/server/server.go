@@ -310,8 +310,9 @@ type singleplayerTurnSnapshot struct {
 }
 
 type singleplayerStateSnapshot struct {
-	Room singleplayerRoomSnapshot   `json:"room"`
-	You  singleplayerPlayerSnapshot `json:"you"`
+	Room              singleplayerRoomSnapshot   `json:"room"`
+	You               singleplayerPlayerSnapshot `json:"you"`
+	DiscoveredPlanets []string                   `json:"discoveredPlanets,omitempty"`
 }
 
 type singleplayerRoomSnapshot struct {
@@ -1502,6 +1503,9 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 			return
 		}
 		knownPlanets[name] = true
+	}
+	for _, name := range state.DiscoveredPlanets {
+		addKnown(name)
 	}
 	for _, name := range state.Room.Planets {
 		addKnown(name)
