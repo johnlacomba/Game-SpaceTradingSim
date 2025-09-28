@@ -2911,7 +2911,7 @@ export function App() {
   const transitRemaining: number = (r.you as any).transitRemaining ?? 0
   const transitTotal: number = (r.you as any).transitTotal ?? 0
 
-  const travelUnits = useCallback((from?: string, to?: string) => {
+  const travelUnits = (from?: string, to?: string) => {
     if (!from || !to || from === to) return 0
     const a = getWorldPosition(from)
     const b = getWorldPosition(to)
@@ -2921,9 +2921,9 @@ export function App() {
     const distance = Math.sqrt(dx * dx + dy * dy)
     const scale = Math.max(worldBounds.unitScale, 0.1)
     return Math.max(1, Math.ceil(distance / scale))
-  }, [getWorldPosition, worldBounds.unitScale])
+  }
 
-  const yourTransitPos = useMemo(() => {
+  const yourTransitPos = (() => {
     if (!inTransit) return undefined as undefined | { x: number; y: number }
     if (!transitFrom || !destName || transitTotal <= 0) return undefined
     const start = getWorldPosition(transitFrom)
@@ -2935,7 +2935,7 @@ export function App() {
       y: start.y + (end.y - start.y) * progress,
     }
     return worldToScreen(world)
-  }, [destName, getWorldPosition, inTransit, transitFrom, transitRemaining, transitTotal, worldToScreen])
+  })()
 
   return (
     <div style={{ overflowX: 'hidden', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
