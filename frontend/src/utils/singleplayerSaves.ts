@@ -186,6 +186,17 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
       if (stateAny.room && typeof stateAny.room === 'object') {
         stateAny.room.planets = discovered
       }
+
+      try {
+        const preview = discovered.slice(0, 12)
+        console.log('[SingleplayerSave]', {
+          turn: input.turn,
+          knownCount: discovered.length,
+          preview,
+        })
+      } catch (error) {
+        // Logging failure should never break saves
+      }
     }
   }
 

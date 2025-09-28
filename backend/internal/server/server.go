@@ -1460,6 +1460,7 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		state.DiscoveredPlanets = rebuilt
 		state.Room.Planets = rebuilt
 		state.You.KnownPlanets = rebuilt
+		log.Printf("[SingleplayerRestore] room=%s turn=%d union=%d preview=[%s]", room.ID, snap.Turn, len(rebuilt), sampleNames(rebuilt, 12))
 	}
 	snap.State = state
 	save.Turns[len(save.Turns)-1] = snap
@@ -1551,6 +1552,12 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		knownPlanets[p.CurrentPlanet] = true
 	}
 	p.KnownPlanets = knownPlanets
+	knownList := make([]string, 0, len(p.KnownPlanets))
+	for name := range p.KnownPlanets {
+		knownList = append(knownList, name)
+	}
+	sort.Strings(knownList)
+	log.Printf("[SingleplayerRestore] player=%s knownCount=%d preview=[%s]", p.ID, len(knownList), sampleNames(knownList, 12))
 	capacityBonus := you.Capacity - shipCapacity
 	if capacityBonus < 0 {
 		capacityBonus = 0
@@ -3980,6 +3987,19 @@ func cloneBoolMap(in map[string]bool) map[string]bool {
 		out[k] = v
 	}
 	return out
+}
+
+func sampleNames(names []string, limit int) string {
+	if len(names) == 0 {
+		return ""
+	}
+	if limit <= 0 {
+		limit = 5
+	}
+	if len(names) > limit {
+		names = names[:limit]
+	}
+	return strings.Join(names, ", ")
 }
 
 // cloneActionHistory returns a shallow copy of the action history slice.
