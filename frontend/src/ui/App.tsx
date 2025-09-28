@@ -1062,7 +1062,7 @@ export function App() {
   const mapViewRef = useRef(mapView)
   const scaleRef = useRef(1)
   const [isDraggingMap, setIsDraggingMap] = useState(false)
-  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; hasCapture: boolean }>({
+  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; hasCapture: boolean; interactiveTarget: boolean }>({
     active: false,
     pointerId: null,
     startX: 0,
@@ -1070,7 +1070,8 @@ export function App() {
     lastX: 0,
     lastY: 0,
     moved: false,
-    hasCapture: false
+    hasCapture: false,
+    interactiveTarget: false,
   })
   const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
@@ -1248,8 +1249,11 @@ export function App() {
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (mapLocked) return
     if (event.button !== 0) return
+    const target = event.target as HTMLElement | null
     const container = planetsContainerRef.current
     if (!container) return
+    const clickable = target?.closest<HTMLElement>('button, a, [role="button"], input, textarea, select, [data-interactive="true"]')
+    const isDisabledButton = clickable instanceof HTMLButtonElement && clickable.disabled
     panStateRef.current = {
       active: true,
       pointerId: event.pointerId,
@@ -1259,6 +1263,7 @@ export function App() {
       lastY: event.clientY,
       moved: false,
       hasCapture: false,
+      interactiveTarget: Boolean(clickable && !isDisabledButton),
     }
   }, [mapLocked])
 
@@ -1279,6 +1284,7 @@ export function App() {
       lastY: 0,
       moved: false,
       hasCapture: false,
+      interactiveTarget: false,
     }
     setIsDraggingMap(false)
     return previousState
@@ -1297,7 +1303,8 @@ export function App() {
 
     if (!state.moved) {
       const total = Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
-      if (total > 4) {
+      const threshold = state.interactiveTarget ? (isMobile ? 20 : 12) : 4
+      if (total > threshold) {
         state.moved = true
         const container = planetsContainerRef.current
         if (container && !state.hasCapture) {
@@ -1319,7 +1326,7 @@ export function App() {
         zoom: prev.zoom,
       }))
     }
-  }, [baseScale, updateMapView])
+  }, [baseScale, isMobile, updateMapView])
 
   const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const state = panStateRef.current
