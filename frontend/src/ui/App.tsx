@@ -1062,7 +1062,7 @@ export function App() {
   const mapViewRef = useRef(mapView)
   const scaleRef = useRef(1)
   const [isDraggingMap, setIsDraggingMap] = useState(false)
-  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; clickTarget: HTMLElement | null }>({
+  const panStateRef = useRef<{ active: boolean; pointerId: number | null; startX: number; startY: number; lastX: number; lastY: number; moved: boolean; hasCapture: boolean }>({
     active: false,
     pointerId: null,
     startX: 0,
@@ -1070,7 +1070,7 @@ export function App() {
     lastX: 0,
     lastY: 0,
     moved: false,
-    clickTarget: null
+    hasCapture: false
   })
   const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
@@ -1248,10 +1248,8 @@ export function App() {
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (mapLocked) return
     if (event.button !== 0) return
-    const target = event.target as HTMLElement | null
     const container = planetsContainerRef.current
     if (!container) return
-    const clickTarget = target ? target.closest<HTMLElement>('button, a, [role="button"], input, textarea, [data-clickable="true"]') : null
     panStateRef.current = {
       active: true,
       pointerId: event.pointerId,
@@ -1260,21 +1258,18 @@ export function App() {
       lastX: event.clientX,
       lastY: event.clientY,
       moved: false,
-      clickTarget: clickTarget ?? null,
+      hasCapture: false,
     }
-    try {
-      container.setPointerCapture(event.pointerId)
-    } catch {}
   }, [mapLocked])
 
   const endPan = useCallback((pointerId: number) => {
     const container = planetsContainerRef.current
-    if (container && container.hasPointerCapture(pointerId)) {
+    const previousState = { ...panStateRef.current }
+    if (previousState.hasCapture && container && container.hasPointerCapture(pointerId)) {
       try {
         container.releasePointerCapture(pointerId)
       } catch {}
     }
-    const previousState = { ...panStateRef.current }
     panStateRef.current = {
       active: false,
       pointerId: null,
@@ -1283,7 +1278,7 @@ export function App() {
       lastX: 0,
       lastY: 0,
       moved: false,
-      clickTarget: null,
+      hasCapture: false,
     }
     setIsDraggingMap(false)
     return previousState
@@ -1304,6 +1299,13 @@ export function App() {
       const total = Math.hypot(event.clientX - state.startX, event.clientY - state.startY)
       if (total > 4) {
         state.moved = true
+        const container = planetsContainerRef.current
+        if (container && !state.hasCapture) {
+          try {
+            container.setPointerCapture(event.pointerId)
+            state.hasCapture = true
+          } catch {}
+        }
         setIsDraggingMap(true)
       }
     }
@@ -1322,19 +1324,7 @@ export function App() {
   const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
-    const previousState = endPan(event.pointerId)
-    if (!previousState || previousState.moved) return
-    const clickable = previousState.clickTarget
-    if (!clickable) return
-    const container = planetsContainerRef.current
-    if (clickable === container) return
-    if (!document.contains(clickable)) return
-    if ((clickable instanceof HTMLButtonElement || clickable instanceof HTMLInputElement) && clickable.disabled) return
-    window.setTimeout(() => {
-      if (!document.contains(clickable)) return
-      if ((clickable instanceof HTMLButtonElement || clickable instanceof HTMLInputElement) && clickable.disabled) return
-      clickable.click()
-    }, 0)
+    endPan(event.pointerId)
   }, [endPan])
 
   const handlePointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
