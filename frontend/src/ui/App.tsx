@@ -1227,46 +1227,48 @@ export function App() {
     const serverSnapshot = (room as any)?.singleplayerSnapshot
     if (!serverSnapshot) return
 
-    const snapshot = {
-      you: {
-        id: you.id,
-        name: you.name,
-        money: you.money,
-        cashValue: you.cashValue,
-        fuel: you.fuel,
-        currentPlanet: you.currentPlanet,
-        destinationPlanet: you.destinationPlanet,
-        inventory: you.inventory,
-        inventoryAvgCost: you.inventoryAvgCost,
-        ready: you.ready,
-        endGame: you.endGame,
-        inTransit: (you as any)?.inTransit,
-        transitFrom: (you as any)?.transitFrom,
-        transitRemaining: (you as any)?.transitRemaining,
-        transitTotal: (you as any)?.transitTotal,
-        cargoValue: you.cargoValue,
-        upgradeValue: you.upgradeValue,
-        facilityInvestment: you.facilityInvestment,
-        upgradeInvestment: you.upgradeInvestment,
-        marketMemory: you.marketMemory,
-        modal: you.modal,
+    const turnStatePayload = {
+      snapshot: serverSnapshot,
+      clientView: {
+        you: {
+          id: you.id,
+          name: you.name,
+          money: you.money,
+          cashValue: you.cashValue,
+          fuel: you.fuel,
+          currentPlanet: you.currentPlanet,
+          destinationPlanet: you.destinationPlanet,
+          inventory: you.inventory,
+          inventoryAvgCost: you.inventoryAvgCost,
+          ready: you.ready,
+          endGame: you.endGame,
+          inTransit: (you as any)?.inTransit,
+          transitFrom: (you as any)?.transitFrom,
+          transitRemaining: (you as any)?.transitRemaining,
+          transitTotal: (you as any)?.transitTotal,
+          cargoValue: you.cargoValue,
+          upgradeValue: you.upgradeValue,
+          facilityInvestment: you.facilityInvestment,
+          upgradeInvestment: you.upgradeInvestment,
+          marketMemory: you.marketMemory,
+          modal: you.modal,
+        },
+        room: {
+          id: roomState.id,
+          name: roomState.name,
+          started: roomState.started,
+          paused: roomState.paused,
+          private: roomState.private,
+          creatorId: roomState.creatorId,
+          turn: roomState.turn,
+          turnEndsAt: roomState.turnEndsAt,
+          players: roomState.players,
+          planets: roomState.planets,
+          facilities: roomState.facilities,
+          news: roomState.news,
+        },
+        visiblePlanet: room.visiblePlanet,
       },
-      room: {
-        id: roomState.id,
-        name: roomState.name,
-        started: roomState.started,
-        paused: roomState.paused,
-        private: roomState.private,
-        creatorId: roomState.creatorId,
-        turn: roomState.turn,
-        turnEndsAt: roomState.turnEndsAt,
-        players: roomState.players,
-        planets: roomState.planets,
-        facilities: roomState.facilities,
-        news: roomState.news,
-      },
-      visiblePlanet: room.visiblePlanet,
-      singleplayerSnapshot: serverSnapshot,
     }
 
     const persisted = recordSingleplayerTurn({
@@ -1275,7 +1277,7 @@ export function App() {
       roomId: roomState.id,
       roomName: roomState.name,
       turn,
-      turnState: snapshot,
+      turnState: turnStatePayload,
     })
 
     if (persisted) {
@@ -2257,10 +2259,11 @@ export function App() {
                     {singleplayerSaves.map(save => {
                       const latestTurn = save.record.turns[save.record.turns.length - 1]
                       const state = (latestTurn?.state ?? {}) as any
+                      const clientView = state?.clientView ?? state
                       const available = lobby.rooms.some(r => r.id === save.record.roomId)
                       const turnLabel = typeof latestTurn?.turn === 'number' ? latestTurn.turn : 0
                       const updatedLabel = formatRelativeTime(latestTurn?.recordedAt)
-                      const playerCount = Array.isArray(state?.room?.players) ? state.room.players.length : 1
+                      const playerCount = Array.isArray(clientView?.room?.players) ? clientView.room.players.length : 1
                       return (
                         <div
                           key={save.key}
