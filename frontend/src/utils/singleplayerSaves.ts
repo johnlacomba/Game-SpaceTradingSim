@@ -34,6 +34,7 @@ type RecordTurnInput = {
   ownerId: string;
   turn: number;
   state: unknown;
+  authoritativeState?: unknown;
   recordedAt?: number;
 };
 
@@ -149,7 +150,8 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
   const existing = decodePayload<SingleplayerSave>(encoded);
   const recordedAt = input.recordedAt ?? Date.now();
 
-  const snapshotState = JSON.parse(JSON.stringify(input.state ?? {}));
+  const sourceState = input.authoritativeState ?? input.state;
+  const snapshotState = JSON.parse(JSON.stringify(sourceState ?? {}));
 
   if (snapshotState && typeof snapshotState === 'object') {
     const stateAny = snapshotState as Record<string, any>;

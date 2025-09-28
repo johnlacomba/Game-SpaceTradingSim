@@ -313,6 +313,7 @@ type singleplayerStateSnapshot struct {
 	Room              singleplayerRoomSnapshot   `json:"room"`
 	You               singleplayerPlayerSnapshot `json:"you"`
 	DiscoveredPlanets []string                   `json:"discoveredPlanets,omitempty"`
+	World             *singleplayerWorldSnapshot `json:"world,omitempty"`
 }
 
 type singleplayerRoomSnapshot struct {
@@ -370,6 +371,24 @@ type singleplayerPlayerSnapshot struct {
 	CargoValue         int                        `json:"cargoValue"`
 	MarketMemory       map[string]*MarketSnapshot `json:"marketMemory"`
 	KnownPlanets       []string                   `json:"knownPlanets"`
+}
+
+type singleplayerWorldSnapshot struct {
+	PlanetOrder     []string                               `json:"planetOrder"`
+	PlanetPositions map[string][2]float64                  `json:"planetPositions"`
+	Planets         map[string]*singleplayerPlanetSnapshot `json:"planets"`
+}
+
+type singleplayerPlanetSnapshot struct {
+	Goods         map[string]int `json:"goods"`
+	Prices        map[string]int `json:"prices"`
+	Prod          map[string]int `json:"prod"`
+	BasePrices    map[string]int `json:"basePrices"`
+	BaseProd      map[string]int `json:"baseProd"`
+	PriceTrend    map[string]int `json:"priceTrend"`
+	FuelPrice     int            `json:"fuelPrice"`
+	BaseFuelPrice int            `json:"baseFuelPrice"`
+	Facilities    []*Facility    `json:"facilities,omitempty"`
 }
 type Planet struct {
 	Name   string         `json:"name"`
@@ -474,8 +493,8 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 	} else {
 		// Check Authorization header as fallback
 		authHeader := r.Header.Get("Authorization")
-		if authHeader != "" {
-			tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+		if state.World != nil {
+			if len(state.World.PlanetOrder) > 0 {
 			if tokenString != authHeader {
 				userClaims, err = cognitoConfig.ValidateToken(tokenString)
 				if err != nil {
@@ -485,8 +504,8 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 				}
 			}
 		}
-	}
-
+			if state.World.Planets != nil {
+				rebuiltPlanets := make(map[string]*Planet, len(state.World.Planets))
 	if userClaims == nil {
 		log.Printf("WebSocket connection attempted without valid authentication")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -505,9 +524,7 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 		Name:              userClaims.Name,
 		Money:             1000,
 		CurrentPlanet:     "Earth",
-		DestinationPlanet: "",
-		Inventory:         map[string]int{},
-		InventoryAvgCost:  map[string]int{},
+				room.Planets = rebuiltPlanets
 		Fuel:              fuelCapacity,
 		PriceMemory:       make(map[string]*PriceMemory),
 		MarketMemory:      make(map[string]*MarketSnapshot),
@@ -1497,6 +1514,41 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 		room.News = news
 	} else {
 		room.News = nil
+	}
+
+	if state.World != nil {
+		if len(state.World.PlanetOrder) > 0 {
+			room.PlanetOrder = append([]string(nil), state.World.PlanetOrder...)
+		}
+		if state.World.PlanetPositions != nil {
+			positions := make(map[string][2]float64, len(state.World.PlanetPositions))
+			for name, pos := range state.World.PlanetPositions {
+				positions[name] = pos
+			}
+			room.PlanetPositions = positions
+		}
+		if state.World.Planets != nil {
+			rebuiltPlanets := make(map[string]*Planet, len(state.World.Planets))
+			for name, snap := range state.World.Planets {
+				if name == "" || snap == nil {
+					continue
+				}
+				planet := &Planet{
+					Name:          name,
+					Goods:         cloneIntMap(snap.Goods),
+					Prices:        cloneIntMap(snap.Prices),
+					Prod:          cloneIntMap(snap.Prod),
+					BasePrices:    cloneIntMap(snap.BasePrices),
+					BaseProd:      cloneIntMap(snap.BaseProd),
+					PriceTrend:    cloneIntMap(snap.PriceTrend),
+					FuelPrice:     snap.FuelPrice,
+					BaseFuelPrice: snap.BaseFuelPrice,
+					Facilities:    cloneFacilities(snap.Facilities),
+				}
+				rebuiltPlanets[name] = planet
+			}
+			room.Planets = rebuiltPlanets
+		}
 	}
 
 	delete(room.Persist, p.ID)
@@ -3386,6 +3438,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		marketMemoryView := buildMarketPayload(pp.MarketMemory, pp.KnownPlanets)
 		knownList := make([]string, len(knownOrder))
 		copy(knownList, knownOrder)
+		var singleplayerState *singleplayerStateSnapshot
+		if room.Private && room.CreatorID == id && !pp.IsBot {
+			singleplayerState = gs.buildSingleplayerStateSnapshot(room, pp)
+		}
 		if room.Private && !pp.IsBot {
 			log.Printf("[RoomState] room=%s player=%s knownMap=%d knownOrder=%d preview=[%s]", room.ID, pp.ID, len(pp.KnownPlanets), len(knownOrder), sampleNames(knownOrder, 12))
 		}
@@ -3433,7 +3489,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			} else {
 				nm = map[string]interface{}{}
 			}
-			payloadByPlayer[id] = map[string]interface{}{
+			payload := map[string]interface{}{
 				"room": map[string]interface{}{
 					"id":         room.ID,
 					"name":       room.Name,
@@ -3486,6 +3542,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				},
 				"visiblePlanet": map[string]interface{}{},
 			}
+			if singleplayerState != nil {
+				payload["singleplayerState"] = singleplayerState
+			}
+			payloadByPlayer[id] = payload
 			if pp.conn != nil {
 				recipients = append(recipients, pp)
 			}
@@ -3585,7 +3645,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			nextModal = map[string]interface{}{}
 		}
 
-		payloadByPlayer[id] = map[string]interface{}{
+		payload := map[string]interface{}{
 			"room": map[string]interface{}{
 				"id":         room.ID,
 				"name":       room.Name,
@@ -3641,6 +3701,10 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			},
 			"visiblePlanet": visible,
 		}
+		if singleplayerState != nil {
+			payload["singleplayerState"] = singleplayerState
+		}
+		payloadByPlayer[id] = payload
 		if pp.conn != nil {
 			recipients = append(recipients, pp)
 		}
@@ -3930,6 +3994,176 @@ func cloneMarketMemory(in map[string]*MarketSnapshot) map[string]*MarketSnapshot
 		out[planet] = copySnap
 	}
 	return out
+}
+
+func cloneFacilities(in []*Facility) []*Facility {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]*Facility, 0, len(in))
+	for _, facility := range in {
+		if facility == nil {
+			continue
+		}
+		copyFacility := *facility
+		out = append(out, &copyFacility)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func (gs *GameServer) buildSingleplayerStateSnapshot(room *Room, p *Player) *singleplayerStateSnapshot {
+	if room == nil || p == nil {
+		return nil
+	}
+
+	knownSet := make(map[string]bool, len(p.KnownPlanets)+2)
+	for name := range p.KnownPlanets {
+		if name != "" {
+			knownSet[name] = true
+		}
+	}
+	if p.CurrentPlanet != "" {
+		knownSet[p.CurrentPlanet] = true
+	}
+	if p.DestinationPlanet != "" {
+		knownSet[p.DestinationPlanet] = true
+	}
+	known := make([]string, 0, len(knownSet))
+	for name := range knownSet {
+		known = append(known, name)
+	}
+	sort.Strings(known)
+
+	roomSnap := singleplayerRoomSnapshot{
+		ID:        room.ID,
+		Name:      room.Name,
+		Started:   room.Started,
+		Turn:      room.Turn,
+		Private:   room.Private,
+		Paused:    room.Paused,
+		CreatorID: string(room.CreatorID),
+	}
+	if !room.TurnEndsAt.IsZero() {
+		roomSnap.TurnEndsAt = room.TurnEndsAt.UnixMilli()
+	}
+	if len(room.News) > 0 {
+		news := make([]singleplayerNewsSnapshot, 0, len(room.News))
+		for _, item := range room.News {
+			news = append(news, singleplayerNewsSnapshot{
+				Headline:       item.Headline,
+				Planet:         item.Planet,
+				TurnsRemaining: item.TurnsRemaining,
+			})
+		}
+		roomSnap.News = news
+	}
+	if len(known) > 0 {
+		roomSnap.Planets = append([]string(nil), known...)
+	}
+	if len(room.Players) > 0 {
+		ids := make([]string, 0, len(room.Players))
+		for id := range room.Players {
+			ids = append(ids, string(id))
+		}
+		sort.Strings(ids)
+		players := make([]singleplayerRoomPlayerSnapshot, 0, len(ids))
+		for _, idStr := range ids {
+			pid := PlayerID(idStr)
+			other := room.Players[pid]
+			if other == nil {
+				continue
+			}
+			players = append(players, singleplayerRoomPlayerSnapshot{
+				ID:                string(other.ID),
+				Name:              other.Name,
+				CurrentPlanet:     other.CurrentPlanet,
+				DestinationPlanet: other.DestinationPlanet,
+				Ready:             other.Ready,
+				EndGame:           other.EndGame,
+				Bankrupt:          other.Bankrupt,
+				CashValue:         other.Money,
+			})
+		}
+		roomSnap.Players = players
+	}
+
+	youSnap := singleplayerPlayerSnapshot{
+		ID:                 string(p.ID),
+		Name:               p.Name,
+		Money:              p.Money,
+		CurrentPlanet:      p.CurrentPlanet,
+		DestinationPlanet:  p.DestinationPlanet,
+		Ready:              p.Ready,
+		EndGame:            p.EndGame,
+		Fuel:               p.Fuel,
+		Inventory:          cloneIntMap(p.Inventory),
+		InventoryAvgCost:   cloneIntMap(p.InventoryAvgCost),
+		InTransit:          p.InTransit,
+		TransitFrom:        p.TransitFrom,
+		TransitRemaining:   p.TransitRemaining,
+		TransitTotal:       p.TransitTotal,
+		Capacity:           shipCapacity + p.CapacityBonus,
+		FuelCapacity:       fuelCapacity + p.FuelCapacityBonus,
+		SpeedPerTurn:       20 + p.SpeedBonus,
+		FacilityInvestment: p.FacilityInvestment,
+		UpgradeInvestment:  p.UpgradeInvestment,
+		UpgradeValue:       p.UpgradeInvestment,
+		CargoValue:         inventoryValue(p.Inventory, p.InventoryAvgCost),
+		MarketMemory:       cloneMarketMemory(p.MarketMemory),
+		KnownPlanets:       append([]string(nil), known...),
+	}
+
+	return &singleplayerStateSnapshot{
+		Room:              roomSnap,
+		You:               youSnap,
+		DiscoveredPlanets: append([]string(nil), known...),
+		World:             buildSingleplayerWorldSnapshot(room),
+	}
+}
+
+func buildSingleplayerWorldSnapshot(room *Room) *singleplayerWorldSnapshot {
+	if room == nil {
+		return nil
+	}
+	world := &singleplayerWorldSnapshot{}
+	if len(room.PlanetOrder) > 0 {
+		world.PlanetOrder = append([]string(nil), room.PlanetOrder...)
+	} else if len(room.Planets) > 0 {
+		names := planetNames(room.Planets)
+		sort.Strings(names)
+		world.PlanetOrder = names
+	}
+	if len(room.PlanetPositions) > 0 {
+		positions := make(map[string][2]float64, len(room.PlanetPositions))
+		for name, pos := range room.PlanetPositions {
+			positions[name] = pos
+		}
+		world.PlanetPositions = positions
+	}
+	if len(room.Planets) > 0 {
+		planets := make(map[string]*singleplayerPlanetSnapshot, len(room.Planets))
+		for name, planet := range room.Planets {
+			if planet == nil {
+				continue
+			}
+			planets[name] = &singleplayerPlanetSnapshot{
+				Goods:         cloneIntMap(planet.Goods),
+				Prices:        cloneIntMap(planet.Prices),
+				Prod:          cloneIntMap(planet.Prod),
+				BasePrices:    cloneIntMap(planet.BasePrices),
+				BaseProd:      cloneIntMap(planet.BaseProd),
+				PriceTrend:    cloneIntMap(planet.PriceTrend),
+				FuelPrice:     planet.FuelPrice,
+				BaseFuelPrice: planet.BaseFuelPrice,
+				Facilities:    cloneFacilities(planet.Facilities),
+			}
+		}
+		world.Planets = planets
+	}
+	return world
 }
 
 func buildMarketPayload(memory map[string]*MarketSnapshot, known map[string]bool) map[string]map[string]interface{} {

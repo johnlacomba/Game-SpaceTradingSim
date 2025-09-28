@@ -1524,6 +1524,7 @@ export function App() {
             you: payload.you,
             visiblePlanet: payload.visiblePlanet,
           },
+          authoritativeState: payload.singleplayerState,
         })
         if (summary) {
           setSingleplayerSaves(prev => {
