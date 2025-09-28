@@ -3385,6 +3385,9 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		marketMemoryView := buildMarketPayload(pp.MarketMemory, pp.KnownPlanets)
 		knownList := make([]string, len(knownOrder))
 		copy(knownList, knownOrder)
+		if room.Private && !pp.IsBot {
+			log.Printf("[RoomState] room=%s player=%s knownMap=%d knownOrder=%d preview=[%s]", room.ID, pp.ID, len(pp.KnownPlanets), len(knownOrder), sampleNames(knownOrder, 12))
+		}
 
 		if pp.Bankrupt {
 			var nm map[string]interface{}
