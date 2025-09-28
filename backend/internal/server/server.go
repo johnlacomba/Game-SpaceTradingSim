@@ -516,7 +516,7 @@ func (gs *GameServer) HandleRestoreSingleplayer(w http.ResponseWriter, r *http.R
 			latest = entry
 		}
 	}
-	snapshot, err := extractSnapshotFromEntry(latest)
+	snapshot, err := extractSnapshotFromEntry(&record, latest, user.Sub)
 	if err != nil {
 		log.Printf("restore singleplayer decode failed: %v", err)
 		http.Error(w, "Save record is missing snapshot data", http.StatusBadRequest)
@@ -3668,58 +3668,127 @@ func clonePersistedPlayer(src *PersistedPlayer) *PersistedPlayer {
 	}
 }
 
-func extractSnapshotFromEntry(entry SingleplayerTurnEntry) (*SingleplayerSnapshot, error) {
-	if len(entry.State) == 0 {
-		return nil, fmt.Errorf("state payload missing")
+func extractSnapshotFromEntry(record *SingleplayerSaveRecord, entry SingleplayerTurnEntry, ownerID string) (*SingleplayerSnapshot, error) {
+	if record == nil {
+		return nil, fmt.Errorf("nil save record")
 	}
-	var envelope struct {
-		Snapshot       *SingleplayerSnapshot  `json:"snapshot"`
-		LegacySnapshot *SingleplayerSnapshot  `json:"singleplayerSnapshot"`
-		DirectSnapshot *SingleplayerSnapshot  `json:"directSnapshot"`
-		ClientView     map[string]interface{} `json:"clientView"`
+	attempts := []struct {
+		name string
+		fn   func() (*SingleplayerSnapshot, error)
+	}{
+		{
+			name: "envelope",
+			fn: func() (*SingleplayerSnapshot, error) {
+				if len(entry.State) == 0 {
+					return nil, fmt.Errorf("state payload empty")
+				}
+				var envelope struct {
+					Snapshot       *SingleplayerSnapshot  `json:"snapshot"`
+					LegacySnapshot *SingleplayerSnapshot  `json:"singleplayerSnapshot"`
+					DirectSnapshot *SingleplayerSnapshot  `json:"directSnapshot"`
+					ClientView     map[string]interface{} `json:"clientView"`
+				}
+				if err := json.Unmarshal(entry.State, &envelope); err != nil {
+					return nil, err
+				}
+				switch {
+				case envelope.Snapshot != nil:
+					return envelope.Snapshot, nil
+				case envelope.LegacySnapshot != nil:
+					return envelope.LegacySnapshot, nil
+				case envelope.DirectSnapshot != nil:
+					return envelope.DirectSnapshot, nil
+				case envelope.ClientView != nil:
+					return buildSnapshotFromClientView(envelope.ClientView)
+				default:
+					return nil, fmt.Errorf("envelope missing snapshot data")
+				}
+			},
+		},
+		{
+			name: "root",
+			fn: func() (*SingleplayerSnapshot, error) {
+				if len(entry.State) == 0 {
+					return nil, fmt.Errorf("state payload empty")
+				}
+				var snap SingleplayerSnapshot
+				if err := json.Unmarshal(entry.State, &snap); err != nil {
+					return nil, err
+				}
+				if snap.Room.ID == "" && len(snap.Room.Planets) == 0 {
+					return nil, fmt.Errorf("root snapshot incomplete")
+				}
+				return &snap, nil
+			},
+		},
+		{
+			name: "generic",
+			fn: func() (*SingleplayerSnapshot, error) {
+				if len(entry.State) == 0 {
+					return nil, fmt.Errorf("state payload empty")
+				}
+				var generic map[string]interface{}
+				if err := json.Unmarshal(entry.State, &generic); err != nil {
+					return nil, err
+				}
+				if snap := decodeSnapshotFromAny(generic["singleplayerSnapshot"]); snap != nil {
+					return snap, nil
+				}
+				if snap := decodeSnapshotFromAny(generic["snapshot"]); snap != nil {
+					return snap, nil
+				}
+				return buildSnapshotFromClientView(generic)
+			},
+		},
 	}
-	if err := json.Unmarshal(entry.State, &envelope); err == nil {
-		if envelope.Snapshot != nil {
-			return envelope.Snapshot, nil
+
+	var lastErr error
+	for _, attempt := range attempts {
+		snap, err := safeSnapshotAttempt(attempt.name, attempt.fn)
+		if err != nil {
+			lastErr = err
+			continue
 		}
-		if envelope.LegacySnapshot != nil {
-			return envelope.LegacySnapshot, nil
+		if snap != nil {
+			return ensureSnapshotDefaults(snap, record, entry, ownerID), nil
 		}
-		if envelope.DirectSnapshot != nil {
-			return envelope.DirectSnapshot, nil
+	}
+
+	if lastErr != nil {
+		log.Printf("extractSnapshotFromEntry falling back for room %s turn %d: %v", defaultStr(record.RoomID, "unknown"), entry.Turn, lastErr)
+	}
+
+	return ensureSnapshotDefaults(fallbackSnapshotFromRecord(record, entry, ownerID), record, entry, ownerID), nil
+}
+
+func safeSnapshotAttempt(name string, fn func() (*SingleplayerSnapshot, error)) (snap *SingleplayerSnapshot, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("snapshot extraction %s panicked: %v", name, r)
+			snap = nil
+			log.Printf("snapshot extraction %s panic: %v", name, r)
 		}
-		if envelope.ClientView != nil {
-			snap, err := buildSnapshotFromClientView(envelope.ClientView)
-			if err == nil {
-				return snap, nil
-			}
-		}
+	}()
+	snap, err = fn()
+	return
+}
+
+func decodeSnapshotFromAny(raw interface{}) *SingleplayerSnapshot {
+	if raw == nil {
+		return nil
+	}
+	bytes, err := json.Marshal(raw)
+	if err != nil {
+		return nil
 	}
 	var snap SingleplayerSnapshot
-	if err := json.Unmarshal(entry.State, &snap); err == nil && snap.Room.ID != "" {
-		return &snap, nil
+	if err := json.Unmarshal(bytes, &snap); err != nil {
+		return nil
 	}
-	var generic map[string]interface{}
-	if err := json.Unmarshal(entry.State, &generic); err != nil {
-		return nil, err
+	if snap.Room.ID == "" && len(snap.Room.Planets) == 0 && len(snap.Players) == 0 {
+		return nil
 	}
-	if raw, ok := generic["singleplayerSnapshot"]; ok && raw != nil {
-		if b, err := json.Marshal(raw); err == nil {
-			var rawSnap SingleplayerSnapshot
-			if err := json.Unmarshal(b, &rawSnap); err == nil && rawSnap.Room.ID != "" {
-				return &rawSnap, nil
-			}
-		}
-	}
-	if raw, ok := generic["snapshot"]; ok && raw != nil {
-		if b, err := json.Marshal(raw); err == nil {
-			var rawSnap SingleplayerSnapshot
-			if err := json.Unmarshal(b, &rawSnap); err == nil && rawSnap.Room.ID != "" {
-				return &rawSnap, nil
-			}
-		}
-	}
-	return buildSnapshotFromClientView(generic)
+	return &snap
 }
 
 func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSnapshot, error) {
@@ -3738,75 +3807,29 @@ func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSna
 		return nil, fmt.Errorf("client view missing player data")
 	}
 	playerID := toString(youMap["id"])
-	if playerID == "" {
-		playerID = randID()
-	}
-	creatorID := toString(roomMap["creatorId"])
-	if creatorID == "" {
-		creatorID = playerID
-	}
-	turnEndsAt := toInt64(roomMap["turnEndsAt"])
-	if turnEndsAt == 0 {
-		turnEndsAt = time.Now().Add(turnDuration).UnixMilli()
-	}
-	defaultPlanetsMap := defaultPlanets()
-	planetSnapshots := make(map[string]SingleplayerPlanetSnapshot, len(defaultPlanetsMap))
-	planetNames := make([]string, 0, len(defaultPlanetsMap))
-	for name, planet := range defaultPlanetsMap {
-		planetSnapshots[name] = SingleplayerPlanetSnapshot{
-			Name:          planet.Name,
-			Goods:         cloneIntMap(planet.Goods),
-			Prices:        cloneIntMap(planet.Prices),
-			Prod:          cloneIntMap(planet.Prod),
-			BasePrices:    cloneIntMap(planet.BasePrices),
-			BaseProd:      cloneIntMap(planet.BaseProd),
-			PriceTrend:    cloneIntMap(planet.PriceTrend),
-			FuelPrice:     planet.FuelPrice,
-			BaseFuelPrice: planet.BaseFuelPrice,
-			Facilities:    cloneFacilities(planet.Facilities),
-		}
-		planetNames = append(planetNames, name)
-	}
-	planetOrder := toStringSlice(roomMap["planets"])
-	if len(planetOrder) == 0 {
-		sort.Strings(planetNames)
-		snapshotOrder := make([]string, len(planetNames))
-		copy(snapshotOrder, planetNames)
-		planetOrder = snapshotOrder
-	}
-	snap := &SingleplayerSnapshot{
-		Version: 1,
-		Room: SingleplayerRoomSnapshot{
-			ID:              toString(roomMap["id"]),
-			Name:            toString(roomMap["name"]),
-			Started:         toBool(roomMap["started"]),
-			Turn:            toInt(roomMap["turn"]),
-			Private:         true,
-			Paused:          toBool(roomMap["paused"]),
-			CreatorID:       creatorID,
-			TurnEndsAt:      turnEndsAt,
-			PlanetOrder:     planetOrder,
-			PlanetPositions: nil,
-			Planets:         planetSnapshots,
-			News:            []NewsItem{},
-		},
-		Players: make(map[string]*SingleplayerPlayerSnapshot),
-	}
-	if val, ok := roomMap["private"]; ok {
-		snap.Room.Private = toBool(val)
-	}
-	if snap.Room.ID == "" {
-		snap.Room.ID = randID()
-	}
-	goods := mapToIntMap(youMap["inventory"])
-	avgCost := mapToIntMap(youMap["inventoryAvgCost"])
-	facilityInvestment := toInt(youMap["facilityInvestment"])
-	upgradeInvestment := toInt(youMap["upgradeInvestment"])
-	marketMemory := convertMarketMemory(youMap["marketMemory"])
 	playerMoney := toInt(youMap["cashValue"])
 	if playerMoney == 0 {
 		playerMoney = toInt(youMap["money"])
 	}
+	snapshot := &SingleplayerSnapshot{
+		Version: 1,
+		Room: SingleplayerRoomSnapshot{
+			ID:          toString(roomMap["id"]),
+			Name:        toString(roomMap["name"]),
+			Started:     toBool(roomMap["started"]),
+			Turn:        toInt(roomMap["turn"]),
+			Private:     true,
+			Paused:      toBool(roomMap["paused"]),
+			CreatorID:   toString(roomMap["creatorId"]),
+			TurnEndsAt:  toInt64(roomMap["turnEndsAt"]),
+			PlanetOrder: toStringSlice(roomMap["planets"]),
+			Planets:     makeDefaultSingleplayerPlanets(),
+			News:        []NewsItem{},
+		},
+		Players: map[string]*SingleplayerPlayerSnapshot{},
+	}
+	facilityInvestment := toInt(youMap["facilityInvestment"])
+	upgradeInvestment := toInt(youMap["upgradeInvestment"])
 	playerSnapshot := &SingleplayerPlayerSnapshot{
 		ID:                 playerID,
 		Name:               toString(youMap["name"]),
@@ -3814,8 +3837,8 @@ func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSna
 		Money:              playerMoney,
 		CurrentPlanet:      toString(youMap["currentPlanet"]),
 		DestinationPlanet:  toString(youMap["destinationPlanet"]),
-		Inventory:          goods,
-		InventoryAvgCost:   avgCost,
+		Inventory:          mapToIntMap(youMap["inventory"]),
+		InventoryAvgCost:   mapToIntMap(youMap["inventoryAvgCost"]),
 		Ready:              toBool(youMap["ready"]),
 		EndGame:            toBool(youMap["endGame"]),
 		Fuel:               toInt(youMap["fuel"]),
@@ -3830,12 +3853,12 @@ func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSna
 		FacilityInvestment: facilityInvestment,
 		UpgradeInvestment:  upgradeInvestment,
 		ActionHistory:      nil,
-		MarketMemory:       marketMemory,
+		MarketMemory:       convertMarketMemory(youMap["marketMemory"]),
 		PriceMemory:        nil,
 		LastTripStartMoney: 0,
 		ConsecutiveVisits:  nil,
 	}
-	persist := &PersistedPlayer{
+	playerSnapshot.Persist = &PersistedPlayer{
 		Money:              playerSnapshot.Money,
 		CurrentPlanet:      playerSnapshot.CurrentPlanet,
 		DestinationPlanet:  playerSnapshot.DestinationPlanet,
@@ -3853,22 +3876,16 @@ func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSna
 		CapacityBonus:      playerSnapshot.CapacityBonus,
 		SpeedBonus:         playerSnapshot.SpeedBonus,
 		FuelCapacityBonus:  playerSnapshot.FuelCapacityBonus,
-		ActionHistory:      nil,
+		ActionHistory:      cloneActionHistory(playerSnapshot.ActionHistory),
 		FacilityInvestment: playerSnapshot.FacilityInvestment,
 		UpgradeInvestment:  playerSnapshot.UpgradeInvestment,
-		MarketMemory:       playerSnapshot.MarketMemory,
+		MarketMemory:       cloneMarketMemory(playerSnapshot.MarketMemory),
 	}
-	playerSnapshot.Persist = persist
-	snap.Players[playerID] = playerSnapshot
-	snap.Room.Private = true
-	visiblePlanet := view["visiblePlanet"]
-	if vp, ok := visiblePlanet.(map[string]interface{}); ok {
+	snapshot.Players[playerID] = playerSnapshot
+	if vp, ok := view["visiblePlanet"].(map[string]interface{}); ok {
 		name := toString(vp["name"])
 		if name != "" {
-			planet := snap.Room.Planets[name]
-			if planet.Name == "" {
-				planet.Name = name
-			}
+			planet := snapshot.Room.Planets[name]
 			if goods := mapToIntMap(vp["goods"]); len(goods) > 0 {
 				planet.Goods = goods
 			}
@@ -3878,10 +3895,219 @@ func buildSnapshotFromClientView(state map[string]interface{}) (*SingleplayerSna
 			if fuel := toInt(vp["fuelPrice"]); fuel != 0 {
 				planet.FuelPrice = fuel
 			}
-			snap.Room.Planets[name] = planet
+			planet.Name = defaultStr(planet.Name, name)
+			snapshot.Room.Planets[name] = planet
 		}
 	}
-	return snap, nil
+	return snapshot, nil
+}
+
+func makeDefaultSingleplayerPlanets() map[string]SingleplayerPlanetSnapshot {
+	defaults := defaultPlanets()
+	planets := make(map[string]SingleplayerPlanetSnapshot, len(defaults))
+	for name, planet := range defaults {
+		planets[name] = SingleplayerPlanetSnapshot{
+			Name:          planet.Name,
+			Goods:         cloneIntMap(planet.Goods),
+			Prices:        cloneIntMap(planet.Prices),
+			Prod:          cloneIntMap(planet.Prod),
+			BasePrices:    cloneIntMap(planet.BasePrices),
+			BaseProd:      cloneIntMap(planet.BaseProd),
+			PriceTrend:    cloneIntMap(planet.PriceTrend),
+			FuelPrice:     planet.FuelPrice,
+			BaseFuelPrice: planet.BaseFuelPrice,
+			Facilities:    cloneFacilities(planet.Facilities),
+		}
+	}
+	return planets
+}
+
+func fallbackSnapshotFromRecord(record *SingleplayerSaveRecord, entry SingleplayerTurnEntry, ownerID string) *SingleplayerSnapshot {
+	planets := makeDefaultSingleplayerPlanets()
+	order := make([]string, 0, len(planets))
+	for name := range planets {
+		order = append(order, name)
+	}
+	sort.Strings(order)
+	playerID := ownerID
+	if playerID == "" {
+		playerID = record.PlayerID
+	}
+	if playerID == "" {
+		playerID = randID()
+	}
+	playerName := defaultStr(record.PlayerName, "Commander")
+	snapshot := &SingleplayerSnapshot{
+		Version: maxInt(record.Version, 1),
+		Room: SingleplayerRoomSnapshot{
+			ID:          defaultStr(record.RoomID, randID()),
+			Name:        defaultStr(record.RoomName, "Recovered Mission"),
+			Started:     true,
+			Turn:        entry.Turn,
+			Private:     true,
+			Paused:      false,
+			CreatorID:   playerID,
+			TurnEndsAt:  time.Now().Add(turnDuration).UnixMilli(),
+			PlanetOrder: order,
+			Planets:     planets,
+			News:        []NewsItem{},
+		},
+		Players: map[string]*SingleplayerPlayerSnapshot{},
+	}
+	player := &SingleplayerPlayerSnapshot{
+		ID:                 playerID,
+		Name:               playerName,
+		Money:              0,
+		CurrentPlanet:      "Earth",
+		DestinationPlanet:  "",
+		Inventory:          map[string]int{},
+		InventoryAvgCost:   map[string]int{},
+		Ready:              false,
+		EndGame:            false,
+		Fuel:               fuelCapacity,
+		Bankrupt:           false,
+		InTransit:          false,
+		TransitFrom:        "",
+		TransitRemaining:   0,
+		TransitTotal:       0,
+		FacilityInvestment: 0,
+		UpgradeInvestment:  0,
+		MarketMemory:       nil,
+		PriceMemory:        nil,
+	}
+	player.Persist = &PersistedPlayer{
+		Money:              player.Money,
+		CurrentPlanet:      player.CurrentPlanet,
+		DestinationPlanet:  player.DestinationPlanet,
+		Inventory:          cloneIntMap(player.Inventory),
+		InventoryAvgCost:   cloneIntMap(player.InventoryAvgCost),
+		Ready:              player.Ready,
+		EndGame:            player.EndGame,
+		Modals:             []ModalItem{},
+		Fuel:               player.Fuel,
+		Bankrupt:           player.Bankrupt,
+		InTransit:          player.InTransit,
+		TransitFrom:        player.TransitFrom,
+		TransitRemaining:   player.TransitRemaining,
+		TransitTotal:       player.TransitTotal,
+		CapacityBonus:      player.CapacityBonus,
+		SpeedBonus:         player.SpeedBonus,
+		FuelCapacityBonus:  player.FuelCapacityBonus,
+		ActionHistory:      cloneActionHistory(player.ActionHistory),
+		FacilityInvestment: player.FacilityInvestment,
+		UpgradeInvestment:  player.UpgradeInvestment,
+		MarketMemory:       cloneMarketMemory(player.MarketMemory),
+	}
+	snapshot.Players[playerID] = player
+	return snapshot
+}
+
+func ensureSnapshotDefaults(snapshot *SingleplayerSnapshot, record *SingleplayerSaveRecord, entry SingleplayerTurnEntry, ownerID string) *SingleplayerSnapshot {
+	if snapshot == nil {
+		return fallbackSnapshotFromRecord(record, entry, ownerID)
+	}
+	if snapshot.Room.Planets == nil || len(snapshot.Room.Planets) == 0 {
+		snapshot.Room.Planets = makeDefaultSingleplayerPlanets()
+	}
+	for name, planet := range snapshot.Room.Planets {
+		if planet.Name == "" {
+			planet.Name = name
+			snapshot.Room.Planets[name] = planet
+		}
+	}
+	if len(snapshot.Room.PlanetOrder) == 0 {
+		order := make([]string, 0, len(snapshot.Room.Planets))
+		for name := range snapshot.Room.Planets {
+			order = append(order, name)
+		}
+		sort.Strings(order)
+		snapshot.Room.PlanetOrder = order
+	}
+	if snapshot.Room.ID == "" {
+		snapshot.Room.ID = defaultStr(record.RoomID, randID())
+	}
+	if snapshot.Room.Name == "" {
+		snapshot.Room.Name = defaultStr(record.RoomName, "Recovered Mission")
+	}
+	if snapshot.Room.Turn == 0 && entry.Turn > 0 {
+		snapshot.Room.Turn = entry.Turn
+	}
+	snapshot.Room.Private = true
+	if snapshot.Room.CreatorID == "" {
+		if ownerID != "" {
+			snapshot.Room.CreatorID = ownerID
+		} else {
+			snapshot.Room.CreatorID = defaultStr(record.PlayerID, snapshot.Room.CreatorID)
+		}
+	}
+	if snapshot.Room.TurnEndsAt == 0 {
+		snapshot.Room.TurnEndsAt = time.Now().Add(turnDuration).UnixMilli()
+	}
+	if snapshot.Players == nil {
+		snapshot.Players = make(map[string]*SingleplayerPlayerSnapshot)
+	}
+	playerID := ownerID
+	if playerID == "" {
+		playerID = record.PlayerID
+	}
+	if playerID == "" {
+		for id := range snapshot.Players {
+			playerID = id
+			break
+		}
+	}
+	if playerID == "" {
+		playerID = randID()
+	}
+	player := snapshot.Players[playerID]
+	if player == nil {
+		player = &SingleplayerPlayerSnapshot{
+			ID:               playerID,
+			Name:             defaultStr(record.PlayerName, "Commander"),
+			Inventory:        map[string]int{},
+			InventoryAvgCost: map[string]int{},
+			MarketMemory:     nil,
+			PriceMemory:      nil,
+		}
+		snapshot.Players[playerID] = player
+	}
+	if player.Name == "" {
+		player.Name = defaultStr(record.PlayerName, "Commander")
+	}
+	player.CurrentPlanet = defaultStr(player.CurrentPlanet, "Earth")
+	if player.Inventory == nil {
+		player.Inventory = map[string]int{}
+	}
+	if player.InventoryAvgCost == nil {
+		player.InventoryAvgCost = map[string]int{}
+	}
+	if player.Persist == nil {
+		player.Persist = &PersistedPlayer{
+			Money:              player.Money,
+			CurrentPlanet:      player.CurrentPlanet,
+			DestinationPlanet:  player.DestinationPlanet,
+			Inventory:          cloneIntMap(player.Inventory),
+			InventoryAvgCost:   cloneIntMap(player.InventoryAvgCost),
+			Ready:              player.Ready,
+			EndGame:            player.EndGame,
+			Modals:             cloneModals(nil),
+			Fuel:               player.Fuel,
+			Bankrupt:           player.Bankrupt,
+			InTransit:          player.InTransit,
+			TransitFrom:        player.TransitFrom,
+			TransitRemaining:   player.TransitRemaining,
+			TransitTotal:       player.TransitTotal,
+			CapacityBonus:      player.CapacityBonus,
+			SpeedBonus:         player.SpeedBonus,
+			FuelCapacityBonus:  player.FuelCapacityBonus,
+			ActionHistory:      cloneActionHistory(player.ActionHistory),
+			FacilityInvestment: player.FacilityInvestment,
+			UpgradeInvestment:  player.UpgradeInvestment,
+			MarketMemory:       cloneMarketMemory(player.MarketMemory),
+		}
+	}
+	snapshot.Players[playerID] = player
+	return snapshot
 }
 
 func extractPriceRanges(value interface{}) map[string][2]int {
