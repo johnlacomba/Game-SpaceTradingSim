@@ -485,27 +485,21 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 	tokenParam := r.URL.Query().Get("token")
 	if tokenParam != "" {
 		userClaims, err = cognitoConfig.ValidateToken(tokenParam)
-		if err != nil {
-			log.Printf("WebSocket auth failed via query param: %v", err)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
 	} else {
 		// Check Authorization header as fallback
-		authHeader := r.Header.Get("Authorization")
-		if state.World != nil {
-			if len(state.World.PlanetOrder) > 0 {
-			if tokenString != authHeader {
-				userClaims, err = cognitoConfig.ValidateToken(tokenString)
-				if err != nil {
-					log.Printf("WebSocket auth failed via header: %v", err)
-					http.Error(w, "Unauthorized", http.StatusUnauthorized)
-					return
-				}
-			}
+		authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+		if strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+			authHeader = strings.TrimSpace(authHeader[7:])
 		}
-			if state.World.Planets != nil {
-				rebuiltPlanets := make(map[string]*Planet, len(state.World.Planets))
+		if authHeader != "" {
+			userClaims, err = cognitoConfig.ValidateToken(authHeader)
+		}
+	}
+	if err != nil {
+		log.Printf("WebSocket auth failed: %v", err)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 	if userClaims == nil {
 		log.Printf("WebSocket connection attempted without valid authentication")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -520,14 +514,17 @@ func (gs *GameServer) HandleWS(w http.ResponseWriter, r *http.Request, cognitoCo
 
 	// Create player with authenticated user info
 	p := &Player{
-		ID:                PlayerID(userClaims.Sub), // Use Cognito user ID
-		Name:              userClaims.Name,
-		Money:             1000,
-		CurrentPlanet:     "Earth",
-				room.Planets = rebuiltPlanets
-		Fuel:              fuelCapacity,
-		PriceMemory:       make(map[string]*PriceMemory),
-		MarketMemory:      make(map[string]*MarketSnapshot),
+		ID:            PlayerID(userClaims.Sub),
+		Name:          userClaims.Name,
+		Money:         1000,
+		CurrentPlanet: "Earth",
+		Fuel:          fuelCapacity,
+		PriceMemory:   make(map[string]*PriceMemory),
+		MarketMemory:  make(map[string]*MarketSnapshot),
+		KnownPlanets:  make(map[string]bool),
+	}
+	if p.CurrentPlanet != "" {
+		p.KnownPlanets[p.CurrentPlanet] = true
 	}
 	p.conn = conn
 	go gs.readLoop(p)
