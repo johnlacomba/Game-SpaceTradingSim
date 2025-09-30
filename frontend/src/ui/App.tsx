@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import { signInWithRedirect } from 'aws-amplify/auth'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -41,6 +42,9 @@ const clampNumber = (value: number, min: number, max: number) => {
   if (Number.isNaN(value)) return min
   return Math.min(max, Math.max(min, value))
 }
+
+type CSSVarKey = `--${string}`
+type CSSPropertiesWithVars = CSSProperties & Partial<Record<CSSVarKey, string | number>>
 
 const formatRelativeTime = (timestamp: number) => {
   const diff = Date.now() - timestamp
@@ -2067,8 +2071,47 @@ export function App() {
       `hsla(${(oceanHue + 64) % 360}, ${68 + Math.round(rng() * 18)}%, ${74 + Math.round(rng() * 8)}%, 0.28)`,
       `hsla(${(oceanHue + 102) % 360}, ${72 + Math.round(rng() * 16)}%, ${80 + Math.round(rng() * 6)}%, 0.32)`
     ]
-    const swirlGradient = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlColors[0]} 65deg, transparent 130deg, ${swirlColors[1]} 195deg, transparent 260deg, ${swirlColors[2]} 320deg, transparent 360deg)`
-    const swirlOpacity = 0.24 + rng() * 0.22
+    const swirlGradient = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlColors[0]} 55deg, transparent 120deg, ${swirlColors[1]} 205deg, transparent 270deg, ${swirlColors[2]} 330deg, transparent 360deg)`
+    const swirlOpacity = 0.28 + rng() * 0.24
+
+    const swirlAccentColors = [
+      `hsla(${(oceanHue + 32) % 360}, ${68 + Math.round(rng() * 16)}%, ${70 + Math.round(rng() * 10)}%, 0.42)`,
+      `hsla(${(oceanHue + 280) % 360}, ${66 + Math.round(rng() * 18)}%, ${64 + Math.round(rng() * 10)}%, 0.38)`,
+      `hsla(${(oceanHue + 210) % 360}, ${72 + Math.round(rng() * 18)}%, ${72 + Math.round(rng() * 8)}%, 0.44)`
+    ]
+    const swirlGradientSecondary = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlAccentColors[0]} 40deg, transparent 110deg, ${swirlAccentColors[1]} 190deg, transparent 255deg, ${swirlAccentColors[2]} 320deg, transparent 360deg)`
+    const swirlOpacitySecondary = 0.18 + rng() * 0.2
+
+    const swirlSpeedPrimary = 30 + Math.round(rng() * 12)
+    const swirlSpeedSecondary = swirlSpeedPrimary + 16 + Math.round(rng() * 12)
+    const swirlDelayPrimary = -Math.round(rng() * swirlSpeedPrimary * 10) / 10
+    const swirlDelaySecondary = -Math.round(rng() * swirlSpeedSecondary * 10) / 10
+
+  const primarySwirlStyle: CSSPropertiesWithVars = {
+      position: 'absolute',
+      inset: '-8%',
+      borderRadius: '50%',
+      background: swirlGradient,
+      backgroundSize: '180% 180%',
+      opacity: swirlOpacity,
+      mixBlendMode: 'screen',
+      pointerEvents: 'none',
+      '--planet-swirl-speed': `${swirlSpeedPrimary}s`,
+      animationDelay: `${swirlDelayPrimary}s`
+    }
+
+  const secondarySwirlStyle: CSSPropertiesWithVars = {
+      position: 'absolute',
+      inset: '-12%',
+      borderRadius: '50%',
+      background: swirlGradientSecondary,
+      backgroundSize: '220% 220%',
+      opacity: swirlOpacitySecondary,
+      mixBlendMode: 'screen',
+      pointerEvents: 'none',
+      '--planet-swirl-speed': `${swirlSpeedSecondary}s`,
+      animationDelay: `${swirlDelaySecondary}s`
+    }
 
     return (
       <div
@@ -2113,15 +2156,12 @@ export function App() {
         <div
           aria-hidden
           className="planet-swirl-layer"
-          style={{
-            position: 'absolute',
-            inset: '-6%',
-            borderRadius: '50%',
-            background: swirlGradient,
-            opacity: swirlOpacity,
-            mixBlendMode: 'screen',
-            pointerEvents: 'none'
-          }}
+          style={primarySwirlStyle}
+        />
+        <div
+          aria-hidden
+          className="planet-swirl-layer planet-swirl-layer--reverse"
+          style={secondarySwirlStyle}
         />
         <div
           aria-hidden
@@ -2243,6 +2283,41 @@ export function App() {
       }
     })
 
+    const ringSpinSpeed = 12 + Math.round(rng() * 6)
+    const ringDelay = -Math.round(rng() * ringSpinSpeed * 10) / 10
+    const ringArcPrimary = `hsla(${(baseHue + 32) % 360}, ${78 + Math.round(rng() * 12)}%, ${66 + Math.round(rng() * 10)}%, 0.92)`
+    const ringArcSecondary = `hsla(${(baseHue + 300) % 360}, ${74 + Math.round(rng() * 14)}%, ${62 + Math.round(rng() * 10)}%, 0.78)`
+    const ringArcTertiary = `hsla(${(baseHue + 240) % 360}, ${68 + Math.round(rng() * 12)}%, ${68 + Math.round(rng() * 8)}%, 0.85)`
+    const ringStartAngle = Math.round(rng() * 360)
+    const rotatingRingGradient = `conic-gradient(from ${ringStartAngle}deg, transparent 0deg, ${ringArcPrimary} 45deg, transparent 110deg, ${ringArcSecondary} 170deg, transparent 235deg, ${ringArcTertiary} 290deg, transparent 360deg)`
+    const ringInnerPercent = 40 + Math.round(rng() * 4)
+    const ringOuterPercent = ringInnerPercent + 10 + Math.round(rng() * 4)
+    const ringMask = `radial-gradient(circle, transparent ${Math.max(0, ringInnerPercent - 6)}%, rgba(0,0,0,0.98) ${ringInnerPercent}%, rgba(0,0,0,0.98) ${ringOuterPercent}%, transparent ${Math.min(100, ringOuterPercent + 8)}%)`
+    const ringGlowOpacity = 0.55 + rng() * 0.25
+  const rotatingRingStyle: CSSPropertiesWithVars = {
+      position: 'absolute',
+      inset: size * 0.22,
+      borderRadius: '50%',
+      background: rotatingRingGradient,
+      opacity: ringGlowOpacity,
+      mixBlendMode: 'screen',
+      pointerEvents: 'none',
+      '--station-ring-speed': `${ringSpinSpeed}s`,
+      animationDelay: `${ringDelay}s`,
+      maskImage: ringMask,
+      WebkitMaskImage: ringMask,
+      maskSize: 'cover',
+      WebkitMaskSize: 'cover',
+      filter: 'drop-shadow(0 0 14px rgba(94,234,212,0.45))'
+    }
+
+  const rotationContainerStyle: CSSPropertiesWithVars = {
+      position: 'absolute',
+      inset: 0,
+      '--station-ring-speed': `${ringSpinSpeed}s`,
+      animationDelay: `${ringDelay}s`
+    }
+
     return (
       <div
         style={{
@@ -2287,17 +2362,6 @@ export function App() {
         />
         <div
           aria-hidden
-          className="station-ring"
-          style={{
-            position: 'absolute',
-            inset: size * 0.32,
-            borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(2,6,23,0.92) 0%, rgba(15,23,42,0.95) 60%, rgba(15,23,42,0.2) 100%)',
-            border: `1px dashed hsla(${baseHue}, 60%, 78%, 0.35)`
-          }}
-        />
-        <div
-          aria-hidden
           style={{
             position: 'absolute',
             width: size * 0.2,
@@ -2318,38 +2382,50 @@ export function App() {
             boxShadow: '0 0 16px rgba(59,130,246,0.38)'
           }}
         />
-        <div
-          aria-hidden
-          className="station-ring"
-          style={{
-            position: 'absolute',
-            inset: size * 0.22,
-            borderRadius: '50%',
-            border: `2px solid ${ringColor}`,
-            boxShadow: '0 0 20px rgba(94,234,212,0.35)'
-          }}
-        />
-        {pods.map((pod, idx) => (
-          <span
-            key={idx}
+        <div aria-hidden className="station-rotator" style={rotationContainerStyle}>
+          <div
+            aria-hidden
             style={{
               position: 'absolute',
-              left: pod.left,
-              top: pod.top,
-              width: pod.size,
-              height: pod.size,
+              inset: size * 0.32,
               borderRadius: '50%',
-              background: `radial-gradient(circle, rgba(226, 232, 240, 0.92) 0%, hsla(${baseHue}, 70%, 75%, 0.78) 55%, hsla(${baseHue}, 68%, 58%, 0.62) 100%)`,
-              border: `1px solid hsla(${baseHue}, 58%, 85%, 0.5)`,
-              boxShadow: '0 0 12px rgba(148, 197, 255, 0.45)'
+              background: 'radial-gradient(circle, rgba(2,6,23,0.92) 0%, rgba(15,23,42,0.95) 60%, rgba(15,23,42,0.2) 100%)',
+              border: `1px dashed hsla(${baseHue}, 60%, 78%, 0.35)`
             }}
           />
-        ))}
+          <div aria-hidden className="station-ring station-ring--glow" style={rotatingRingStyle} />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: size * 0.22,
+              borderRadius: '50%',
+              border: `2px solid ${ringColor}`,
+              boxShadow: '0 0 20px rgba(94,234,212,0.35)'
+            }}
+          />
+          {pods.map((pod, idx) => (
+            <span
+              key={idx}
+              style={{
+                position: 'absolute',
+                left: pod.left,
+                top: pod.top,
+                width: pod.size,
+                height: pod.size,
+                borderRadius: '50%',
+                background: `radial-gradient(circle, rgba(226, 232, 240, 0.92) 0%, hsla(${baseHue}, 70%, 75%, 0.78) 55%, hsla(${baseHue}, 68%, 58%, 0.62) 100%)`,
+                border: `1px solid hsla(${baseHue}, 58%, 85%, 0.5)`,
+                boxShadow: '0 0 12px rgba(148, 197, 255, 0.45)'
+              }}
+            />
+          ))}
+        </div>
       </div>
     )
   }, [hashString])
 
-    const facilitiesByPlanet = useMemo(() => {
+  const facilitiesByPlanet = useMemo(() => {
       const facilityMap = room?.room?.facilities as Record<string, FacilitySummary[] | FacilitySummary | undefined> | undefined
       if (!facilityMap) return {}
       const normalized: Record<string, FacilitySummary[]> = {}
