@@ -144,6 +144,17 @@ var uniqueGoodsPool = []string{
 	"Frostlight Feta",
 }
 
+var salvageGoods = []string{
+	"Water",
+	"Food",
+	"Minerals",
+	"Chemicals",
+	"Energy",
+	"Medicine",
+	"Electronics",
+	"Luxury",
+}
+
 var alphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
 
 func sanitizeAlphanumeric(input string) string {
@@ -1802,6 +1813,17 @@ func (gs *GameServer) addBot(roomID string) {
 func (gs *GameServer) runTicker(room *Room) {
 	base := turnDuration
 	for {
+
+		var salvageGoods = []string{
+			"Water",
+			"Food",
+			"Minerals",
+			"Chemicals",
+			"Energy",
+			"Medicine",
+			"Electronics",
+			"Luxury",
+		}
 		room.mu.Lock()
 		if room.Paused {
 			room.mu.Unlock()
@@ -2837,8 +2859,7 @@ func (gs *GameServer) runTicker(room *Room) {
 			// Salvage discovery: ~0.4% chance per turn - free goods
 			if rand.Intn(250) == 0 {
 				// Pick a random good type
-				allGoods := []string{"Water", "Food", "Minerals", "Chemicals", "Energy", "Medicine", "Electronics", "Luxury"}
-				salvageGood := allGoods[rand.Intn(len(allGoods))]
+				salvageGood := salvageGoods[rand.Intn(len(salvageGoods))]
 				salvageQty := 1 + rand.Intn(8) // 1-8 units
 
 				// Check if we have capacity
@@ -3842,6 +3863,9 @@ func defaultPlanets() map[string]*Planet {
 	for _, g := range uniqueGoodsPool {
 		allGoodsSet[g] = struct{}{}
 	}
+	for _, g := range salvageGoods {
+		allGoodsSet[g] = struct{}{}
+	}
 	allGoods := make([]string, 0, len(allGoodsSet))
 	for g := range allGoodsSet {
 		allGoods = append(allGoods, g)
@@ -3922,9 +3946,10 @@ func defaultPlanets() map[string]*Planet {
 // Standard goods have a slightly lower range; unique goods are a bit higher.
 func defaultPriceRanges() map[string][2]int {
 	m := make(map[string][2]int)
-	combined := make([]string, 0, len(standardGoods)+len(uniqueGoodsPool))
+	combined := make([]string, 0, len(standardGoods)+len(uniqueGoodsPool)+len(salvageGoods))
 	combined = append(combined, standardGoods...)
 	combined = append(combined, uniqueGoodsPool...)
+	combined = append(combined, salvageGoods...)
 	for idx, g := range combined {
 		min := 5 + idx          // strictly increasing min ensures unique ranges
 		width := 16 + (idx % 7) // widths between 16..22 to add variety
