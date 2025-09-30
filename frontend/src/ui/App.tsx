@@ -37,6 +37,11 @@ const shrinkFont = (size: number) => Math.max(10, size - 4)
 const sanitizeAlphanumeric = (value: string) => value.replace(/[^a-zA-Z0-9]/g, '')
 const sanitizeNumeric = (value: string) => value.replace(/[^0-9]/g, '')
 
+const clampNumber = (value: number, min: number, max: number) => {
+  if (Number.isNaN(value)) return min
+  return Math.min(max, Math.max(min, value))
+}
+
 const formatRelativeTime = (timestamp: number) => {
   const diff = Date.now() - timestamp
   const minutes = Math.round(diff / 60000)
@@ -1185,6 +1190,21 @@ export function App() {
     scaleRef.current = effectiveScale
   }, [effectiveScale])
 
+  const locationIconScale = useMemo(() => {
+    const rawScale = Math.pow(Math.max(mapView.zoom, 0.01), 0.45)
+    const minScale = isMobile ? 0.8 : 0.7
+    return clampNumber(rawScale, minScale, 2.4)
+  }, [isMobile, mapView.zoom])
+
+  const basePlanetIconDiameter = useMemo(() => {
+    if (isMobile) {
+      const mobileScale = 0.8
+      const base = Math.round(58 * mobileScale)
+      return Math.max(28, Math.round(base * 0.75))
+    }
+    return 68
+  }, [isMobile])
+
   const worldToScreen = useCallback((pos?: { x: number; y: number }) => {
     if (!pos) return undefined
     if (containerSize.width <= 0 || containerSize.height <= 0) return undefined
@@ -1230,18 +1250,10 @@ export function App() {
       return entries
     }
 
-    const mobileScale = isMobile ? 0.8 : 1
-    const estimatedIconSize = isMobile
-      ? Math.max(30, Math.round(Math.round(58 * mobileScale) * 0.75))
-      : 68
+    const estimatedIconSize = Math.max(24, basePlanetIconDiameter * locationIconScale)
     const hitRadius = estimatedIconSize / 2
-    const minDistance = Math.max(estimatedIconSize + (isMobile ? 10 : 16), hitRadius * 2 + 4)
-    const clampMargin = Math.max(hitRadius + 6, minDistance / 2)
-
-    const clamp = (value: number, min: number, max: number) => {
-      if (Number.isNaN(value)) return min
-      return Math.min(max, Math.max(min, value))
-    }
+    const minDistance = Math.max(estimatedIconSize + (isMobile ? 12 : 18), hitRadius * 2 + 6)
+    const clampMargin = Math.max(hitRadius + 8, minDistance / 2)
 
     const maxIterations = 120
     for (let iteration = 0; iteration < maxIterations; iteration++) {
@@ -1275,8 +1287,8 @@ export function App() {
         break
       }
       for (const point of coords) {
-        point.x = clamp(point.x, clampMargin, containerSize.width - clampMargin)
-        point.y = clamp(point.y, clampMargin, containerSize.height - clampMargin)
+        point.x = clampNumber(point.x, clampMargin, containerSize.width - clampMargin)
+        point.y = clampNumber(point.y, clampMargin, containerSize.height - clampMargin)
       }
     }
 
@@ -1285,7 +1297,7 @@ export function App() {
     })
 
     return entries
-  }, [containerSize.height, containerSize.width, isMobile, planetWorldPos, room?.room?.planets, worldToScreen])
+  }, [basePlanetIconDiameter, containerSize.height, containerSize.width, isMobile, locationIconScale, planetWorldPos, room?.room?.planets, worldToScreen])
 
   const getWorldPosition = useCallback((name?: string) => {
     if (!name) return undefined
@@ -3723,14 +3735,20 @@ export function App() {
               const isHere = p === r.you.currentPlanet
               const lowerName = p.toLowerCase()
               const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
-              const mobileScale = isMobile ? 0.8 : 1
-              const baseIconSize = Math.round(58 * mobileScale)
-              const iconSize = isMobile ? Math.round(baseIconSize * 0.75) : 68
               const disabled = p === r.you.currentPlanet || !canReach
-              const labelFontSize = isMobile ? `${Math.max(11, Math.round(14 * mobileScale))}px` : '14px'
-              const playerTokenSize = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
-              const playerFontSize = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
-              const buttonGap = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
+              const mobileScale = isMobile ? 0.8 : 1
+              const iconSize = Math.max(24, Math.round(basePlanetIconDiameter * locationIconScale))
+              const highlightPadding = Math.max(18, Math.round(iconSize * 0.35))
+              const highlightSize = iconSize + highlightPadding
+              const labelFontPx = Math.round((isMobile ? Math.max(11, Math.round(14 * mobileScale)) : 14) * clampNumber(Math.sqrt(locationIconScale), 1, 1.3))
+              const labelFontSize = `${labelFontPx}px`
+              const playerTokenBase = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
+              const playerTokenSize = Math.max(10, Math.round(playerTokenBase * clampNumber(locationIconScale, 0.9, 1.5)))
+              const playerFontBase = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
+              const playerFontSize = Math.max(8, Math.round(playerFontBase * clampNumber(locationIconScale, 0.9, 1.25)))
+              const buttonGapBase = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
+              const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
+              const tokenRowGap = Math.max(3, Math.round(buttonGap * 0.9))
               const podAngles = isStationLocation ? [45, 135, 225, 315] : []
 
               const planetIcon = (
@@ -3878,8 +3896,6 @@ export function App() {
                 </div>
               )
 
-              const highlightSize = iconSize + (isMobile ? 22 : 28)
-
               return (
                 <li key={p} ref={(el: HTMLLIElement | null) => { planetRefs.current[p] = el }} style={{ 
                   position:'absolute', 
@@ -3967,8 +3983,8 @@ export function App() {
                   </span>
                   <div style={{ 
                     display:'flex', 
-                    gap: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
-                    marginTop: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
+                    gap: tokenRowGap, 
+                    marginTop: tokenRowGap, 
                     justifyContent:'center',
                     flexWrap: 'wrap',
                     pointerEvents: 'none'
