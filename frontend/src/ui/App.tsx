@@ -2062,6 +2062,14 @@ export function App() {
       }
     })
 
+    const swirlColors = [
+      `hsla(${(oceanHue + 24) % 360}, ${75 + Math.round(rng() * 15)}%, ${78 + Math.round(rng() * 6)}%, 0.35)`,
+      `hsla(${(oceanHue + 64) % 360}, ${68 + Math.round(rng() * 18)}%, ${74 + Math.round(rng() * 8)}%, 0.28)`,
+      `hsla(${(oceanHue + 102) % 360}, ${72 + Math.round(rng() * 16)}%, ${80 + Math.round(rng() * 6)}%, 0.32)`
+    ]
+    const swirlGradient = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlColors[0]} 65deg, transparent 130deg, ${swirlColors[1]} 195deg, transparent 260deg, ${swirlColors[2]} 320deg, transparent 360deg)`
+    const swirlOpacity = 0.24 + rng() * 0.22
+
     return (
       <div
         style={{
@@ -2102,6 +2110,19 @@ export function App() {
             }}
           />
         ))}
+        <div
+          aria-hidden
+          className="planet-swirl-layer"
+          style={{
+            position: 'absolute',
+            inset: '-6%',
+            borderRadius: '50%',
+            background: swirlGradient,
+            opacity: swirlOpacity,
+            mixBlendMode: 'screen',
+            pointerEvents: 'none'
+          }}
+        />
         <div
           aria-hidden
           style={{
@@ -2266,6 +2287,7 @@ export function App() {
         />
         <div
           aria-hidden
+          className="station-ring"
           style={{
             position: 'absolute',
             inset: size * 0.32,
@@ -2298,6 +2320,7 @@ export function App() {
         />
         <div
           aria-hidden
+          className="station-ring"
           style={{
             position: 'absolute',
             inset: size * 0.22,

@@ -164,3 +164,32 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
 .glow {
   text-shadow: 0 0 8px rgba(167,139,250,0.6), 0 0 16px rgba(34,211,238,0.4);
 }
+
+@keyframes planet-swirl {
+  from {
+    transform: rotate(0deg) scale(1.03);
+    filter: blur(1.4px) hue-rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) scale(1.03);
+    filter: blur(1.4px) hue-rotate(24deg);
+  }
+}
+
+.planet-swirl-layer {
+  animation: planet-swirl var(--planet-swirl-speed, 58s) linear infinite;
+  transform-origin: 50% 50%;
+  will-change: transform, filter;
+  pointer-events: none;
+}
+
+@keyframes station-ring-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.station-ring {
+  animation: station-ring-rotate var(--station-ring-speed, 28s) linear infinite;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
