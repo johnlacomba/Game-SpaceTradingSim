@@ -1988,6 +1988,344 @@ export function App() {
     'depot'
   ], [])
 
+  const moonKeywords = useMemo(() => [
+    'moon',
+    'luna',
+    'selene',
+    'selena',
+    'io',
+    'ganymede',
+    'callisto',
+    'titania',
+    'rhea',
+    'dione',
+    'mimas',
+    'triton',
+    'phoebe',
+    'satellite',
+    'orbiter',
+    'minor'
+  ], [])
+
+  const hashString = useCallback((value: string) => {
+    let hash = 0
+    for (let i = 0; i < value.length; i++) {
+      hash = (hash * 131 + value.charCodeAt(i)) >>> 0
+    }
+    return hash >>> 0
+  }, [])
+
+  const classifyLocation = useCallback((name: string) => {
+    const lower = name.toLowerCase()
+    if (stationKeywords.some(keyword => lower.includes(keyword))) return 'station' as const
+    if (moonKeywords.some(keyword => lower.includes(keyword))) return 'moon' as const
+    return 'planet' as const
+  }, [moonKeywords, stationKeywords])
+
+  const renderPlanetIcon = useCallback((name: string, size: number) => {
+    const hash = hashString(name.toLowerCase()) || 1
+    let state = hash
+    const rng = () => {
+      state = (state * 1664525 + 1013904223) >>> 0
+      return state / 4294967295
+    }
+
+    const baseHue = Math.round(rng() * 360)
+    const oceanHue = (baseHue + 360) % 360
+    const oceanSat = 50 + Math.round(rng() * 22)
+    const oceanLight = 34 + Math.round(rng() * 14)
+    const oceanColor = `hsl(${oceanHue}, ${oceanSat}%, ${oceanLight}%)`
+    const atmosphere = `radial-gradient(circle at 35% 30%, hsla(${(oceanHue + 20) % 360}, ${60 + Math.round(rng() * 15)}%, ${78 + Math.round(rng() * 10)}%, 0.9) 0%, hsla(${(oceanHue + 340) % 360}, ${40 + Math.round(rng() * 15)}%, ${55 + Math.round(rng() * 8)}%, 0.75) 45%, rgba(2,6,23,0.35) 100%)`
+    const surface = `radial-gradient(circle at 62% 68%, ${oceanColor} 0%, hsl(${(oceanHue + 25) % 360}, ${Math.min(85, oceanSat + 18)}%, ${Math.max(18, oceanLight - 12)}%) 72%, hsl(${(oceanHue + 16) % 360}, ${Math.min(88, oceanSat + 22)}%, ${Math.max(10, oceanLight - 20)}%) 100%)`
+
+    const landColors = [
+      `hsl(${(oceanHue + 320) % 360}, ${48 + Math.round(rng() * 18)}%, ${42 + Math.round(rng() * 14)}%)`,
+      `hsl(${(oceanHue + 60) % 360}, ${50 + Math.round(rng() * 18)}%, ${48 + Math.round(rng() * 12)}%)`,
+      `hsl(${(oceanHue + 140) % 360}, ${36 + Math.round(rng() * 20)}%, ${40 + Math.round(rng() * 10)}%)`
+    ]
+
+    const landMasses = Array.from({ length: 3 }).map((_, idx) => {
+      const width = size * (0.28 + rng() * 0.32)
+      const height = size * (0.2 + rng() * 0.25)
+      const centerX = size * (0.25 + rng() * 0.5)
+      const centerY = size * (0.28 + rng() * 0.44)
+      const borderVariance = Math.round(35 + rng() * 25)
+      return {
+        width,
+        height,
+        left: centerX - width / 2,
+        top: centerY - height / 2,
+        color: landColors[idx % landColors.length],
+        rotate: -25 + rng() * 50,
+        opacity: 0.55 + rng() * 0.3,
+        borderRadius: `${borderVariance}% ${Math.min(100, borderVariance + 18)}% ${Math.max(25, borderVariance - 10)}% ${Math.min(95, borderVariance + 6)}%`
+      }
+    })
+
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          position: 'relative',
+          background: surface,
+          boxShadow: '0 0 18px rgba(59,130,246,0.45), inset -8px -12px 20px rgba(8,16,37,0.55)',
+          overflow: 'hidden'
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: atmosphere,
+            mixBlendMode: 'screen',
+            opacity: 0.68
+          }}
+        />
+        {landMasses.map((land, idx) => (
+          <span
+            key={idx}
+            style={{
+              position: 'absolute',
+              left: land.left,
+              top: land.top,
+              width: land.width,
+              height: land.height,
+              borderRadius: land.borderRadius,
+              background: land.color,
+              opacity: land.opacity,
+              transform: `rotate(${land.rotate}deg)`,
+              filter: 'blur(0.6px)'
+            }}
+          />
+        ))}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle at 28% 28%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 42%, rgba(255,255,255,0) 56%)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            boxShadow: 'inset -6px -10px 16px rgba(2,6,23,0.4)'
+          }}
+        />
+      </div>
+    )
+  }, [hashString])
+
+  const renderMoonIcon = useCallback((name: string, size: number) => {
+    const hash = hashString(name.toLowerCase()) || 1
+    let state = hash
+    const rng = () => {
+      state = (state * 22695477 + 1) >>> 0
+      return state / 4294967295
+    }
+
+    const baseLight = 52 + Math.round(rng() * 16)
+    const surface = `radial-gradient(circle at 34% 32%, hsl(220, 12%, ${Math.min(95, baseLight + 18)}%) 0%, hsl(220, 10%, ${baseLight}%) 45%, hsl(220, 16%, ${Math.max(18, baseLight - 24)}%) 100%)`
+    const craterCount = 4 + Math.floor(rng() * 3)
+    const craters = Array.from({ length: craterCount }).map(() => {
+      const diameter = size * (0.14 + rng() * 0.22)
+      const cx = size * (0.18 + rng() * 0.64)
+      const cy = size * (0.2 + rng() * 0.62)
+      return {
+        diameter,
+        left: cx - diameter / 2,
+        top: cy - diameter / 2,
+        depth: 0.35 + rng() * 0.4
+      }
+    })
+
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          position: 'relative',
+          background: surface,
+          boxShadow: '0 0 16px rgba(148,163,184,0.45), inset -6px -10px 18px rgba(15,23,42,0.55)'
+        }}
+      >
+        {craters.map((crater, idx) => (
+          <span
+            key={idx}
+            style={{
+              position: 'absolute',
+              left: crater.left,
+              top: crater.top,
+              width: crater.diameter,
+              height: crater.diameter,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle at 35% 35%, rgba(255,255,255,0.55) 0%, rgba(226,232,240,0.35) 45%, rgba(148,163,184,0.65) 100%)',
+              boxShadow: `inset ${Math.round(crater.diameter * 0.08)}px ${Math.round(crater.diameter * 0.12)}px ${Math.round(crater.diameter * 0.18)}px rgba(15,23,42,${0.25 + crater.depth * 0.22})`,
+              opacity: 0.82
+            }}
+          />
+        ))}
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle at 30% 28%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.1) 40%, rgba(255,255,255,0) 55%)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: 0,
+            borderRadius: '50%',
+            boxShadow: 'inset -5px -10px 16px rgba(15,23,42,0.55)'
+          }}
+        />
+      </div>
+    )
+  }, [hashString])
+
+  const renderStationIcon = useCallback((name: string, size: number) => {
+    const hash = hashString(name.toLowerCase()) || 1
+    let state = hash
+    const rng = () => {
+      state = (state * 1103515245 + 12345) >>> 0
+      return state / 4294967295
+    }
+
+    const baseHue = 200 + Math.round(rng() * 80)
+    const glowColor = `hsla(${baseHue}, 90%, ${50 + Math.round(rng() * 12)}%, 0.45)`
+    const ringColor = `hsla(${(baseHue + 20) % 360}, 72%, ${46 + Math.round(rng() * 10)}%, 0.9)`
+    const coreLight = `linear-gradient(135deg, hsla(${(baseHue + 12) % 360}, 85%, 78%, 0.92) 0%, hsla(${(baseHue + 340) % 360}, 82%, 64%, 0.95) 100%)`
+    const strutColor = `linear-gradient(180deg, hsla(${(baseHue + 350) % 360}, 65%, 72%, 0.92), hsla(${(baseHue + 320) % 360}, 65%, 58%, 0.88))`
+
+    const podCount = 4
+    const pods = Array.from({ length: podCount }).map((_, idx) => {
+      const angle = (idx / podCount) * Math.PI * 2 + rng() * 0.2
+      const podSize = size * (0.22 + rng() * 0.08)
+      const orbitRadius = size * 0.48
+      return {
+        size: podSize,
+        left: size / 2 + Math.cos(angle) * orbitRadius - podSize / 2,
+        top: size / 2 + Math.sin(angle) * orbitRadius - podSize / 2
+      }
+    })
+
+    return (
+      <div
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          position: 'relative',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}
+      >
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: size * 0.08 * -0.2,
+            borderRadius: '50%',
+            background: `radial-gradient(circle, ${glowColor} 0%, rgba(8,47,73,0.35) 55%, rgba(2,6,23,0) 80%)`,
+            filter: 'blur(2px)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: size * 0.08,
+            borderRadius: '50%',
+            background: `radial-gradient(circle, rgba(15,23,42,0.9) 0%, rgba(2,6,23,0.65) 70%, rgba(2,6,23,0) 100%)`,
+            border: `1px solid hsla(${baseHue}, 62%, 55%, 0.45)`
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: size * 0.18,
+            borderRadius: '50%',
+            background: coreLight,
+            boxShadow: '0 0 24px rgba(190,242,255,0.45)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: size * 0.32,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(2,6,23,0.92) 0%, rgba(15,23,42,0.95) 60%, rgba(15,23,42,0.2) 100%)',
+            border: `1px dashed hsla(${baseHue}, 60%, 78%, 0.35)`
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            width: size * 0.2,
+            height: size * 0.6,
+            borderRadius: size * 0.12,
+            background: strutColor,
+            boxShadow: '0 0 16px rgba(59,130,246,0.38)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            width: size * 0.6,
+            height: size * 0.2,
+            borderRadius: size * 0.12,
+            background: strutColor,
+            boxShadow: '0 0 16px rgba(59,130,246,0.38)'
+          }}
+        />
+        <div
+          aria-hidden
+          style={{
+            position: 'absolute',
+            inset: size * 0.22,
+            borderRadius: '50%',
+            border: `2px solid ${ringColor}`,
+            boxShadow: '0 0 20px rgba(94,234,212,0.35)'
+          }}
+        />
+        {pods.map((pod, idx) => (
+          <span
+            key={idx}
+            style={{
+              position: 'absolute',
+              left: pod.left,
+              top: pod.top,
+              width: pod.size,
+              height: pod.size,
+              borderRadius: '50%',
+              background: `radial-gradient(circle, rgba(226, 232, 240, 0.92) 0%, hsla(${baseHue}, 70%, 75%, 0.78) 55%, hsla(${baseHue}, 68%, 58%, 0.62) 100%)`,
+              border: `1px solid hsla(${baseHue}, 58%, 85%, 0.5)`,
+              boxShadow: '0 0 12px rgba(148, 197, 255, 0.45)'
+            }}
+          />
+        ))}
+      </div>
+    )
+  }, [hashString])
+
     const facilitiesByPlanet = useMemo(() => {
       const facilityMap = room?.room?.facilities as Record<string, FacilitySummary[] | FacilitySummary | undefined> | undefined
       if (!facilityMap) return {}
@@ -3717,15 +4055,40 @@ export function App() {
               const need = travelUnits(r.you.currentPlanet, p)
               const canReach = !inTransit && (p === r.you.currentPlanet || need <= (r.you.fuel ?? 0))
               const isHere = p === r.you.currentPlanet
-              const lowerName = p.toLowerCase()
-              const isStationLocation = stationKeywords.some(keyword => lowerName.includes(keyword))
+              const locationType = classifyLocation(p)
+              const isStationLocation = locationType === 'station'
+              const isMoonLocation = locationType === 'moon'
               const disabled = p === r.you.currentPlanet || !canReach
               const mobileScale = isMobile ? 0.8 : 1
               const iconSize = Math.max(24, Math.round(basePlanetIconDiameter * locationIconScale))
-              const highlightPadding = Math.max(18, Math.round(iconSize * 0.35))
+              const highlightPadding = Math.max(
+                16,
+                Math.round(iconSize * (isStationLocation ? 0.42 : isMoonLocation ? 0.3 : 0.35))
+              )
               const highlightSize = iconSize + highlightPadding
+              const highlightRingColor = isStationLocation
+                ? 'rgba(56,189,248,0.82)'
+                : isMoonLocation
+                  ? 'rgba(148,163,184,0.76)'
+                  : 'rgba(96,165,250,0.82)'
+              const highlightGlow = isStationLocation
+                ? '0 0 22px rgba(56,189,248,0.45)'
+                : isMoonLocation
+                  ? '0 0 16px rgba(148,163,184,0.38)'
+                  : '0 0 22px rgba(96,165,250,0.45)'
+              const highlightFill = isStationLocation
+                ? 'rgba(45,212,191,0.12)'
+                : isMoonLocation
+                  ? 'rgba(148,163,184,0.18)'
+                  : 'rgba(59,130,246,0.16)'
               const labelFontPx = Math.round((isMobile ? Math.max(11, Math.round(14 * mobileScale)) : 14) * clampNumber(Math.sqrt(locationIconScale), 1, 1.3))
               const labelFontSize = `${labelFontPx}px`
+              const labelColor = isStationLocation
+                ? 'rgba(222,247,254,0.95)'
+                : isMoonLocation
+                  ? 'rgba(226,232,240,0.92)'
+                  : 'rgba(248,250,252,0.96)'
+              const labelIcon = isStationLocation ? '🛰️' : isMoonLocation ? '🌙' : '🪐'
               const playerTokenBase = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
               const playerTokenSize = Math.max(10, Math.round(playerTokenBase * clampNumber(locationIconScale, 0.9, 1.5)))
               const playerFontBase = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
@@ -3733,152 +4096,12 @@ export function App() {
               const buttonGapBase = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
               const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
               const tokenRowGap = Math.max(3, Math.round(buttonGap * 0.9))
-              const podAngles = isStationLocation ? [45, 135, 225, 315] : []
 
-              const planetIcon = (
-                <div
-                  style={{
-                    width: iconSize,
-                    height: iconSize,
-                    borderRadius: '50%',
-                    background: 'radial-gradient(circle at 30% 30%, rgba(255,255,255,0.85) 0%, rgba(147,197,253,0.55) 35%, rgba(59,130,246,0.45) 60%, rgba(29,78,216,0.3) 78%, rgba(15,23,42,0.2) 100%)',
-                    border: '1px solid rgba(147, 197, 253, 0.6)',
-                    boxShadow: '0 0 18px rgba(96,165,250,0.55), inset -6px -10px 18px rgba(15,23,42,0.35)',
-                    position: 'relative'
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      top: iconSize * 0.18,
-                      left: iconSize * 0.22,
-                      width: iconSize * 0.42,
-                      height: iconSize * 0.42,
-                      borderRadius: '50%',
-                      background: 'rgba(255,255,255,0.45)',
-                      filter: 'blur(0.5px)',
-                      opacity: 0.9
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      bottom: iconSize * 0.18,
-                      right: iconSize * 0.16,
-                      width: iconSize * 0.4,
-                      height: iconSize * 0.12,
-                      borderRadius: iconSize * 0.06,
-                      background: 'rgba(59,130,246,0.35)',
-                      filter: 'blur(0.5px)',
-                      opacity: 0.75
-                    }}
-                  />
-                </div>
-              )
-
-              const stationIcon = (
-                <div
-                  style={{
-                    width: iconSize,
-                    height: iconSize,
-                    borderRadius: '50%',
-                    position: 'relative',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    overflow: 'visible'
-                  }}
-                >
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: 0,
-                      borderRadius: '50%',
-                      background: 'radial-gradient(circle, rgba(6,182,212,0.16) 0%, rgba(14,116,144,0.22) 45%, rgba(12,74,110,0.12) 70%, rgba(8,47,73,0) 100%)',
-                      boxShadow: '0 0 22px rgba(56,189,248,0.32)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: Math.max(4, Math.round(iconSize * 0.08)),
-                      borderRadius: '50%',
-                      background: 'radial-gradient(circle at 50% 30%, rgba(224,242,254,0.92) 0%, rgba(125,211,252,0.85) 45%, rgba(59,130,246,0.75) 70%, rgba(13,148,136,0.65) 100%)',
-                      boxShadow: '0 0 24px rgba(56,189,248,0.4)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: Math.max(12, Math.round(iconSize * 0.24)),
-                      borderRadius: '50%',
-                      background: '#020617',
-                      boxShadow: 'inset 0 0 18px rgba(99,102,241,0.35)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: Math.max(16, Math.round(iconSize * 0.32)),
-                      borderRadius: '50%',
-                      background: 'radial-gradient(circle, rgba(56,189,248,0.45) 0%, rgba(15,23,42,0.95) 75%)',
-                      boxShadow: '0 0 14px rgba(94,234,212,0.28)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      width: Math.max(12, Math.round(iconSize * 0.18)),
-                      height: Math.max(36, Math.round(iconSize * 0.72)),
-                      borderRadius: Math.max(6, Math.round(iconSize * 0.09)),
-                      background: 'linear-gradient(180deg, rgba(165,243,252,0.85) 0%, rgba(56,189,248,0.65) 50%, rgba(14,116,144,0.6) 100%)',
-                      boxShadow: '0 0 14px rgba(34,211,238,0.45)'
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      width: Math.max(38, Math.round(iconSize * 0.6)),
-                      height: Math.max(12, Math.round(iconSize * 0.18)),
-                      borderRadius: Math.max(6, Math.round(iconSize * 0.1)),
-                      background: 'linear-gradient(90deg, rgba(125,211,252,0.85) 0%, rgba(45,212,191,0.65) 100%)',
-                      boxShadow: '0 0 12px rgba(56,189,248,0.45)'
-                    }}
-                  />
-                  {podAngles.map((deg, idx) => {
-                    const rad = (deg * Math.PI) / 180
-                    const podSize = Math.max(10, Math.round(iconSize * 0.18))
-                    const orbitRadius = iconSize * 0.45
-                    const left = iconSize / 2 + Math.cos(rad) * orbitRadius - podSize / 2
-                    const top = iconSize / 2 + Math.sin(rad) * orbitRadius - podSize / 2
-                    return (
-                      <span
-                        key={deg}
-                        style={{
-                          position: 'absolute',
-                          left,
-                          top,
-                          width: podSize,
-                          height: podSize,
-                          borderRadius: '50%',
-                          background: 'radial-gradient(circle, rgba(226,232,240,0.95) 0%, rgba(125,211,252,0.75) 55%, rgba(56,189,248,0.4) 100%)',
-                          border: '1px solid rgba(191,219,254,0.45)',
-                          boxShadow: '0 0 12px rgba(125,211,252,0.48)'
-                        }}
-                      />
-                    )
-                  })}
-                  <div
-                    style={{
-                      position: 'absolute',
-                      inset: Math.max(6, Math.round(iconSize * 0.12)),
-                      borderRadius: '50%',
-                      border: '1px dashed rgba(226,232,240,0.38)',
-                      opacity: 0.8
-                    }}
-                  />
-                </div>
-              )
+              const locationIcon = (() => {
+                if (isStationLocation) return renderStationIcon(p, iconSize)
+                if (isMoonLocation) return renderMoonIcon(p, iconSize)
+                return renderPlanetIcon(p, iconSize)
+              })()
 
               return (
                 <li
@@ -3901,6 +4124,23 @@ export function App() {
                       background: 'transparent'
                     }}
                   >
+                    <span
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        inset: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        width: highlightSize,
+                        height: highlightSize,
+                        borderRadius: '50%',
+                        background: highlightFill,
+                        border: `1.5px solid ${highlightRingColor}`,
+                        boxShadow: highlightGlow,
+                        opacity: disabled && !isHere ? 0.35 : 0.85,
+                        transition: 'opacity 160ms ease',
+                        pointerEvents: 'none'
+                      }}
+                    />
                     {isHere && (
                       <span
                         aria-hidden
@@ -3932,6 +4172,7 @@ export function App() {
                         display: 'inline-flex',
                         alignItems: 'center',
                         justifyContent: 'center',
+                        zIndex: 1,
                         cursor: disabled ? 'default' : 'pointer',
                         touchAction: 'manipulation',
                         opacity: disabled && !isHere ? 0.55 : 1,
@@ -3949,7 +4190,19 @@ export function App() {
                           justifyContent: 'center'
                         }}
                       >
-                        {isStationLocation ? stationIcon : planetIcon}
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            width: '100%',
+                            height: '100%',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            opacity: disabled && !isHere ? 0.6 : 1,
+                            transition: 'opacity 160ms ease'
+                          }}
+                        >
+                          {locationIcon}
+                        </span>
                       </span>
                     </button>
                     <div
@@ -3970,14 +4223,14 @@ export function App() {
                           fontSize: labelFontSize,
                           fontWeight: 600,
                           letterSpacing: 0.4,
-                          color: 'var(--text)',
-                          textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                          color: labelColor,
+                          textShadow: '0 2px 6px rgba(2,6,23,0.85)',
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 6
                         }}
                       >
-                        {isStationLocation ? '🛰️' : '🪐'} {p}
+                        {labelIcon} {p}
                       </span>
                       <div
                         style={{
