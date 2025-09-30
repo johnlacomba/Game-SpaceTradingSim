@@ -40,6 +40,18 @@ type RecordTurnInput = {
 
 type SessionStorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem' | 'key' | 'length'>;
 
+function isQuotaExceeded(error: unknown): boolean {
+  if (typeof window === 'undefined') return false;
+  if (!error) return false;
+  if (error instanceof DOMException) {
+    if (error.code === 22 || error.code === 1014) return true; // Safari & Firefox
+    if ('name' in error && (error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED')) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getSessionStorage(): SessionStorageLike | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -137,6 +149,79 @@ function pruneExpired(storage: SessionStorageLike, ttlMinutes: number): void {
   }
 
   keysToRemove.forEach((key) => storage.removeItem(key));
+}
+
+function removeOldestSaveExcept(storage: SessionStorageLike, excludeKey: string): boolean {
+  let oldestKey: string | null = null;
+  let oldestTimestamp = Number.POSITIVE_INFINITY;
+
+  for (let idx = 0; idx < storage.length; idx += 1) {
+    const key = storage.key(idx);
+    if (!key || key === excludeKey || !key.startsWith(STORAGE_PREFIX)) continue;
+    const encoded = storage.getItem(key);
+    if (!encoded) continue;
+    const parsed = decodePayload<SingleplayerSave>(encoded);
+    if (!parsed) continue;
+    if (parsed.updatedAt < oldestTimestamp) {
+      oldestTimestamp = parsed.updatedAt;
+      oldestKey = key;
+    }
+  }
+
+  if (!oldestKey) return false;
+  storage.removeItem(oldestKey);
+  return true;
+}
+
+function persistWithQuotaRecovery(
+  storage: SessionStorageLike,
+  key: string,
+  save: SingleplayerSave,
+): string | null {
+  let encoded = encodePayload(save);
+  let attempts = 0;
+
+  while (attempts < 10) {
+    try {
+      storage.setItem(key, encoded);
+      return encoded;
+    } catch (error) {
+      if (!isQuotaExceeded(error)) {
+        console.warn('Failed to persist singleplayer save:', error);
+        return null;
+      }
+
+      let trimmed = false;
+      while (save.turns.length > 1) {
+        save.turns.shift();
+        trimmed = true;
+        encoded = encodePayload(save);
+        try {
+          storage.setItem(key, encoded);
+          return encoded;
+        } catch (innerError) {
+          if (!isQuotaExceeded(innerError)) {
+            console.warn('Failed to persist singleplayer save after trimming:', innerError);
+            return null;
+          }
+        }
+      }
+
+      const removedOther = removeOldestSaveExcept(storage, key);
+      if (!removedOther) {
+        console.warn('Removing singleplayer save due to storage quota limits');
+        storage.removeItem(key);
+        return null;
+      }
+
+      encoded = encodePayload(save);
+      attempts += 1;
+    }
+  }
+
+  console.warn('Abandoning singleplayer save after multiple quota recovery attempts');
+  storage.removeItem(key);
+  return null;
 }
 
 export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFAULT_TTL_MINUTES): SingleplayerSaveSummary | null {
@@ -247,8 +332,10 @@ export function recordSingleplayerTurn(input: RecordTurnInput, ttlMinutes = DEFA
     base.turns = base.turns.slice(base.turns.length - TURN_LIMIT);
   }
 
-  const nextEncoded = encodePayload(base);
-  storage.setItem(key, nextEncoded);
+  const nextEncoded = persistWithQuotaRecovery(storage, key, base);
+  if (!nextEncoded) {
+    return null;
+  }
 
   return buildSummary(base, nextEncoded);
 }
