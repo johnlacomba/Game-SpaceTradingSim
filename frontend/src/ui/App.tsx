@@ -3942,12 +3942,12 @@ export function App() {
                     position: 'absolute',
                     left,
                     top,
+                    transform: 'translate(-50%, -50%)',
                     pointerEvents: 'none',
                   }}
                 >
                   <div
                     style={{
-                      transform: 'translate(-50%, -50%)',
                       display: 'flex',
                       flexDirection: 'column',
                       alignItems: 'center',
