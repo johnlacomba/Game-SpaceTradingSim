@@ -1205,6 +1205,9 @@ export function App() {
     return 68
   }, [isMobile])
 
+  const zoomButtonSize = useMemo(() => (isMobile ? 44 : 48), [isMobile])
+  const zoomButtonFontSize = useMemo(() => (isMobile ? 22 : 24), [isMobile])
+
   const worldToScreen = useCallback((pos?: { x: number; y: number }) => {
     if (!pos) return undefined
     if (containerSize.width <= 0 || containerSize.height <= 0) return undefined
@@ -1319,21 +1322,35 @@ export function App() {
     }
   }, [getWorldPosition, room, stage, updateMapView])
 
-  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (mapLocked) return
-    if (containerSize.width <= 0 || containerSize.height <= 0 || baseScale <= 0) return
-    const container = planetsContainerRef.current
-    if (!container) return
-    event.preventDefault()
-    const rect = container.getBoundingClientRect()
-    const pointerX = event.clientX - rect.left
-    const pointerY = event.clientY - rect.top
-    const clampedDelta = Math.max(-250, Math.min(250, event.deltaY))
-    const factor = Math.exp(-clampedDelta * 0.0012)
+  const zoomAtPoint = useCallback((pointerX: number, pointerY: number, factor: number) => {
+    if (!Number.isFinite(factor) || factor === 0) {
+      return
+    }
     updateMapView(prev => {
+      if (baseScale <= 0 || containerSize.width <= 0 || containerSize.height <= 0) {
+        return {
+          centerX: prev.centerX,
+          centerY: prev.centerY,
+          zoom: prev.zoom * factor,
+        }
+      }
       const prevScale = baseScale * prev.zoom
+      if (prevScale <= 0) {
+        return {
+          centerX: prev.centerX,
+          centerY: prev.centerY,
+          zoom: prev.zoom * factor,
+        }
+      }
       const nextZoom = prev.zoom * factor
       const nextScale = baseScale * nextZoom
+      if (nextScale <= 0) {
+        return {
+          centerX: prev.centerX,
+          centerY: prev.centerY,
+          zoom: nextZoom,
+        }
+      }
       const offsetX = pointerX - containerSize.width / 2
       const offsetY = pointerY - containerSize.height / 2
       const worldX = prev.centerX + offsetX / prevScale
@@ -1342,7 +1359,28 @@ export function App() {
       const centerY = worldY - offsetY / nextScale
       return { centerX, centerY, zoom: nextZoom }
     })
-  }, [baseScale, containerSize.height, containerSize.width, mapLocked, updateMapView])
+  }, [baseScale, containerSize.height, containerSize.width, updateMapView])
+
+  const handleWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    if (mapLocked) return
+    const container = planetsContainerRef.current
+    if (!container) return
+    event.preventDefault()
+    const rect = container.getBoundingClientRect()
+    const pointerX = event.clientX - rect.left
+    const pointerY = event.clientY - rect.top
+    const clampedDelta = Math.max(-250, Math.min(250, event.deltaY))
+    const factor = Math.exp(-clampedDelta * 0.0012)
+    zoomAtPoint(pointerX, pointerY, factor)
+  }, [mapLocked, zoomAtPoint])
+
+  const handleZoomButton = useCallback((direction: 'in' | 'out') => {
+    if (mapLocked) return
+    const factor = direction === 'in' ? 1.2 : 1 / 1.2
+    const pointerX = containerSize.width / 2
+    const pointerY = containerSize.height / 2
+    zoomAtPoint(pointerX, pointerY, factor)
+  }, [containerSize.height, containerSize.width, mapLocked, zoomAtPoint])
 
   const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (mapLocked) return
@@ -4015,6 +4053,69 @@ export function App() {
               )
             })}
           </ul>
+          <div
+            style={{
+              position: 'absolute',
+              right: isMobile ? 12 : 16,
+              bottom: isMobile ? 12 : 16,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: isMobile ? 8 : 10,
+              zIndex: 5,
+              pointerEvents: 'auto'
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => handleZoomButton('in')}
+              disabled={mapLocked}
+              aria-label="Zoom in"
+              style={{
+                width: zoomButtonSize,
+                height: zoomButtonSize,
+                borderRadius: zoomButtonSize / 2,
+                background: 'rgba(17, 24, 39, 0.82)',
+                border: '1px solid rgba(148, 163, 184, 0.45)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: `${zoomButtonFontSize}px`,
+                fontWeight: 600,
+                cursor: mapLocked ? 'not-allowed' : 'pointer',
+                opacity: mapLocked ? 0.45 : 1,
+                boxShadow: '0 6px 14px rgba(15, 23, 42, 0.45)',
+                transition: 'transform 120ms ease, box-shadow 120ms ease'
+              }}
+            >
+              +
+            </button>
+            <button
+              type="button"
+              onClick={() => handleZoomButton('out')}
+              disabled={mapLocked}
+              aria-label="Zoom out"
+              style={{
+                width: zoomButtonSize,
+                height: zoomButtonSize,
+                borderRadius: zoomButtonSize / 2,
+                background: 'rgba(17, 24, 39, 0.82)',
+                border: '1px solid rgba(148, 163, 184, 0.45)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: `${zoomButtonFontSize - 4}px`,
+                fontWeight: 600,
+                cursor: mapLocked ? 'not-allowed' : 'pointer',
+                opacity: mapLocked ? 0.45 : 1,
+                boxShadow: '0 6px 14px rgba(15, 23, 42, 0.45)',
+                transition: 'transform 120ms ease, box-shadow 120ms ease'
+              }}
+            >
+              −
+            </button>
+          </div>
           {/* Destination arrows overlay */}
           <svg
             width={containerSize.width}
