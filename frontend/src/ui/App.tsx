@@ -3942,124 +3942,127 @@ export function App() {
                     position: 'absolute',
                     left,
                     top,
-                    transform: 'translate(-50%, -50%)',
-                    pointerEvents: 'none',
+                    pointerEvents: 'none'
                   }}
                 >
                   <div
                     style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      gap: buttonGap,
-                      background: 'transparent',
-                      pointerEvents: 'auto',
+                      position: 'relative',
+                      width: highlightSize,
+                      height: highlightSize,
+                      transform: 'translate(-50%, -50%)',
+                      pointerEvents: 'none',
+                      background: 'transparent'
                     }}
                   >
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: highlightSize,
-                        height: highlightSize,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}
-                    >
-                      {isHere && (
-                        <span
-                          aria-hidden
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            border: '2px solid rgba(34,197,94,0.85)',
-                            boxShadow: '0 0 16px rgba(34,197,94,0.45)',
-                            background: 'rgba(34,197,94,0.12)',
-                            pointerEvents: 'none'
-                          }}
-                        />
-                      )}
-                      <button
-                        disabled={disabled}
-                        onClick={() => selectPlanet(p)}
-                        aria-label={p === r.you.currentPlanet ? `${p} (current location)` : `Set course to ${p}`}
+                    {isHere && (
+                      <span
+                        aria-hidden
                         style={{
-                          background: 'transparent',
-                          border: 'none',
-                          width: iconSize,
-                          height: iconSize,
-                          padding: 0,
+                          position: 'absolute',
+                          inset: 0,
                           borderRadius: '50%',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          cursor: disabled ? 'default' : 'pointer',
-                          touchAction: 'manipulation',
-                          opacity: disabled && !isHere ? 0.55 : 1
+                          border: '2px solid rgba(34,197,94,0.85)',
+                          boxShadow: '0 0 16px rgba(34,197,94,0.45)',
+                          background: 'rgba(34,197,94,0.12)',
+                          pointerEvents: 'none'
                         }}
-                        title={inTransit ? 'Unavailable while in transit' : (p === r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
-                      >
-                        <span
-                          style={{
-                            position: 'relative',
-                            display: 'inline-flex',
-                            width: '100%',
-                            height: '100%',
-                            alignItems: 'center',
-                            justifyContent: 'center'
-                          }}
-                        >
-                          {isStationLocation ? stationIcon : planetIcon}
-                        </span>
-                      </button>
-                    </div>
-                    <span
+                      />
+                    )}
+                    <button
+                      disabled={disabled}
+                      onClick={() => selectPlanet(p)}
+                      aria-label={p === r.you.currentPlanet ? `${p} (current location)` : `Set course to ${p}`}
                       style={{
-                        fontSize: labelFontSize,
-                        fontWeight: 600,
-                        letterSpacing: 0.4,
-                        color: 'var(--text)',
-                        textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                        position: 'absolute',
+                        inset: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        background: 'transparent',
+                        border: 'none',
+                        width: iconSize,
+                        height: iconSize,
+                        padding: 0,
+                        borderRadius: '50%',
                         display: 'inline-flex',
                         alignItems: 'center',
-                        gap: 6,
-                        pointerEvents: 'none'
+                        justifyContent: 'center',
+                        cursor: disabled ? 'default' : 'pointer',
+                        touchAction: 'manipulation',
+                        opacity: disabled && !isHere ? 0.55 : 1,
+                        pointerEvents: disabled ? 'none' : 'auto'
                       }}
+                      title={inTransit ? 'Unavailable while in transit' : (p === r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                     >
-                      {isStationLocation ? '🛰️' : '🪐'} {p}
-                    </span>
+                      <span
+                        style={{
+                          position: 'relative',
+                          display: 'inline-flex',
+                          width: '100%',
+                          height: '100%',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                      >
+                        {isStationLocation ? stationIcon : planetIcon}
+                      </span>
+                    </button>
                     <div
                       style={{
+                        position: 'absolute',
+                        top: highlightSize / 2 + buttonGap,
+                        left: '50%',
+                        transform: 'translate(-50%, 0)',
                         display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
                         gap: tokenRowGap,
-                        marginTop: tokenRowGap,
-                        justifyContent: 'center',
-                        flexWrap: 'wrap',
                         pointerEvents: 'none'
                       }}
                     >
-                      {onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit)).map((pl: any) => (
-                        <span
-                          key={pl.id}
-                          title={pl.name}
-                          style={{
-                            width: playerTokenSize,
-                            height: playerTokenSize,
-                            borderRadius: playerTokenSize / 2,
-                            background: colorFor(String(pl.id)),
-                            color: '#fff',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            fontSize: playerFontSize,
-                            boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
-                            fontWeight: isMobile ? 600 : 'normal'
-                          }}
-                        >
-                          {String(pl.name || 'P').slice(0, 1).toUpperCase()}
-                        </span>
-                      ))}
+                      <span
+                        style={{
+                          fontSize: labelFontSize,
+                          fontWeight: 600,
+                          letterSpacing: 0.4,
+                          color: 'var(--text)',
+                          textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6
+                        }}
+                      >
+                        {isStationLocation ? '🛰️' : '🪐'} {p}
+                      </span>
+                      <div
+                        style={{
+                          display: 'flex',
+                          gap: tokenRowGap,
+                          justifyContent: 'center',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                        {onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit)).map((pl: any) => (
+                          <span
+                            key={pl.id}
+                            title={pl.name}
+                            style={{
+                              width: playerTokenSize,
+                              height: playerTokenSize,
+                              borderRadius: playerTokenSize / 2,
+                              background: colorFor(String(pl.id)),
+                              color: '#fff',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: playerFontSize,
+                              boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
+                              fontWeight: isMobile ? 600 : 'normal'
+                            }}
+                          >
+                            {String(pl.name || 'P').slice(0, 1).toUpperCase()}
+                          </span>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </li>
