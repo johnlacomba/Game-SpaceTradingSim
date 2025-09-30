@@ -1216,8 +1216,76 @@ export function App() {
         entries[name] = screen
       }
     })
+
+    const planetOrder = Array.isArray(room?.room?.planets) ? (room?.room?.planets as string[]) : Object.keys(entries)
+    const coords = planetOrder
+      .map(name => {
+        const point = entries[name]
+        if (!point) return null
+        return { name, x: point.x, y: point.y }
+      })
+      .filter((item): item is { name: string; x: number; y: number } => Boolean(item))
+
+    if (coords.length <= 1 || containerSize.width <= 0 || containerSize.height <= 0) {
+      return entries
+    }
+
+    const mobileScale = isMobile ? 0.8 : 1
+    const estimatedIconSize = isMobile
+      ? Math.max(30, Math.round(Math.round(58 * mobileScale) * 0.75))
+      : 68
+    const hitRadius = estimatedIconSize / 2
+    const minDistance = Math.max(estimatedIconSize + (isMobile ? 10 : 16), hitRadius * 2 + 4)
+    const clampMargin = Math.max(hitRadius + 6, minDistance / 2)
+
+    const clamp = (value: number, min: number, max: number) => {
+      if (Number.isNaN(value)) return min
+      return Math.min(max, Math.max(min, value))
+    }
+
+    const maxIterations = 120
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      let adjusted = false
+      for (let i = 0; i < coords.length; i++) {
+        for (let j = i + 1; j < coords.length; j++) {
+          const a = coords[i]
+          const b = coords[j]
+          let dx = b.x - a.x
+          let dy = b.y - a.y
+          let dist = Math.hypot(dx, dy)
+          if (dist === 0) {
+            const angle = Math.random() * Math.PI * 2
+            dx = Math.cos(angle)
+            dy = Math.sin(angle)
+            dist = 0.0001
+          }
+          if (dist < minDistance) {
+            const overlap = (minDistance - dist) / 2
+            const ux = dx / dist
+            const uy = dy / dist
+            a.x -= ux * overlap
+            a.y -= uy * overlap
+            b.x += ux * overlap
+            b.y += uy * overlap
+            adjusted = true
+          }
+        }
+      }
+      if (!adjusted) {
+        break
+      }
+      for (const point of coords) {
+        point.x = clamp(point.x, clampMargin, containerSize.width - clampMargin)
+        point.y = clamp(point.y, clampMargin, containerSize.height - clampMargin)
+      }
+    }
+
+    coords.forEach(point => {
+      entries[point.name] = { x: point.x, y: point.y }
+    })
+
     return entries
-  }, [planetWorldPos, worldToScreen])
+  }, [containerSize.height, containerSize.width, isMobile, planetWorldPos, room?.room?.planets, worldToScreen])
 
   const getWorldPosition = useCallback((name?: string) => {
     if (!name) return undefined
@@ -3810,7 +3878,6 @@ export function App() {
                 </div>
               )
 
-              const outerPadding = isMobile ? Math.max(8, Math.round(12 * mobileScale)) : 8
               const highlightSize = iconSize + (isMobile ? 22 : 28)
 
               return (
@@ -3823,84 +3890,88 @@ export function App() {
                   flexDirection:'column', 
                   alignItems:'center', 
                   gap: buttonGap, 
-                  padding: outerPadding, 
-                  border: isHere ? '2px solid transparent' : '1px solid transparent', 
-                  borderRadius: isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10, 
                   background:'transparent'
                 }}>
-                  <button
-                    disabled={disabled}
-                    onClick={()=>selectPlanet(p)}
-                    style={{ 
-                      background:'transparent', 
-                      border:'none',
-                      display:'flex',
-                      flexDirection:'column',
-                      alignItems:'center',
-                      gap: buttonGap,
-                      cursor: disabled ? 'default' : 'pointer',
-                      touchAction: 'manipulation',
-                      opacity: disabled && !isHere ? 0.55 : 1,
-                      padding: 0,
-                      minWidth: isMobile ? Math.max(64, Math.round(80 * mobileScale)) : 80
+                  <div
+                    style={{
+                      position: 'relative',
+                      width: highlightSize,
+                      height: highlightSize,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
                     }}
-                    title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                   >
-                    <div
-                      style={{
-                        position: 'relative',
-                        width: highlightSize,
-                        height: highlightSize,
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
+                    {isHere && (
+                      <span
+                        aria-hidden
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          border: '2px solid rgba(34,197,94,0.85)',
+                          boxShadow: '0 0 16px rgba(34,197,94,0.45)',
+                          background: 'rgba(34,197,94,0.12)',
+                          pointerEvents: 'none'
+                        }}
+                      />
+                    )}
+                    <button
+                      disabled={disabled}
+                      onClick={()=>selectPlanet(p)}
+                      aria-label={p === r.you.currentPlanet ? `${p} (current location)` : `Set course to ${p}`}
+                      style={{ 
+                        background:'transparent', 
+                        border:'none',
+                        width: iconSize,
+                        height: iconSize,
+                        padding: 0,
+                        borderRadius: '50%',
+                        display:'inline-flex',
+                        alignItems:'center',
+                        justifyContent:'center',
+                        cursor: disabled ? 'default' : 'pointer',
+                        touchAction: 'manipulation',
+                        opacity: disabled && !isHere ? 0.55 : 1
                       }}
+                      title={inTransit ? 'Unavailable while in transit' : (p===r.you.currentPlanet ? 'You are here' : (!canReach ? `Need ${need} units (have ${r.you.fuel ?? 0})` : undefined))}
                     >
-                      {isHere && (
-                        <span
-                          aria-hidden
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            border: '2px solid rgba(34,197,94,0.85)',
-                            boxShadow: '0 0 16px rgba(34,197,94,0.45)',
-                            background: 'rgba(34,197,94,0.12)',
-                            pointerEvents: 'none'
-                          }}
-                        />
-                      )}
                       <span
                         style={{
                           position: 'relative',
-                          zIndex: 1,
-                          display: 'inline-flex'
+                          display: 'inline-flex',
+                          width: '100%',
+                          height: '100%',
+                          alignItems: 'center',
+                          justifyContent: 'center'
                         }}
                       >
                         {isStationLocation ? stationIcon : planetIcon}
                       </span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: labelFontSize,
-                        fontWeight: 600,
-                        letterSpacing: 0.4,
-                        color: 'var(--text)',
-                        textShadow: '0 1px 3px rgba(15,23,42,0.6)',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6
-                      }}
-                    >
-                      {isStationLocation ? '🛰️' : '🪐'} {p}
-                    </span>
-                  </button>
+                    </button>
+                  </div>
+                  <span
+                    style={{
+                      fontSize: labelFontSize,
+                      fontWeight: 600,
+                      letterSpacing: 0.4,
+                      color: 'var(--text)',
+                      textShadow: '0 1px 3px rgba(15,23,42,0.6)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      pointerEvents: 'none'
+                    }}
+                  >
+                    {isStationLocation ? '🛰️' : '🪐'} {p}
+                  </span>
                   <div style={{ 
                     display:'flex', 
                     gap: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
                     marginTop: isMobile ? Math.max(4, Math.round(6 * mobileScale)) : 4, 
                     justifyContent:'center',
-                    flexWrap: 'wrap'
+                    flexWrap: 'wrap',
+                    pointerEvents: 'none'
                   }}>
                     {onPlanet.filter((pl:any)=> !(pl.id===r.you.id && inTransit)).map((pl:any) => (
                       <span
