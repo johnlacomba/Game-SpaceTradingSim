@@ -187,6 +187,11 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   animation-direction: reverse;
 }
 
+.planet-swirl-layer--streaks {
+  animation-timing-function: ease-in-out;
+  animation-direction: alternate;
+}
+
 @keyframes station-ring-rotate {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }

@@ -2067,50 +2067,80 @@ export function App() {
     })
 
     const swirlColors = [
-      `hsla(${(oceanHue + 24) % 360}, ${75 + Math.round(rng() * 15)}%, ${78 + Math.round(rng() * 6)}%, 0.35)`,
-      `hsla(${(oceanHue + 64) % 360}, ${68 + Math.round(rng() * 18)}%, ${74 + Math.round(rng() * 8)}%, 0.28)`,
-      `hsla(${(oceanHue + 102) % 360}, ${72 + Math.round(rng() * 16)}%, ${80 + Math.round(rng() * 6)}%, 0.32)`
+      `hsla(${(oceanHue + 12) % 360}, ${78 + Math.round(rng() * 14)}%, ${92 + Math.round(rng() * 4)}%, 0.72)`,
+      `hsla(${(oceanHue + 48) % 360}, ${72 + Math.round(rng() * 16)}%, ${88 + Math.round(rng() * 5)}%, 0.62)`,
+      `hsla(${(oceanHue + 90) % 360}, ${70 + Math.round(rng() * 16)}%, ${90 + Math.round(rng() * 4)}%, 0.68)`
     ]
-    const swirlGradient = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlColors[0]} 55deg, transparent 120deg, ${swirlColors[1]} 205deg, transparent 270deg, ${swirlColors[2]} 330deg, transparent 360deg)`
-    const swirlOpacity = 0.28 + rng() * 0.24
+    const primaryAngle = Math.round(rng() * 360)
+    const swirlGradient = `conic-gradient(from ${primaryAngle}deg, transparent 0deg, ${swirlColors[0]} 52deg, transparent 118deg, ${swirlColors[1]} 208deg, transparent 276deg, ${swirlColors[2]} 332deg, transparent 360deg)`
+    const swirlOpacity = 0.42 + rng() * 0.22
 
     const swirlAccentColors = [
-      `hsla(${(oceanHue + 32) % 360}, ${68 + Math.round(rng() * 16)}%, ${70 + Math.round(rng() * 10)}%, 0.42)`,
-      `hsla(${(oceanHue + 280) % 360}, ${66 + Math.round(rng() * 18)}%, ${64 + Math.round(rng() * 10)}%, 0.38)`,
-      `hsla(${(oceanHue + 210) % 360}, ${72 + Math.round(rng() * 18)}%, ${72 + Math.round(rng() * 8)}%, 0.44)`
+      `hsla(${(oceanHue + 24) % 360}, ${88 + Math.round(rng() * 8)}%, ${96 + Math.round(rng() * 2)}%, 0.6)`,
+      `hsla(${(oceanHue + 240) % 360}, ${78 + Math.round(rng() * 10)}%, ${92 + Math.round(rng() * 4)}%, 0.55)`,
+      `hsla(${(oceanHue + 310) % 360}, ${84 + Math.round(rng() * 8)}%, ${98 + Math.round(rng() * 2)}%, 0.58)`
     ]
-    const swirlGradientSecondary = `conic-gradient(from ${Math.round(rng() * 360)}deg, transparent 0deg, ${swirlAccentColors[0]} 40deg, transparent 110deg, ${swirlAccentColors[1]} 190deg, transparent 255deg, ${swirlAccentColors[2]} 320deg, transparent 360deg)`
-    const swirlOpacitySecondary = 0.18 + rng() * 0.2
+    const secondaryAngle = Math.round(rng() * 360)
+    const swirlGradientSecondary = `conic-gradient(from ${secondaryAngle}deg, transparent 0deg, ${swirlAccentColors[0]} 34deg, transparent 104deg, ${swirlAccentColors[1]} 190deg, transparent 252deg, ${swirlAccentColors[2]} 318deg, transparent 360deg)`
+    const swirlOpacitySecondary = 0.3 + rng() * 0.22
 
-    const swirlSpeedPrimary = 30 + Math.round(rng() * 12)
-    const swirlSpeedSecondary = swirlSpeedPrimary + 16 + Math.round(rng() * 12)
+    const swirlSpeedPrimary = 28 + Math.round(rng() * 10)
+    const swirlSpeedSecondary = swirlSpeedPrimary + 14 + Math.round(rng() * 10)
     const swirlDelayPrimary = -Math.round(rng() * swirlSpeedPrimary * 10) / 10
     const swirlDelaySecondary = -Math.round(rng() * swirlSpeedSecondary * 10) / 10
 
-  const primarySwirlStyle: CSSPropertiesWithVars = {
+    const streakOpacity = 0.26 + rng() * 0.18
+    const streakStartAngle = Math.round(rng() * 360)
+    const streakInner = 12 + rng() * 8
+    const streakOuter = streakInner + 10 + rng() * 6
+    const streakCycle = streakOuter + 16 + rng() * 6
+    const streakAlphaBase = 0.45 + rng() * 0.2
+    const streakAlphaPeak = Math.min(0.95, streakAlphaBase + 0.25)
+    const streakGradient = `repeating-conic-gradient(from ${streakStartAngle}deg, rgba(255,255,255,${streakAlphaBase.toFixed(2)}) 0deg, rgba(255,255,255,${streakAlphaPeak.toFixed(2)}) ${streakInner.toFixed(1)}deg, transparent ${streakOuter.toFixed(1)}deg, transparent ${streakCycle.toFixed(1)}deg)`
+    const streakScale = 110 + Math.round(rng() * 30)
+    const streakSpeed = swirlSpeedPrimary * 0.75 + rng() * 6
+    const streakDelay = -Math.round(rng() * streakSpeed * 10) / 10
+
+    const primarySwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
       inset: '-8%',
       borderRadius: '50%',
       background: swirlGradient,
-      backgroundSize: '180% 180%',
+      backgroundSize: '200% 200%',
       opacity: swirlOpacity,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
+      filter: 'blur(3px)',
       '--planet-swirl-speed': `${swirlSpeedPrimary}s`,
       animationDelay: `${swirlDelayPrimary}s`
     }
 
-  const secondarySwirlStyle: CSSPropertiesWithVars = {
+    const secondarySwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
-      inset: '-12%',
+      inset: '-10%',
       borderRadius: '50%',
       background: swirlGradientSecondary,
       backgroundSize: '220% 220%',
       opacity: swirlOpacitySecondary,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
+      filter: 'blur(4px)',
       '--planet-swirl-speed': `${swirlSpeedSecondary}s`,
       animationDelay: `${swirlDelaySecondary}s`
+    }
+
+    const streakSwirlStyle: CSSPropertiesWithVars = {
+      position: 'absolute',
+      inset: '-12%',
+      borderRadius: '50%',
+      background: streakGradient,
+      opacity: streakOpacity,
+      mixBlendMode: 'screen',
+      pointerEvents: 'none',
+      filter: 'blur(6px) saturate(160%)',
+      backgroundSize: `${streakScale}% ${streakScale}%`,
+      '--planet-swirl-speed': `${streakSpeed}s`,
+      animationDelay: `${streakDelay}s`
     }
 
     return (
@@ -2162,6 +2192,11 @@ export function App() {
           aria-hidden
           className="planet-swirl-layer planet-swirl-layer--reverse"
           style={secondarySwirlStyle}
+        />
+        <div
+          aria-hidden
+          className="planet-swirl-layer planet-swirl-layer--streaks"
+          style={streakSwirlStyle}
         />
         <div
           aria-hidden
@@ -4314,7 +4349,8 @@ export function App() {
                         flexDirection: 'column',
                         alignItems: 'center',
                         gap: tokenRowGap,
-                        pointerEvents: 'none'
+                        pointerEvents: 'none',
+                        zIndex: 3
                       }}
                     >
                       <span
