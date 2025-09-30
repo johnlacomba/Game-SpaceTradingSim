@@ -1232,75 +1232,21 @@ export function App() {
   }, [baseScale, containerSize.height, containerSize.width])
 
   const planetScreenPos = useMemo(() => {
-    const entries: Record<string, { x: number; y: number }> = {}
-    Object.entries(planetWorldPos).forEach(([name, pos]) => {
+    const result: Record<string, { x: number; y: number }> = {}
+    const planetOrder = Array.isArray(room?.room?.planets)
+      ? (room?.room?.planets as string[])
+      : Object.keys(planetWorldPos)
+
+    planetOrder.forEach(name => {
+      const pos = planetWorldPos[name]
+      if (!pos) return
       const screen = worldToScreen(pos)
-      if (screen) {
-        entries[name] = screen
-      }
+      if (!screen) return
+      result[name] = screen
     })
 
-    const planetOrder = Array.isArray(room?.room?.planets) ? (room?.room?.planets as string[]) : Object.keys(entries)
-    const coords = planetOrder
-      .map(name => {
-        const point = entries[name]
-        if (!point) return null
-        return { name, x: point.x, y: point.y }
-      })
-      .filter((item): item is { name: string; x: number; y: number } => Boolean(item))
-
-    if (coords.length <= 1 || containerSize.width <= 0 || containerSize.height <= 0) {
-      return entries
-    }
-
-    const estimatedIconSize = Math.max(24, basePlanetIconDiameter * locationIconScale)
-    const hitRadius = estimatedIconSize / 2
-    const minDistance = Math.max(estimatedIconSize + (isMobile ? 12 : 18), hitRadius * 2 + 6)
-    const clampMargin = Math.max(hitRadius + 8, minDistance / 2)
-
-    const maxIterations = 120
-    for (let iteration = 0; iteration < maxIterations; iteration++) {
-      let adjusted = false
-      for (let i = 0; i < coords.length; i++) {
-        for (let j = i + 1; j < coords.length; j++) {
-          const a = coords[i]
-          const b = coords[j]
-          let dx = b.x - a.x
-          let dy = b.y - a.y
-          let dist = Math.hypot(dx, dy)
-          if (dist === 0) {
-            const angle = Math.random() * Math.PI * 2
-            dx = Math.cos(angle)
-            dy = Math.sin(angle)
-            dist = 0.0001
-          }
-          if (dist < minDistance) {
-            const overlap = (minDistance - dist) / 2
-            const ux = dx / dist
-            const uy = dy / dist
-            a.x -= ux * overlap
-            a.y -= uy * overlap
-            b.x += ux * overlap
-            b.y += uy * overlap
-            adjusted = true
-          }
-        }
-      }
-      if (!adjusted) {
-        break
-      }
-      for (const point of coords) {
-        point.x = clampNumber(point.x, clampMargin, containerSize.width - clampMargin)
-        point.y = clampNumber(point.y, clampMargin, containerSize.height - clampMargin)
-      }
-    }
-
-    coords.forEach(point => {
-      entries[point.name] = { x: point.x, y: point.y }
-    })
-
-    return entries
-  }, [basePlanetIconDiameter, containerSize.height, containerSize.width, isMobile, locationIconScale, planetWorldPos, room?.room?.planets, worldToScreen])
+    return result
+  }, [planetWorldPos, room?.room?.planets, worldToScreen])
 
   const getWorldPosition = useCallback((name?: string) => {
     if (!name) return undefined
