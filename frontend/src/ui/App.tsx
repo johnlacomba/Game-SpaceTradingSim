@@ -2066,80 +2066,128 @@ export function App() {
       }
     })
 
-    const swirlColors = [
-      `hsla(${(oceanHue + 12) % 360}, ${78 + Math.round(rng() * 14)}%, ${92 + Math.round(rng() * 4)}%, 0.72)`,
-      `hsla(${(oceanHue + 48) % 360}, ${72 + Math.round(rng() * 16)}%, ${88 + Math.round(rng() * 5)}%, 0.62)`,
-      `hsla(${(oceanHue + 90) % 360}, ${70 + Math.round(rng() * 16)}%, ${90 + Math.round(rng() * 4)}%, 0.68)`
-    ]
-    const primaryAngle = Math.round(rng() * 360)
-    const swirlGradient = `conic-gradient(from ${primaryAngle}deg, transparent 0deg, ${swirlColors[0]} 52deg, transparent 118deg, ${swirlColors[1]} 208deg, transparent 276deg, ${swirlColors[2]} 332deg, transparent 360deg)`
-    const swirlOpacity = 0.42 + rng() * 0.22
+    const bandColor = (offset: number, saturationAdjust: number, lightAdjust: number, alpha: number) => {
+      const hue = (oceanHue + offset + 360) % 360
+      const saturation = clampNumber(oceanSat + saturationAdjust, 25, 92)
+      const lightness = clampNumber(oceanLight + lightAdjust, 18, 96)
+      return `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`
+    }
 
-    const swirlAccentColors = [
-      `hsla(${(oceanHue + 24) % 360}, ${88 + Math.round(rng() * 8)}%, ${96 + Math.round(rng() * 2)}%, 0.6)`,
-      `hsla(${(oceanHue + 240) % 360}, ${78 + Math.round(rng() * 10)}%, ${92 + Math.round(rng() * 4)}%, 0.55)`,
-      `hsla(${(oceanHue + 310) % 360}, ${84 + Math.round(rng() * 8)}%, ${98 + Math.round(rng() * 2)}%, 0.58)`
+    const primaryBands = [
+      bandColor(6, 14, 42, 0.68),
+      bandColor(18, 10, 34, 0.55),
+      bandColor(32, -8, 26, 0.42),
+      'rgba(255,255,255,0.22)'
     ]
-    const secondaryAngle = Math.round(rng() * 360)
-    const swirlGradientSecondary = `conic-gradient(from ${secondaryAngle}deg, transparent 0deg, ${swirlAccentColors[0]} 34deg, transparent 104deg, ${swirlAccentColors[1]} 190deg, transparent 252deg, ${swirlAccentColors[2]} 318deg, transparent 360deg)`
-    const swirlOpacitySecondary = 0.3 + rng() * 0.22
+    const secondaryBands = [
+      bandColor(12, 16, 44, 0.58),
+      bandColor(-14, 6, 28, 0.46),
+      bandColor(48, -6, 20, 0.36),
+      'rgba(255,255,255,0.18)'
+    ]
 
-    const swirlSpeedPrimary = 28 + Math.round(rng() * 10)
-    const swirlSpeedSecondary = swirlSpeedPrimary + 14 + Math.round(rng() * 10)
+    const swirlSpeedPrimary = 36 + Math.round(rng() * 14)
+    const swirlSpeedSecondary = swirlSpeedPrimary + 16 + Math.round(rng() * 12)
     const swirlDelayPrimary = -Math.round(rng() * swirlSpeedPrimary * 10) / 10
     const swirlDelaySecondary = -Math.round(rng() * swirlSpeedSecondary * 10) / 10
 
-    const streakOpacity = 0.26 + rng() * 0.18
-    const streakStartAngle = Math.round(rng() * 360)
-    const streakInner = 12 + rng() * 8
-    const streakOuter = streakInner + 10 + rng() * 6
-    const streakCycle = streakOuter + 16 + rng() * 6
-    const streakAlphaBase = 0.45 + rng() * 0.2
-    const streakAlphaPeak = Math.min(0.95, streakAlphaBase + 0.25)
-    const streakGradient = `repeating-conic-gradient(from ${streakStartAngle}deg, rgba(255,255,255,${streakAlphaBase.toFixed(2)}) 0deg, rgba(255,255,255,${streakAlphaPeak.toFixed(2)}) ${streakInner.toFixed(1)}deg, transparent ${streakOuter.toFixed(1)}deg, transparent ${streakCycle.toFixed(1)}deg)`
-    const streakScale = 110 + Math.round(rng() * 30)
-    const streakSpeed = swirlSpeedPrimary * 0.75 + rng() * 6
+    const streakOpacity = 0.28 + rng() * 0.16
+    const streakSpeed = swirlSpeedPrimary * 0.82 + rng() * 6
     const streakDelay = -Math.round(rng() * streakSpeed * 10) / 10
+    const streakHighlight = (0.36 + rng() * 0.12).toFixed(2)
+    const streakFade = (0.08 + rng() * 0.08).toFixed(2)
+
+    const cloudMask = 'radial-gradient(ellipse at center, rgba(255,255,255,1) 40%, rgba(255,255,255,0.85) 62%, rgba(255,255,255,0.4) 78%, rgba(255,255,255,0) 96%)'
+
+    const primaryGradient = `linear-gradient(90deg,
+      ${primaryBands[0]} 0%,
+      ${primaryBands[0]} 16%,
+      ${primaryBands[1]} 16%,
+      ${primaryBands[1]} 36%,
+      rgba(255,255,255,0.12) 36%,
+      rgba(255,255,255,0.12) 48%,
+      ${primaryBands[2]} 48%,
+      ${primaryBands[2]} 68%,
+      ${primaryBands[3]} 68%,
+      transparent 100%)`
+
+    const secondaryGradient = `linear-gradient(90deg,
+      ${secondaryBands[0]} 0%,
+      ${secondaryBands[0]} 18%,
+      rgba(255,255,255,0.18) 18%,
+      rgba(255,255,255,0.18) 32%,
+      ${secondaryBands[1]} 32%,
+      ${secondaryBands[1]} 54%,
+      ${secondaryBands[2]} 54%,
+      ${secondaryBands[2]} 76%,
+      ${secondaryBands[3]} 76%,
+      transparent 100%)`
+
+    const streakGradient = `linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,${streakFade}) 18%,
+      rgba(255,255,255,${streakHighlight}) 40%,
+      rgba(255,255,255,${streakFade}) 62%,
+      transparent 82%,
+      rgba(255,255,255,0.02) 100%)`
+
+    const initialOffset = `${Math.round(rng() * 200)}% 50%`
+    const secondaryOffset = `${Math.round(rng() * 200)}% 48%`
+    const streakOffset = `${Math.round(rng() * 200)}% 52%`
 
     const primarySwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
       inset: '-8%',
       borderRadius: '50%',
-      background: swirlGradient,
-      backgroundSize: '200% 200%',
-      opacity: swirlOpacity,
+      background: primaryGradient,
+      backgroundRepeat: 'repeat',
+      backgroundSize: '320% 100%',
+      backgroundPosition: initialOffset,
+      maskImage: cloudMask,
+      WebkitMaskImage: cloudMask,
+      opacity: 0.68,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
       filter: 'blur(3px)',
-      '--planet-swirl-speed': `${swirlSpeedPrimary}s`,
+      animation: `planet-band-drift ${swirlSpeedPrimary}s linear infinite`,
       animationDelay: `${swirlDelayPrimary}s`
     }
 
     const secondarySwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
-      inset: '-10%',
+      inset: '-9%',
       borderRadius: '50%',
-      background: swirlGradientSecondary,
-      backgroundSize: '220% 220%',
-      opacity: swirlOpacitySecondary,
+      background: secondaryGradient,
+      backgroundRepeat: 'repeat',
+      backgroundSize: '280% 100%',
+      backgroundPosition: secondaryOffset,
+      maskImage: cloudMask,
+      WebkitMaskImage: cloudMask,
+      opacity: 0.55,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
       filter: 'blur(4px)',
-      '--planet-swirl-speed': `${swirlSpeedSecondary}s`,
+      animation: `planet-band-drift ${swirlSpeedSecondary}s linear infinite`,
+      animationDirection: 'reverse',
       animationDelay: `${swirlDelaySecondary}s`
     }
 
     const streakSwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
-      inset: '-12%',
+      inset: '-10%',
       borderRadius: '50%',
       background: streakGradient,
+      backgroundRepeat: 'repeat',
+      backgroundSize: '200% 100%',
+      backgroundPosition: streakOffset,
+      maskImage: cloudMask,
+      WebkitMaskImage: cloudMask,
       opacity: streakOpacity,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
-      filter: 'blur(6px) saturate(160%)',
-      backgroundSize: `${streakScale}% ${streakScale}%`,
-      '--planet-swirl-speed': `${streakSpeed}s`,
+      filter: 'blur(6px) saturate(140%)',
+      animation: `planet-band-drift ${streakSpeed}s ease-in-out infinite`,
+      animationDirection: 'alternate',
       animationDelay: `${streakDelay}s`
     }
 

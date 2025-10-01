@@ -165,31 +165,39 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   text-shadow: 0 0 8px rgba(167,139,250,0.6), 0 0 16px rgba(34,211,238,0.4);
 }
 
-@keyframes planet-swirl {
+@keyframes planet-band-drift {
   from {
-    transform: rotate(0deg) scale(1.03);
-    filter: blur(1.4px) hue-rotate(0deg);
+    background-position: 0% 0%;
   }
   to {
-    transform: rotate(360deg) scale(1.03);
-    filter: blur(1.4px) hue-rotate(24deg);
+    background-position: -200% 0%;
+  }
+}
+
+@keyframes planet-band-drift-reverse {
+  from {
+    background-position: 0% 0%;
+  }
+  to {
+    background-position: 200% 0%;
   }
 }
 
 .planet-swirl-layer {
-  animation: planet-swirl var(--planet-swirl-speed, 58s) linear infinite;
-  transform-origin: 50% 50%;
-  will-change: transform, filter;
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
   pointer-events: none;
+  will-change: background-position, opacity, filter;
 }
 
 .planet-swirl-layer--reverse {
-  animation-direction: reverse;
+  animation-name: planet-band-drift-reverse !important;
 }
 
 .planet-swirl-layer--streaks {
-  animation-timing-function: ease-in-out;
   animation-direction: alternate;
+  animation-timing-function: ease-in-out;
 }
 
 @keyframes station-ring-rotate {
