@@ -1100,6 +1100,17 @@ export function App() {
     fallbackMove: null,
     fallbackUp: null,
   })
+  const touchStateRef = useRef<{
+    pointers: Map<number, { x: number; y: number; clientX: number; clientY: number }>
+    pinchActive: boolean
+    lastDistance: number
+    lastMidpoint: { x: number; y: number }
+  }>({
+    pointers: new Map(),
+    pinchActive: false,
+    lastDistance: 0,
+    lastMidpoint: { x: 0, y: 0 }
+  })
   const initialCenterRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
   const mapLocked = !Boolean(room?.room?.started)
@@ -1332,31 +1343,6 @@ export function App() {
     zoomAtPoint(pointerX, pointerY, factor)
   }, [containerSize.height, containerSize.width, mapLocked, zoomAtPoint])
 
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (mapLocked) return
-    if (event.button !== 0) return
-    const target = event.target as HTMLElement | null
-    const container = planetsContainerRef.current
-    if (!container) return
-    const clickable = target?.closest<HTMLElement>('button, a, [role="button"], input, textarea, select, [data-interactive="true"]')
-    const isDisabledButton = clickable instanceof HTMLButtonElement && clickable.disabled
-    panStateRef.current = {
-      active: true,
-      pointerId: event.pointerId,
-      startX: event.clientX,
-      startY: event.clientY,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      moved: false,
-      hasCapture: false,
-      interactiveTarget: Boolean(clickable && !isDisabledButton),
-      pointerType: event.pointerType || (isMobile ? 'touch' : 'mouse'),
-      fallbackActive: false,
-      fallbackMove: null,
-      fallbackUp: null,
-    }
-  }, [mapLocked])
-
   const endPan = useCallback((pointerId: number) => {
     const container = planetsContainerRef.current
     const previousState = { ...panStateRef.current }
@@ -1393,13 +1379,108 @@ export function App() {
     return previousState
   }, [])
 
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (mapLocked) return
+    const container = planetsContainerRef.current
+    if (!container) return
+
+    if (event.pointerType === 'touch') {
+      const rect = container.getBoundingClientRect()
+      const touchState = touchStateRef.current
+      touchState.pointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      })
+      if (touchState.pointers.size === 2) {
+        const values = Array.from(touchState.pointers.values())
+        const dx = values[0].x - values[1].x
+        const dy = values[0].y - values[1].y
+        const distance = Math.hypot(dx, dy)
+        if (distance > 0) {
+          if (panStateRef.current.active && panStateRef.current.pointerId != null) {
+            endPan(panStateRef.current.pointerId)
+          }
+          touchState.pinchActive = true
+          touchState.lastDistance = distance
+          touchState.lastMidpoint = {
+            x: (values[0].x + values[1].x) / 2,
+            y: (values[0].y + values[1].y) / 2,
+          }
+        }
+      }
+      if (touchState.pinchActive) {
+        return
+      }
+    }
+
+    if (event.pointerType !== 'touch' && event.button !== 0) return
+    const target = event.target as HTMLElement | null
+    const clickable = target?.closest<HTMLElement>('button, a, [role="button"], input, textarea, select, [data-interactive="true"]')
+    const isDisabledButton = clickable instanceof HTMLButtonElement && clickable.disabled
+    panStateRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
+      moved: false,
+      hasCapture: false,
+      interactiveTarget: Boolean(clickable && !isDisabledButton),
+      pointerType: event.pointerType || (isMobile ? 'touch' : 'mouse'),
+      fallbackActive: false,
+      fallbackMove: null,
+      fallbackUp: null,
+    }
+  }, [endPan, isMobile, mapLocked])
+
   const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const container = planetsContainerRef.current
+    if (event.pointerType === 'touch' && container) {
+      const rect = container.getBoundingClientRect()
+      const touchState = touchStateRef.current
+      touchState.pointers.set(event.pointerId, {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+      })
+      if (touchState.pinchActive && touchState.pointers.size >= 2) {
+        const iterator = touchState.pointers.values()
+        const first = iterator.next().value
+        const second = iterator.next().value
+        if (first && second) {
+          const dx = first.x - second.x
+          const dy = first.y - second.y
+          const distance = Math.hypot(dx, dy)
+          const midpoint = {
+            x: (first.x + second.x) / 2,
+            y: (first.y + second.y) / 2,
+          }
+          if (distance > 0 && touchState.lastDistance > 0) {
+            const rawFactor = distance / touchState.lastDistance
+            const factor = clampNumber(rawFactor, 0.85, 1.18)
+            if (Number.isFinite(factor) && factor > 0 && factor !== 1) {
+              zoomAtPoint(midpoint.x, midpoint.y, factor)
+            }
+          }
+          if (distance > 0) {
+            touchState.lastDistance = distance
+            touchState.lastMidpoint = midpoint
+          }
+        }
+        event.preventDefault()
+        return
+      }
+    }
+
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
     const base = baseScale
     if (base <= 0) return
     if (state.fallbackActive && !state.hasCapture) {
-      const container = planetsContainerRef.current
       if (container && event.currentTarget === container) {
         return
       }
@@ -1416,7 +1497,6 @@ export function App() {
       const threshold = state.interactiveTarget ? (isMobile ? 20 : 12) : 4
       if (total > threshold) {
         state.moved = true
-        const container = planetsContainerRef.current
         if (container && !state.hasCapture) {
           try {
             container.setPointerCapture(event.pointerId)
@@ -1455,15 +1535,46 @@ export function App() {
         zoom: prev.zoom,
       }))
     }
-  }, [baseScale, endPan, isMobile, updateMapView])
+  }, [baseScale, endPan, isMobile, updateMapView, zoomAtPoint])
 
   const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      const touchState = touchStateRef.current
+      touchState.pointers.delete(event.pointerId)
+      if (touchState.pinchActive) {
+        if (touchState.pointers.size >= 2) {
+          const iterator = touchState.pointers.values()
+          const first = iterator.next().value
+          const second = iterator.next().value
+          if (first && second) {
+            const dx = first.x - second.x
+            const dy = first.y - second.y
+            touchState.lastDistance = Math.hypot(dx, dy)
+            touchState.lastMidpoint = {
+              x: (first.x + second.x) / 2,
+              y: (first.y + second.y) / 2,
+            }
+          }
+        } else {
+          touchState.pinchActive = false
+          touchState.lastDistance = 0
+        }
+      }
+    }
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
     endPan(event.pointerId)
   }, [endPan])
 
   const handlePointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      const touchState = touchStateRef.current
+      touchState.pointers.delete(event.pointerId)
+      if (touchState.pinchActive && touchState.pointers.size < 2) {
+        touchState.pinchActive = false
+        touchState.lastDistance = 0
+      }
+    }
     const state = panStateRef.current
     if (!state.active || state.pointerId !== event.pointerId) return
     const pointerType = state.pointerType || event.pointerType || 'mouse'
@@ -4281,6 +4392,11 @@ export function App() {
                   ? 'rgba(226,232,240,0.92)'
                   : 'rgba(248,250,252,0.96)'
               const labelIcon = isStationLocation ? '🛰️' : isMoonLocation ? '🌙' : '🪐'
+              const labelFadeStart = 0.8
+              const labelFadeEnd = 1.15
+              const labelFadeRange = Math.max(0.0001, labelFadeEnd - labelFadeStart)
+              const labelVisibility = clampNumber((mapView.zoom - labelFadeStart) / labelFadeRange, 0, 1)
+              const showLabelStack = labelVisibility > 0.05
               const playerTokenBase = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
               const playerTokenSize = Math.max(10, Math.round(playerTokenBase * clampNumber(locationIconScale, 0.9, 1.5)))
               const playerFontBase = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
@@ -4397,65 +4513,69 @@ export function App() {
                         </span>
                       </span>
                     </button>
-                    <div
-                      style={{
-                        position: 'absolute',
-                        top: highlightSize / 2 + buttonGap,
-                        left: '50%',
-                        transform: 'translate(-50%, 0)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        gap: tokenRowGap,
-                        pointerEvents: 'none',
-                        zIndex: 3
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: labelFontSize,
-                          fontWeight: 600,
-                          letterSpacing: 0.4,
-                          color: labelColor,
-                          textShadow: '0 2px 6px rgba(2,6,23,0.85)',
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 6
-                        }}
-                      >
-                        {labelIcon} {p}
-                      </span>
+                    {showLabelStack && (
                       <div
                         style={{
+                          position: 'absolute',
+                          top: highlightSize / 2 + buttonGap,
+                          left: '50%',
+                          transform: 'translate(-50%, 0)',
                           display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
                           gap: tokenRowGap,
-                          justifyContent: 'center',
-                          flexWrap: 'wrap'
+                          pointerEvents: 'none',
+                          zIndex: 3,
+                          opacity: labelVisibility,
+                          transition: 'opacity 160ms ease'
                         }}
                       >
-                        {onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit)).map((pl: any) => (
-                          <span
-                            key={pl.id}
-                            title={pl.name}
-                            style={{
-                              width: playerTokenSize,
-                              height: playerTokenSize,
-                              borderRadius: playerTokenSize / 2,
-                              background: colorFor(String(pl.id)),
-                              color: '#fff',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: playerFontSize,
-                              boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
-                              fontWeight: isMobile ? 600 : 'normal'
-                            }}
-                          >
-                            {String(pl.name || 'P').slice(0, 1).toUpperCase()}
-                          </span>
-                        ))}
+                        <span
+                          style={{
+                            fontSize: labelFontSize,
+                            fontWeight: 600,
+                            letterSpacing: 0.4,
+                            color: labelColor,
+                            textShadow: '0 2px 6px rgba(2,6,23,0.85)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 6
+                          }}
+                        >
+                          {labelIcon} {p}
+                        </span>
+                        <div
+                          style={{
+                            display: 'flex',
+                            gap: tokenRowGap,
+                            justifyContent: 'center',
+                            flexWrap: 'wrap'
+                          }}
+                        >
+                          {onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit)).map((pl: any) => (
+                            <span
+                              key={pl.id}
+                              title={pl.name}
+                              style={{
+                                width: playerTokenSize,
+                                height: playerTokenSize,
+                                borderRadius: playerTokenSize / 2,
+                                background: colorFor(String(pl.id)),
+                                color: '#fff',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: playerFontSize,
+                                boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
+                                fontWeight: isMobile ? 600 : 'normal'
+                              }}
+                            >
+                              {String(pl.name || 'P').slice(0, 1).toUpperCase()}
+                            </span>
+                          ))}
+                        </div>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </li>
               )
