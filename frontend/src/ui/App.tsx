@@ -1066,7 +1066,7 @@ export function App() {
   const [planetWorldPos, setPlanetWorldPos] = useState<Record<string, { x: number; y: number }>>({})
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 })
   const [worldBounds, setWorldBounds] = useState<{ width: number; height: number; unitScale: number }>({ width: 1, height: 1, unitScale: 160 })
-  const defaultZoomRef = useRef(isMobile ? 1.6 : 2.3)
+  const defaultZoomRef = useRef(4)
   const [mapView, setMapView] = useState<{ centerX: number; centerY: number; zoom: number }>({ centerX: 0, centerY: 0, zoom: defaultZoomRef.current })
   const mapViewRef = useRef(mapView)
   const scaleRef = useRef(1)
@@ -1123,7 +1123,7 @@ export function App() {
   const lastDockHandled = useRef<string | null>(null)
 
   useEffect(() => {
-    defaultZoomRef.current = isMobile ? 1.6 : 2.3
+  defaultZoomRef.current = 4
   }, [isMobile])
 
   useEffect(() => {
@@ -2137,7 +2137,7 @@ export function App() {
     return 'planet' as const
   }, [moonKeywords, stationKeywords])
 
-  const renderPlanetIcon = useCallback((name: string, size: number) => {
+  const renderPlanetIcon = useCallback((name: string, size: number, shouldAnimate = true) => {
     const hash = hashString(name.toLowerCase()) || 1
     let state = hash
     const rng = () => {
@@ -2248,7 +2248,8 @@ export function App() {
       pointerEvents: 'none',
   filter: 'blur(2.2px)',
       animation: `planet-band-drift ${swirlSpeedPrimary}s linear infinite`,
-      animationDelay: `${swirlDelayPrimary}s`
+      animationDelay: `${swirlDelayPrimary}s`,
+      animationPlayState: shouldAnimate ? 'running' : 'paused'
     }
 
     const secondarySwirlStyle: CSSPropertiesWithVars = {
@@ -2266,7 +2267,8 @@ export function App() {
       pointerEvents: 'none',
   filter: 'blur(3px)',
       animation: `planet-band-drift-reverse ${swirlSpeedSecondary}s linear infinite`,
-      animationDelay: `${swirlDelaySecondary}s`
+      animationDelay: `${swirlDelaySecondary}s`,
+      animationPlayState: shouldAnimate ? 'running' : 'paused'
     }
 
     const streakSwirlStyle: CSSPropertiesWithVars = {
@@ -2285,7 +2287,8 @@ export function App() {
       filter: 'blur(6px) saturate(140%)',
       animation: `planet-band-drift ${streakSpeed}s ease-in-out infinite`,
       animationDirection: 'alternate',
-      animationDelay: `${streakDelay}s`
+      animationDelay: `${streakDelay}s`,
+      animationPlayState: shouldAnimate ? 'running' : 'paused'
     }
 
     return (
@@ -2420,7 +2423,7 @@ export function App() {
     )
   }, [hashString])
 
-  const renderStationIcon = useCallback((name: string, size: number) => {
+  const renderStationIcon = useCallback((name: string, size: number, shouldAnimate = true) => {
     const hash = hashString(name.toLowerCase()) || 1
     let state = hash
     const rng = () => {
@@ -2471,14 +2474,16 @@ export function App() {
       WebkitMaskImage: ringMask,
       maskSize: 'cover',
       WebkitMaskSize: 'cover',
-      filter: 'drop-shadow(0 0 14px rgba(94,234,212,0.45))'
+      filter: 'drop-shadow(0 0 14px rgba(94,234,212,0.45))',
+      animationPlayState: shouldAnimate ? 'running' : 'paused'
     }
 
   const rotationContainerStyle: CSSPropertiesWithVars = {
       position: 'absolute',
       inset: 0,
       '--station-ring-speed': `${ringSpinSpeed}s`,
-      animationDelay: `${ringDelay}s`
+      animationDelay: `${ringDelay}s`,
+      animationPlayState: shouldAnimate ? 'running' : 'paused'
     }
 
     return (
@@ -4323,26 +4328,8 @@ export function App() {
               const disabled = p === r.you.currentPlanet || !canReach
               const mobileScale = isMobile ? 0.8 : 1
               const iconSize = Math.max(24, Math.round(basePlanetIconDiameter * locationIconScale))
-              const highlightPadding = Math.max(
-                16,
-                Math.round(iconSize * (isStationLocation ? 0.42 : isMoonLocation ? 0.3 : 0.35))
-              )
-              const highlightSize = iconSize + highlightPadding
-              const highlightRingColor = isStationLocation
-                ? 'rgba(56,189,248,0.82)'
-                : isMoonLocation
-                  ? 'rgba(148,163,184,0.76)'
-                  : 'rgba(96,165,250,0.82)'
-              const highlightGlow = isStationLocation
-                ? '0 0 22px rgba(56,189,248,0.45)'
-                : isMoonLocation
-                  ? '0 0 16px rgba(148,163,184,0.38)'
-                  : '0 0 22px rgba(96,165,250,0.45)'
-              const highlightFill = isStationLocation
-                ? 'rgba(45,212,191,0.12)'
-                : isMoonLocation
-                  ? 'rgba(148,163,184,0.18)'
-                  : 'rgba(59,130,246,0.16)'
+              const haloPadding = isHere ? Math.max(18, Math.round(iconSize * 0.42)) : 0
+              const containerDiameter = iconSize + haloPadding
               const labelFontPx = Math.round((isMobile ? Math.max(11, Math.round(14 * mobileScale)) : 14) * clampNumber(Math.sqrt(locationIconScale), 1, 1.3))
               const labelFontSize = `${labelFontPx}px`
               const labelColor = isStationLocation
@@ -4351,8 +4338,8 @@ export function App() {
                   ? 'rgba(226,232,240,0.92)'
                   : 'rgba(248,250,252,0.96)'
               const labelIcon = isStationLocation ? '🛰️' : isMoonLocation ? '🌙' : '🪐'
-              const labelVisibleStart = 1.2
-              const labelVisibleFull = 1.5
+              const labelVisibleStart = 4
+              const labelVisibleFull = 4.4
               const labelFadeRange = Math.max(0.0001, labelVisibleFull - labelVisibleStart)
               const labelVisibility = clampNumber((mapView.zoom - labelVisibleStart) / labelFadeRange, 0, 1)
               const showLabelStack = mapView.zoom >= labelVisibleStart
@@ -4363,11 +4350,13 @@ export function App() {
               const buttonGapBase = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
               const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
               const tokenRowGap = Math.max(3, Math.round(buttonGap * 0.9))
+              const labelAnchorHeight = ((isHere ? containerDiameter : iconSize) / 2) + buttonGap
+              const allowLocationAnimation = mapView.zoom >= 4
 
               const locationIcon = (() => {
-                if (isStationLocation) return renderStationIcon(p, iconSize)
+                if (isStationLocation) return renderStationIcon(p, iconSize, allowLocationAnimation)
                 if (isMoonLocation) return renderMoonIcon(p, iconSize)
-                return renderPlanetIcon(p, iconSize)
+                return renderPlanetIcon(p, iconSize, allowLocationAnimation)
               })()
 
               return (
@@ -4384,36 +4373,22 @@ export function App() {
                   <div
                     style={{
                       position: 'relative',
-                      width: highlightSize,
-                      height: highlightSize,
+                      width: containerDiameter,
+                      height: containerDiameter,
                       transform: 'translate(-50%, -50%)',
                       pointerEvents: 'none',
                       background: 'transparent'
                     }}
                   >
-                    <span
-                      aria-hidden
-                      style={{
-                        position: 'absolute',
-                        inset: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: highlightSize,
-                        height: highlightSize,
-                        borderRadius: '50%',
-                        background: highlightFill,
-                        border: `1.5px solid ${highlightRingColor}`,
-                        boxShadow: highlightGlow,
-                        opacity: disabled && !isHere ? 0.35 : 0.85,
-                        transition: 'opacity 160ms ease',
-                        pointerEvents: 'none'
-                      }}
-                    />
                     {isHere && (
                       <span
                         aria-hidden
                         style={{
                           position: 'absolute',
-                          inset: 0,
+                          inset: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: containerDiameter,
+                          height: containerDiameter,
                           borderRadius: '50%',
                           border: '2px solid rgba(34,197,94,0.85)',
                           boxShadow: '0 0 16px rgba(34,197,94,0.45)',
@@ -4476,7 +4451,7 @@ export function App() {
                       <div
                         style={{
                           position: 'absolute',
-                          top: highlightSize / 2 + buttonGap,
+                          top: labelAnchorHeight,
                           left: '50%',
                           transform: 'translate(-50%, 0)',
                           display: 'flex',
