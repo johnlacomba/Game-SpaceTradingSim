@@ -2074,16 +2074,16 @@ export function App() {
     }
 
     const primaryBands = [
-      bandColor(6, 14, 42, 0.68),
-      bandColor(18, 10, 34, 0.55),
-      bandColor(32, -8, 26, 0.42),
-      'rgba(255,255,255,0.22)'
+      bandColor(8, 24, 28, 0.95),
+      bandColor(-16, -8, -18, 0.9),
+      bandColor(22, 18, 18, 0.88),
+      'hsla(0, 0%, 100%, 0.62)'
     ]
     const secondaryBands = [
-      bandColor(12, 16, 44, 0.58),
-      bandColor(-14, 6, 28, 0.46),
-      bandColor(48, -6, 20, 0.36),
-      'rgba(255,255,255,0.18)'
+      bandColor(10, 20, 26, 0.9),
+      bandColor(-22, -10, -24, 0.86),
+      bandColor(36, 14, 16, 0.84),
+      'hsla(200, 60%, 86%, 0.52)'
     ]
 
     const swirlSpeedPrimary = 36 + Math.round(rng() * 14)
@@ -2091,7 +2091,7 @@ export function App() {
     const swirlDelayPrimary = -Math.round(rng() * swirlSpeedPrimary * 10) / 10
     const swirlDelaySecondary = -Math.round(rng() * swirlSpeedSecondary * 10) / 10
 
-    const streakOpacity = 0.28 + rng() * 0.16
+  const streakOpacity = 0.34 + rng() * 0.18
     const streakSpeed = swirlSpeedPrimary * 0.82 + rng() * 6
     const streakDelay = -Math.round(rng() * streakSpeed * 10) / 10
     const streakHighlight = (0.36 + rng() * 0.12).toFixed(2)
@@ -2101,13 +2101,13 @@ export function App() {
 
     const primaryStripes = `repeating-linear-gradient(180deg,
       ${primaryBands[0]} 0%,
-      ${primaryBands[0]} 12%,
-      ${primaryBands[1]} 12%,
-      ${primaryBands[1]} 24%,
-      ${primaryBands[2]} 24%,
-      ${primaryBands[2]} 36%,
-      ${primaryBands[3]} 36%,
-      ${primaryBands[3]} 48%)`
+      ${primaryBands[0]} 14%,
+      ${primaryBands[1]} 14%,
+      ${primaryBands[1]} 28%,
+      ${primaryBands[2]} 28%,
+      ${primaryBands[2]} 42%,
+      ${primaryBands[3]} 42%,
+      ${primaryBands[3]} 56%)`
 
     const primaryGlare = `linear-gradient(90deg,
       transparent 0%,
@@ -2118,13 +2118,13 @@ export function App() {
 
     const secondaryStripes = `repeating-linear-gradient(180deg,
       ${secondaryBands[0]} 0%,
-      ${secondaryBands[0]} 14%,
-      ${secondaryBands[1]} 14%,
-      ${secondaryBands[1]} 30%,
-      ${secondaryBands[2]} 30%,
-      ${secondaryBands[2]} 44%,
-      ${secondaryBands[3]} 44%,
-      ${secondaryBands[3]} 58%)`
+      ${secondaryBands[0]} 16%,
+      ${secondaryBands[1]} 16%,
+      ${secondaryBands[1]} 32%,
+      ${secondaryBands[2]} 32%,
+      ${secondaryBands[2]} 48%,
+      ${secondaryBands[3]} 48%,
+      ${secondaryBands[3]} 62%)`
 
     const secondaryGlare = `linear-gradient(90deg,
       transparent 0%,
@@ -2134,10 +2134,10 @@ export function App() {
       transparent 100%)`
 
     const streakBands = `repeating-linear-gradient(180deg,
-      rgba(255,255,255,0.12) 0%,
-      rgba(255,255,255,0.12) 18%,
-      rgba(255,255,255,0.04) 18%,
-      rgba(255,255,255,0.04) 36%)`
+      rgba(255,255,255,0.24) 0%,
+      rgba(255,255,255,0.24) 18%,
+      rgba(255,255,255,0.08) 18%,
+      rgba(255,255,255,0.08) 36%)`
 
     const streakGlare = `linear-gradient(90deg,
       transparent 0%,
@@ -2156,10 +2156,10 @@ export function App() {
       backgroundPosition: '0% 50%, 50% 50%',
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
-      opacity: 0.72,
-      mixBlendMode: 'screen',
+  opacity: 0.9,
+  mixBlendMode: 'overlay',
       pointerEvents: 'none',
-      filter: 'blur(3px)',
+  filter: 'blur(2.2px)',
       animation: `planet-band-drift ${swirlSpeedPrimary}s linear infinite`,
       animationDelay: `${swirlDelayPrimary}s`
     }
@@ -2174,10 +2174,10 @@ export function App() {
   backgroundPosition: '0% 50%, 50% 50%',
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
-      opacity: 0.58,
-      mixBlendMode: 'screen',
+  opacity: 0.76,
+  mixBlendMode: 'overlay',
       pointerEvents: 'none',
-      filter: 'blur(4px)',
+  filter: 'blur(3px)',
       animation: `planet-band-drift-reverse ${swirlSpeedSecondary}s linear infinite`,
       animationDelay: `${swirlDelaySecondary}s`
     }
@@ -2193,7 +2193,7 @@ export function App() {
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
       opacity: streakOpacity,
-      mixBlendMode: 'screen',
+  mixBlendMode: 'screen',
       pointerEvents: 'none',
       filter: 'blur(6px) saturate(140%)',
       animation: `planet-band-drift ${streakSpeed}s ease-in-out infinite`,
