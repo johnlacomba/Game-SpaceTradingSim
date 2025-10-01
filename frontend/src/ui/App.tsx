@@ -1120,6 +1120,11 @@ export function App() {
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
+  const handleOrbitPlayerClick = useCallback((player: RoomPlayer) => {
+    const displayName = player?.name?.trim() || 'Unknown pilot'
+    const toastId = `orbit-${player?.id ?? 'unknown'}-${Date.now()}`
+    setToasts(prev => [...prev, { id: toastId, text: displayName, at: Date.now() }])
+  }, [])
   const lastDockHandled = useRef<string | null>(null)
 
   useEffect(() => {
@@ -4450,7 +4455,7 @@ export function App() {
                     </button>
                     {orbitCount > 0 && (
                       <div
-                        aria-hidden
+                        role="presentation"
                         style={{
                           position: 'absolute',
                           inset: '50%',
@@ -4483,7 +4488,24 @@ export function App() {
                               title={pl.name}
                             >
                               <span className="planet-orbit-track">
-                                <span className="planet-orbit-icon" style={iconStyle}>
+                                <span
+                                  className="planet-orbit-icon"
+                                  style={{ ...iconStyle, pointerEvents: 'auto' }}
+                                  role="button"
+                                  tabIndex={0}
+                                  aria-label={pl.name ? `${pl.name}'s ship` : 'Player ship'}
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    handleOrbitPlayerClick(pl)
+                                  }}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      event.stopPropagation()
+                                      handleOrbitPlayerClick(pl)
+                                    }
+                                  }}
+                                >
                                   <span className="planet-orbit-emoji" role="img" aria-label={`${pl.name || 'Player'} spaceship`}>
                                     🚀
                                   </span>

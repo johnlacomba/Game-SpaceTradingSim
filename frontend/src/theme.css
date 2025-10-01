@@ -209,17 +209,27 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   position: absolute;
   left: 50%;
   top: 50%;
+  width: 0;
+  height: 0;
   transform-origin: 0 0;
   animation: planet-orbit-spin var(--orbit-speed, 24s) linear infinite;
 }
 
 .planet-orbit-track {
-  display: inline-flex;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%) translateY(calc(-1 * var(--orbit-radius, 40px)));
   transform-origin: center;
-  transform: translateY(calc(-1 * var(--orbit-radius, 40px)));
 }
 
 .planet-orbit-icon {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -229,14 +239,12 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   color: #fff;
   font-size: calc(var(--orbit-icon-size, 20px) * 0.7);
   filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .planet-orbit-emoji {
   line-height: 1;
-}
-
-.planet-orbit-slot {
-  animation-play-state: running;
 }
 
 @keyframes planet-orbit-spin {
