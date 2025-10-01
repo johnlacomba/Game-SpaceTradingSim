@@ -2153,30 +2153,6 @@ export function App() {
     const atmosphere = `radial-gradient(circle at 35% 30%, hsla(${(oceanHue + 20) % 360}, ${60 + Math.round(rng() * 15)}%, ${78 + Math.round(rng() * 10)}%, 0.9) 0%, hsla(${(oceanHue + 340) % 360}, ${40 + Math.round(rng() * 15)}%, ${55 + Math.round(rng() * 8)}%, 0.75) 45%, rgba(2,6,23,0.35) 100%)`
     const surface = `radial-gradient(circle at 62% 68%, ${oceanColor} 0%, hsl(${(oceanHue + 25) % 360}, ${Math.min(85, oceanSat + 18)}%, ${Math.max(18, oceanLight - 12)}%) 72%, hsl(${(oceanHue + 16) % 360}, ${Math.min(88, oceanSat + 22)}%, ${Math.max(10, oceanLight - 20)}%) 100%)`
 
-    const landColors = [
-      `hsl(${(oceanHue + 320) % 360}, ${48 + Math.round(rng() * 18)}%, ${42 + Math.round(rng() * 14)}%)`,
-      `hsl(${(oceanHue + 60) % 360}, ${50 + Math.round(rng() * 18)}%, ${48 + Math.round(rng() * 12)}%)`,
-      `hsl(${(oceanHue + 140) % 360}, ${36 + Math.round(rng() * 20)}%, ${40 + Math.round(rng() * 10)}%)`
-    ]
-
-    const landMasses = Array.from({ length: 3 }).map((_, idx) => {
-      const width = size * (0.28 + rng() * 0.32)
-      const height = size * (0.2 + rng() * 0.25)
-      const centerX = size * (0.25 + rng() * 0.5)
-      const centerY = size * (0.28 + rng() * 0.44)
-      const borderVariance = Math.round(35 + rng() * 25)
-      return {
-        width,
-        height,
-        left: centerX - width / 2,
-        top: centerY - height / 2,
-        color: landColors[idx % landColors.length],
-        rotate: -25 + rng() * 50,
-        opacity: 0.55 + rng() * 0.3,
-        borderRadius: `${borderVariance}% ${Math.min(100, borderVariance + 18)}% ${Math.max(25, borderVariance - 10)}% ${Math.min(95, borderVariance + 6)}%`
-      }
-    })
-
     const bandColor = (offset: number, saturationAdjust: number, lightAdjust: number, alpha: number) => {
       const hue = (oceanHue + offset + 360) % 360
       const saturation = clampNumber(oceanSat + saturationAdjust, 25, 92)
@@ -2335,23 +2311,6 @@ export function App() {
             opacity: 0.68
           }}
         />
-        {landMasses.map((land, idx) => (
-          <span
-            key={idx}
-            style={{
-              position: 'absolute',
-              left: land.left,
-              top: land.top,
-              width: land.width,
-              height: land.height,
-              borderRadius: land.borderRadius,
-              background: land.color,
-              opacity: land.opacity,
-              transform: `rotate(${land.rotate}deg)`,
-              filter: 'blur(0.6px)'
-            }}
-          />
-        ))}
         <div
           aria-hidden
           className="planet-swirl-layer"
@@ -4392,11 +4351,11 @@ export function App() {
                   ? 'rgba(226,232,240,0.92)'
                   : 'rgba(248,250,252,0.96)'
               const labelIcon = isStationLocation ? '🛰️' : isMoonLocation ? '🌙' : '🪐'
-              const labelFadeStart = 0.8
-              const labelFadeEnd = 1.15
-              const labelFadeRange = Math.max(0.0001, labelFadeEnd - labelFadeStart)
-              const labelVisibility = clampNumber((mapView.zoom - labelFadeStart) / labelFadeRange, 0, 1)
-              const showLabelStack = labelVisibility > 0.05
+              const labelVisibleStart = 1.2
+              const labelVisibleFull = 1.5
+              const labelFadeRange = Math.max(0.0001, labelVisibleFull - labelVisibleStart)
+              const labelVisibility = clampNumber((mapView.zoom - labelVisibleStart) / labelFadeRange, 0, 1)
+              const showLabelStack = mapView.zoom >= labelVisibleStart
               const playerTokenBase = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
               const playerTokenSize = Math.max(10, Math.round(playerTokenBase * clampNumber(locationIconScale, 0.9, 1.5)))
               const playerFontBase = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
@@ -4588,11 +4547,31 @@ export function App() {
               bottom: isMobile ? 12 : 16,
               display: 'flex',
               flexDirection: 'column',
+              alignItems: 'center',
               gap: isMobile ? 8 : 10,
               zIndex: 5,
               pointerEvents: 'auto'
             }}
           >
+            <div
+              aria-hidden
+              style={{
+                minWidth: zoomButtonSize,
+                padding: isMobile ? '3px 10px' : '4px 12px',
+                borderRadius: 999,
+                background: 'rgba(17, 24, 39, 0.78)',
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                color: 'rgba(226,232,240,0.92)',
+                fontSize: isMobile ? 12 : 13,
+                fontWeight: 600,
+                textAlign: 'center',
+                letterSpacing: 0.2,
+                boxShadow: '0 6px 14px rgba(15, 23, 42, 0.38)',
+                pointerEvents: 'none'
+              }}
+            >
+              {mapView.zoom.toFixed(2)}×
+            </div>
             <button
               type="button"
               onClick={() => handleZoomButton('in')}
