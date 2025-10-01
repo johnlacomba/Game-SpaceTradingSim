@@ -2097,55 +2097,66 @@ export function App() {
     const streakHighlight = (0.36 + rng() * 0.12).toFixed(2)
     const streakFade = (0.08 + rng() * 0.08).toFixed(2)
 
-    const cloudMask = 'radial-gradient(ellipse at center, rgba(255,255,255,1) 40%, rgba(255,255,255,0.85) 62%, rgba(255,255,255,0.4) 78%, rgba(255,255,255,0) 96%)'
+    const cloudMask = 'radial-gradient(ellipse at center, rgba(255,255,255,1) 38%, rgba(255,255,255,0.85) 60%, rgba(255,255,255,0.45) 78%, rgba(255,255,255,0) 96%)'
 
-    const primaryGradient = `linear-gradient(90deg,
+    const primaryStripes = `repeating-linear-gradient(180deg,
       ${primaryBands[0]} 0%,
-      ${primaryBands[0]} 16%,
-      ${primaryBands[1]} 16%,
-      ${primaryBands[1]} 36%,
-      rgba(255,255,255,0.12) 36%,
-      rgba(255,255,255,0.12) 48%,
-      ${primaryBands[2]} 48%,
-      ${primaryBands[2]} 68%,
-      ${primaryBands[3]} 68%,
-      transparent 100%)`
+      ${primaryBands[0]} 12%,
+      ${primaryBands[1]} 12%,
+      ${primaryBands[1]} 24%,
+      ${primaryBands[2]} 24%,
+      ${primaryBands[2]} 36%,
+      ${primaryBands[3]} 36%,
+      ${primaryBands[3]} 48%)`
 
-    const secondaryGradient = `linear-gradient(90deg,
-      ${secondaryBands[0]} 0%,
-      ${secondaryBands[0]} 18%,
-      rgba(255,255,255,0.18) 18%,
-      rgba(255,255,255,0.18) 32%,
-      ${secondaryBands[1]} 32%,
-      ${secondaryBands[1]} 54%,
-      ${secondaryBands[2]} 54%,
-      ${secondaryBands[2]} 76%,
-      ${secondaryBands[3]} 76%,
-      transparent 100%)`
-
-    const streakGradient = `linear-gradient(90deg,
+    const primaryGlare = `linear-gradient(90deg,
       transparent 0%,
-      rgba(255,255,255,${streakFade}) 18%,
-      rgba(255,255,255,${streakHighlight}) 40%,
-      rgba(255,255,255,${streakFade}) 62%,
-      transparent 82%,
-      rgba(255,255,255,0.02) 100%)`
+      rgba(255,255,255,0.16) 26%,
+      rgba(255,255,255,0.28) 48%,
+      rgba(255,255,255,0.16) 70%,
+      transparent 100%)`
 
-    const initialOffset = `${Math.round(rng() * 200)}% 50%`
-    const secondaryOffset = `${Math.round(rng() * 200)}% 48%`
-    const streakOffset = `${Math.round(rng() * 200)}% 52%`
+    const secondaryStripes = `repeating-linear-gradient(180deg,
+      ${secondaryBands[0]} 0%,
+      ${secondaryBands[0]} 14%,
+      ${secondaryBands[1]} 14%,
+      ${secondaryBands[1]} 30%,
+      ${secondaryBands[2]} 30%,
+      ${secondaryBands[2]} 44%,
+      ${secondaryBands[3]} 44%,
+      ${secondaryBands[3]} 58%)`
+
+    const secondaryGlare = `linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,0.12) 18%,
+      rgba(255,255,255,0.22) 38%,
+      rgba(255,255,255,0.12) 58%,
+      transparent 100%)`
+
+    const streakBands = `repeating-linear-gradient(180deg,
+      rgba(255,255,255,0.12) 0%,
+      rgba(255,255,255,0.12) 18%,
+      rgba(255,255,255,0.04) 18%,
+      rgba(255,255,255,0.04) 36%)`
+
+    const streakGlare = `linear-gradient(90deg,
+      transparent 0%,
+      rgba(255,255,255,${streakFade}) 20%,
+      rgba(255,255,255,${streakHighlight}) 50%,
+      rgba(255,255,255,${streakFade}) 80%,
+      transparent 100%)`
 
     const primarySwirlStyle: CSSPropertiesWithVars = {
       position: 'absolute',
       inset: '-8%',
       borderRadius: '50%',
-      background: primaryGradient,
-      backgroundRepeat: 'repeat',
-      backgroundSize: '320% 100%',
-      backgroundPosition: initialOffset,
+      backgroundImage: `${primaryGlare}, ${primaryStripes}`,
+      backgroundRepeat: 'repeat, repeat',
+      backgroundSize: '220% 100%, 100% 140%',
+      backgroundPosition: '0% 50%, 50% 50%',
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
-      opacity: 0.68,
+      opacity: 0.72,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
       filter: 'blur(3px)',
@@ -2157,18 +2168,17 @@ export function App() {
       position: 'absolute',
       inset: '-9%',
       borderRadius: '50%',
-      background: secondaryGradient,
-      backgroundRepeat: 'repeat',
-      backgroundSize: '280% 100%',
-      backgroundPosition: secondaryOffset,
+      backgroundImage: `${secondaryGlare}, ${secondaryStripes}`,
+      backgroundRepeat: 'repeat, repeat',
+      backgroundSize: '200% 100%, 100% 130%',
+  backgroundPosition: '0% 50%, 50% 50%',
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
-      opacity: 0.55,
+      opacity: 0.58,
       mixBlendMode: 'screen',
       pointerEvents: 'none',
       filter: 'blur(4px)',
-      animation: `planet-band-drift ${swirlSpeedSecondary}s linear infinite`,
-      animationDirection: 'reverse',
+      animation: `planet-band-drift-reverse ${swirlSpeedSecondary}s linear infinite`,
       animationDelay: `${swirlDelaySecondary}s`
     }
 
@@ -2176,10 +2186,10 @@ export function App() {
       position: 'absolute',
       inset: '-10%',
       borderRadius: '50%',
-      background: streakGradient,
-      backgroundRepeat: 'repeat',
-      backgroundSize: '200% 100%',
-      backgroundPosition: streakOffset,
+      backgroundImage: `${streakGlare}, ${streakBands}`,
+      backgroundRepeat: 'repeat, repeat',
+      backgroundSize: '200% 100%, 100% 120%',
+  backgroundPosition: '0% 52%, 50% 50%',
       maskImage: cloudMask,
       WebkitMaskImage: cloudMask,
       opacity: streakOpacity,

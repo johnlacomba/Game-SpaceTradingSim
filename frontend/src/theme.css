@@ -167,19 +167,19 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
 
 @keyframes planet-band-drift {
   from {
-    background-position: 0% 0%;
+    background-position: 0% 50%, 50% 50%;
   }
   to {
-    background-position: -200% 0%;
+    background-position: -200% 50%, 50% 50%;
   }
 }
 
 @keyframes planet-band-drift-reverse {
   from {
-    background-position: 0% 0%;
+    background-position: 0% 50%, 50% 50%;
   }
   to {
-    background-position: 200% 0%;
+    background-position: 200% 50%, 50% 50%;
   }
 }
 
