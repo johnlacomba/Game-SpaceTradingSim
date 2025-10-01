@@ -205,6 +205,49 @@ tbody tr:hover { background: rgba(255,255,255,0.03); }
   to { transform: rotate(360deg); }
 }
 
+.planet-orbit-slot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform-origin: 0 0;
+  animation: planet-orbit-spin var(--orbit-speed, 24s) linear infinite;
+}
+
+.planet-orbit-track {
+  display: inline-flex;
+  transform-origin: center;
+  transform: translateY(calc(-1 * var(--orbit-radius, 40px)));
+}
+
+.planet-orbit-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--orbit-icon-size, 20px);
+  height: var(--orbit-icon-size, 20px);
+  border-radius: 50%;
+  color: #fff;
+  font-size: calc(var(--orbit-icon-size, 20px) * 0.7);
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+}
+
+.planet-orbit-emoji {
+  line-height: 1;
+}
+
+.planet-orbit-slot {
+  animation-play-state: running;
+}
+
+@keyframes planet-orbit-spin {
+  from {
+    transform: translate(-50%, -50%) rotate(var(--orbit-angle, 0deg));
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(calc(var(--orbit-angle, 0deg) + 360deg));
+  }
+}
+
 .station-ring {
   animation: station-ring-rotate var(--station-ring-speed, 28s) linear infinite;
   transform-origin: 50% 50%;

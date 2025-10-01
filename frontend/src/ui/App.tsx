@@ -4343,15 +4343,16 @@ export function App() {
               const labelFadeRange = Math.max(0.0001, labelVisibleFull - labelVisibleStart)
               const labelVisibility = clampNumber((mapView.zoom - labelVisibleStart) / labelFadeRange, 0, 1)
               const showLabelStack = mapView.zoom >= labelVisibleStart
-              const playerTokenBase = isMobile ? Math.max(12, Math.round(18 * mobileScale)) : 14
-              const playerTokenSize = Math.max(10, Math.round(playerTokenBase * clampNumber(locationIconScale, 0.9, 1.5)))
-              const playerFontBase = isMobile ? Math.max(10, Math.round(12 * mobileScale)) : 10
-              const playerFontSize = Math.max(8, Math.round(playerFontBase * clampNumber(locationIconScale, 0.9, 1.25)))
               const buttonGapBase = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
               const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
-              const tokenRowGap = Math.max(3, Math.round(buttonGap * 0.9))
               const labelAnchorHeight = ((isHere ? containerDiameter : iconSize) / 2) + buttonGap
               const allowLocationAnimation = mapView.zoom >= 4
+              const orbitPlayers = onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit))
+              const orbitCount = orbitPlayers.length
+              const orbitRadius = Math.max((isHere ? containerDiameter : iconSize) * 0.5 + 14, iconSize * 0.75)
+              const orbitDiameter = orbitRadius * 2
+              const orbitSpeed = 18 + orbitCount * 2
+              const orbitIconSize = Math.max(18, Math.round(iconSize * 0.36))
 
               const locationIcon = (() => {
                 if (isStationLocation) return renderStationIcon(p, iconSize, allowLocationAnimation)
@@ -4447,6 +4448,52 @@ export function App() {
                         </span>
                       </span>
                     </button>
+                    {orbitCount > 0 && (
+                      <div
+                        aria-hidden
+                        style={{
+                          position: 'absolute',
+                          inset: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          width: orbitDiameter,
+                          height: orbitDiameter,
+                          pointerEvents: 'none',
+                          zIndex: 4
+                        }}
+                      >
+                        {orbitPlayers.map((pl: any, idx: number) => {
+                          const angle = orbitCount > 1 ? (360 / orbitCount) * idx : 0
+                          const shipColor = colorFor(String(pl.id))
+                          const slotStyle: CSSPropertiesWithVars = {
+                            '--orbit-angle': `${angle}deg`,
+                            '--orbit-radius': `${orbitRadius}px`,
+                            '--orbit-speed': `${orbitSpeed}s`,
+                            animationPlayState: allowLocationAnimation ? 'running' : 'paused'
+                          }
+                          const iconStyle: CSSPropertiesWithVars = {
+                            '--orbit-icon-size': `${orbitIconSize}px`,
+                            background: shipColor,
+                            boxShadow: `0 0 10px ${shipColor}55`
+                          }
+                          return (
+                            <span
+                              key={pl.id}
+                              className="planet-orbit-slot"
+                              style={slotStyle}
+                              title={pl.name}
+                            >
+                              <span className="planet-orbit-track">
+                                <span className="planet-orbit-icon" style={iconStyle}>
+                                  <span className="planet-orbit-emoji" role="img" aria-label={`${pl.name || 'Player'} spaceship`}>
+                                    🚀
+                                  </span>
+                                </span>
+                              </span>
+                            </span>
+                          )
+                        })}
+                      </div>
+                    )}
                     {showLabelStack && (
                       <div
                         style={{
@@ -4457,7 +4504,7 @@ export function App() {
                           display: 'flex',
                           flexDirection: 'column',
                           alignItems: 'center',
-                          gap: tokenRowGap,
+                          gap: Math.max(4, Math.round(buttonGap * 0.8)),
                           pointerEvents: 'none',
                           zIndex: 3,
                           opacity: labelVisibility,
@@ -4478,36 +4525,6 @@ export function App() {
                         >
                           {labelIcon} {p}
                         </span>
-                        <div
-                          style={{
-                            display: 'flex',
-                            gap: tokenRowGap,
-                            justifyContent: 'center',
-                            flexWrap: 'wrap'
-                          }}
-                        >
-                          {onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit)).map((pl: any) => (
-                            <span
-                              key={pl.id}
-                              title={pl.name}
-                              style={{
-                                width: playerTokenSize,
-                                height: playerTokenSize,
-                                borderRadius: playerTokenSize / 2,
-                                background: colorFor(String(pl.id)),
-                                color: '#fff',
-                                display: 'inline-flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                fontSize: playerFontSize,
-                                boxShadow: '0 0 0 1px rgba(0,0,0,0.2)',
-                                fontWeight: isMobile ? 600 : 'normal'
-                              }}
-                            >
-                              {String(pl.name || 'P').slice(0, 1).toUpperCase()}
-                            </span>
-                          ))}
-                        </div>
                       </div>
                     )}
                   </div>
