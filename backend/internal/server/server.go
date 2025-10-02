@@ -4642,9 +4642,6 @@ func (gs *GameServer) updateDiscoveryForPlayer(room *Room, p *Player) {
 		message = fmt.Sprintf("Charted %d new locations", len(unique))
 	}
 	gs.logAction(room, p, message)
-	if !p.IsBot {
-		gs.enqueueModal(p, "New Sector Charted", message)
-	}
 }
 
 // handleRefuel processes a refuel request for the player.
