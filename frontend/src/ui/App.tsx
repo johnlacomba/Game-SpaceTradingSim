@@ -2142,7 +2142,7 @@ export function App() {
     return 'planet' as const
   }, [moonKeywords, stationKeywords])
 
-  const renderPlanetIcon = useCallback((name: string, size: number, shouldAnimate = true) => {
+  const renderPlanetIcon = useCallback((name: string, size: number, shouldAnimate = true, isLowRes = false) => {
     const hash = hashString(name.toLowerCase()) || 1
     let state = hash
     const rng = () => {
@@ -2157,6 +2157,52 @@ export function App() {
     const oceanColor = `hsl(${oceanHue}, ${oceanSat}%, ${oceanLight}%)`
     const atmosphere = `radial-gradient(circle at 35% 30%, hsla(${(oceanHue + 20) % 360}, ${60 + Math.round(rng() * 15)}%, ${78 + Math.round(rng() * 10)}%, 0.9) 0%, hsla(${(oceanHue + 340) % 360}, ${40 + Math.round(rng() * 15)}%, ${55 + Math.round(rng() * 8)}%, 0.75) 45%, rgba(2,6,23,0.35) 100%)`
     const surface = `radial-gradient(circle at 62% 68%, ${oceanColor} 0%, hsl(${(oceanHue + 25) % 360}, ${Math.min(85, oceanSat + 18)}%, ${Math.max(18, oceanLight - 12)}%) 72%, hsl(${(oceanHue + 16) % 360}, ${Math.min(88, oceanSat + 22)}%, ${Math.max(10, oceanLight - 20)}%) 100%)`
+
+    if (isLowRes) {
+      return (
+        <div
+          style={{
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            position: 'relative',
+            background: surface,
+            boxShadow: '0 0 12px rgba(59,130,246,0.35), inset -6px -10px 16px rgba(8,16,37,0.55)',
+            overflow: 'hidden'
+          }}
+        >
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              background: atmosphere,
+              opacity: 0.5,
+              mixBlendMode: 'screen'
+            }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle at 28% 28%, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.06) 42%, rgba(255,255,255,0) 60%)'
+            }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              boxShadow: 'inset -5px -9px 14px rgba(2,6,23,0.4)'
+            }}
+          />
+        </div>
+      )
+    }
 
     const bandColor = (offset: number, saturationAdjust: number, lightAdjust: number, alpha: number) => {
       const hue = (oceanHue + offset + 360) % 360
@@ -2356,7 +2402,7 @@ export function App() {
     )
   }, [hashString])
 
-  const renderMoonIcon = useCallback((name: string, size: number) => {
+  const renderMoonIcon = useCallback((name: string, size: number, isLowRes = false) => {
     const hash = hashString(name.toLowerCase()) || 1
     let state = hash
     const rng = () => {
@@ -2366,6 +2412,32 @@ export function App() {
 
     const baseLight = 52 + Math.round(rng() * 16)
     const surface = `radial-gradient(circle at 34% 32%, hsl(220, 12%, ${Math.min(95, baseLight + 18)}%) 0%, hsl(220, 10%, ${baseLight}%) 45%, hsl(220, 16%, ${Math.max(18, baseLight - 24)}%) 100%)`
+
+    if (isLowRes) {
+      return (
+        <div
+          style={{
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            position: 'relative',
+            background: surface,
+            boxShadow: '0 0 10px rgba(148,163,184,0.35), inset -5px -9px 14px rgba(15,23,42,0.45)'
+          }}
+        >
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: 0,
+              borderRadius: '50%',
+              background: 'radial-gradient(circle at 32% 30%, rgba(255,255,255,0.38) 0%, rgba(255,255,255,0.08) 44%, rgba(255,255,255,0) 58%)'
+            }}
+          />
+        </div>
+      )
+    }
+
     const craterCount = 4 + Math.floor(rng() * 3)
     const craters = Array.from({ length: craterCount }).map(() => {
       const diameter = size * (0.14 + rng() * 0.22)
@@ -2428,7 +2500,7 @@ export function App() {
     )
   }, [hashString])
 
-  const renderStationIcon = useCallback((name: string, size: number, shouldAnimate = true) => {
+  const renderStationIcon = useCallback((name: string, size: number, shouldAnimate = true, isLowRes = false) => {
     const hash = hashString(name.toLowerCase()) || 1
     let state = hash
     const rng = () => {
@@ -2441,6 +2513,65 @@ export function App() {
     const ringColor = `hsla(${(baseHue + 20) % 360}, 72%, ${46 + Math.round(rng() * 10)}%, 0.9)`
     const coreLight = `linear-gradient(135deg, hsla(${(baseHue + 12) % 360}, 85%, 78%, 0.92) 0%, hsla(${(baseHue + 340) % 360}, 82%, 64%, 0.95) 100%)`
     const strutColor = `linear-gradient(180deg, hsla(${(baseHue + 350) % 360}, 65%, 72%, 0.92), hsla(${(baseHue + 320) % 360}, 65%, 58%, 0.88))`
+
+    if (isLowRes) {
+      return (
+        <div
+          style={{
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: `radial-gradient(circle, rgba(9,16,35,0.85) 0%, rgba(8,47,73,0.65) 60%, rgba(2,6,23,0) 100%)`,
+            boxShadow: '0 0 14px rgba(94,234,212,0.28)'
+          }}
+        >
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: size * 0.16,
+              borderRadius: '50%',
+              background: coreLight,
+              boxShadow: '0 0 16px rgba(190,242,255,0.4)'
+            }}
+          />
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              inset: size * 0.1,
+              borderRadius: '50%',
+              border: `2px solid ${ringColor}`,
+              opacity: 0.7
+            }}
+          />
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              width: size * 0.18,
+              height: size * 0.62,
+              borderRadius: size * 0.12,
+              background: strutColor
+            }}
+          />
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              width: size * 0.62,
+              height: size * 0.18,
+              borderRadius: size * 0.12,
+              background: strutColor
+            }}
+          />
+        </div>
+      )
+    }
 
     const podCount = 4
     const pods = Array.from({ length: podCount }).map((_, idx) => {
@@ -4352,6 +4483,7 @@ export function App() {
               const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
               const labelAnchorHeight = ((isHere ? containerDiameter : iconSize) / 2) + buttonGap
               const allowLocationAnimation = mapView.zoom >= 4
+              const useLowResAssets = mapView.zoom < 4
               const orbitPlayers = onPlanet.filter((pl: any) => !(pl.id === r.you.id && inTransit))
               const orbitCount = orbitPlayers.length
               const orbitRadius = Math.max((isHere ? containerDiameter : iconSize) * 0.5 + 14, iconSize * 0.75)
@@ -4360,9 +4492,9 @@ export function App() {
               const orbitIconSize = Math.max(18, Math.round(iconSize * 0.36))
 
               const locationIcon = (() => {
-                if (isStationLocation) return renderStationIcon(p, iconSize, allowLocationAnimation)
-                if (isMoonLocation) return renderMoonIcon(p, iconSize)
-                return renderPlanetIcon(p, iconSize, allowLocationAnimation)
+                if (isStationLocation) return renderStationIcon(p, iconSize, allowLocationAnimation, useLowResAssets)
+                if (isMoonLocation) return renderMoonIcon(p, iconSize, useLowResAssets)
+                return renderPlanetIcon(p, iconSize, allowLocationAnimation, useLowResAssets)
               })()
 
               return (
