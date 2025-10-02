@@ -1112,6 +1112,7 @@ export function App() {
     lastMidpoint: { x: 0, y: 0 }
   })
   const initialCenterRef = useRef<string | null>(null)
+  const lastCenteredPlanetRef = useRef<string | null>(null)
   const [now, setNow] = useState<number>(() => Date.now())
   const mapLocked = !Boolean(room?.room?.started)
   // Tabs: map | market | locations | players | ship | graphs
@@ -1289,6 +1290,7 @@ export function App() {
   useEffect(() => {
     if (stage !== 'room') {
       initialCenterRef.current = null
+      lastCenteredPlanetRef.current = null
       return
     }
     if (!room) return
@@ -1297,9 +1299,28 @@ export function App() {
     if (!current) return
     if (initialCenterRef.current !== key) {
       initialCenterRef.current = key
+      lastCenteredPlanetRef.current = room.you.currentPlanet ?? null
       updateMapView(() => ({ centerX: current.x, centerY: current.y, zoom: defaultZoomRef.current }))
     }
   }, [getWorldPosition, room, stage, updateMapView])
+
+  useEffect(() => {
+    if (stage !== 'room') {
+      lastCenteredPlanetRef.current = null
+      return
+    }
+    const planetName = room?.you?.currentPlanet
+    if (!planetName) return
+    if (lastCenteredPlanetRef.current === planetName) return
+    const worldPos = getWorldPosition(planetName)
+    if (!worldPos) return
+    lastCenteredPlanetRef.current = planetName
+    updateMapView(prev => ({
+      centerX: worldPos.x,
+      centerY: worldPos.y,
+      zoom: prev.zoom,
+    }))
+  }, [getWorldPosition, room?.you?.currentPlanet, stage, updateMapView])
 
   const zoomAtPoint = useCallback((pointerX: number, pointerY: number, factor: number) => {
     if (!Number.isFinite(factor) || factor === 0) {
