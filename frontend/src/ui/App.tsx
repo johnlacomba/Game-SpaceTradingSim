@@ -1211,9 +1211,22 @@ export function App() {
   }, [effectiveScale])
 
   const locationIconScale = useMemo(() => {
-    const rawScale = Math.pow(Math.max(mapView.zoom, 0.01), 0.45)
-    const minScale = isMobile ? 0.8 : 0.7
-    return clampNumber(rawScale, minScale, 2.4)
+    const zoomValue = Math.max(mapView.zoom, 0.01)
+    let scale = Math.pow(zoomValue, 0.45)
+
+    if (zoomValue < 4) {
+      const ratio = clampNumber(zoomValue / 4, 0.01, 1)
+      const shrinkBoost = Math.pow(ratio, 0.7)
+      scale *= shrinkBoost
+    }
+
+    const highZoomMin = isMobile ? 0.8 : 0.7
+    const lowZoomMinBase = isMobile ? 0.5 : 0.4
+    const minScale = zoomValue < 4
+      ? Math.max(isMobile ? 0.24 : 0.2, lowZoomMinBase * Math.pow(clampNumber(zoomValue / 4, 0.01, 1), 0.8))
+      : highZoomMin
+    const maxScale = 2.4
+    return clampNumber(scale, minScale, maxScale)
   }, [isMobile, mapView.zoom])
 
   const basePlanetIconDiameter = useMemo(() => {
@@ -1653,6 +1666,16 @@ export function App() {
     if (!last) return
     if (last.type === 'lobbyState') {
       setLobby(last.payload)
+      if (stage === 'room' && room?.room?.id && room?.you?.id) {
+        const roomsList: Array<{ id?: string; playerCount?: number }> = Array.isArray(last.payload?.rooms)
+          ? last.payload.rooms
+          : []
+        const stillOpen = roomsList.some(entry => entry?.id === room.room.id)
+        if (stillOpen) {
+          return
+        }
+      }
+      setRoom(null)
       setStage('lobby')
     }
     if (last.type === 'roomState') {
@@ -1760,7 +1783,7 @@ export function App() {
         restoreTargetRoomRef.current = null
       }
     }
-  }, [messages, currentUserId, send])
+  }, [messages, currentUserId, room, send, stage])
 
   // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
   useEffect(() => {
@@ -1950,7 +1973,12 @@ export function App() {
   }, [])
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
-  const exitRoom = () => send('exitRoom')
+  const exitRoom = useCallback(() => {
+    const ok = send('exitRoom')
+    if (!ok) return
+    setRoom(null)
+    setStage('lobby')
+  }, [send, setRoom, setStage])
   const setEndGame = (end: boolean) => send('setEndGame', { endGame: end })
 
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
