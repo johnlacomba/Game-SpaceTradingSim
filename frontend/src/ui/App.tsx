@@ -1121,12 +1121,33 @@ export function App() {
   const [wealthHistory, setWealthHistory] = useState<{ roomId?: string; series: Record<string, { name: string; color: string; points: { turn: number; money: number }[] }> }>({ roomId: undefined, series: {} })
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
+  const [discoveryHighlights, setDiscoveryHighlights] = useState<{ name: string; until: number }[]>([])
+  const knownPlanetsInitializedRef = useRef(false)
+  const knownPlanetsRef = useRef<Set<string>>(new Set())
   const handleOrbitPlayerClick = useCallback((player: RoomPlayer) => {
     const displayName = player?.name?.trim() || 'Unknown pilot'
     const toastId = `orbit-${player?.id ?? 'unknown'}-${Date.now()}`
     setToasts(prev => [...prev, { id: toastId, text: displayName, at: Date.now() }])
   }, [])
-  const lastDockHandled = useRef<string | null>(null)
+  const triggerDiscoveryHighlight = useCallback((names: string[]) => {
+    if (!Array.isArray(names) || names.length === 0) return
+    const trimmed = Array.from(
+      new Set(
+        names
+          .map(name => (typeof name === 'string' ? name.trim() : ''))
+          .filter((name): name is string => name.length > 0)
+      )
+    )
+    if (trimmed.length === 0) return
+    const now = Date.now()
+    const expiry = now + 3200
+    setDiscoveryHighlights(prev => {
+      const active = prev.filter(entry => entry.until > now && !trimmed.includes(entry.name))
+      return [...active, ...trimmed.map(name => ({ name, until: expiry }))]
+    })
+  }, [])
+  const discoveryHighlightNames = useMemo(() => new Set(discoveryHighlights.map(h => h.name)), [discoveryHighlights])
+  const lastAutoHandledModal = useRef<string | null>(null)
 
   useEffect(() => {
   defaultZoomRef.current = 4
@@ -1806,21 +1827,27 @@ export function App() {
     }
   }, [messages, currentUserId, room, send, stage])
 
-  // Intercept Dock Tax modal and convert it into a floating toast instead of blocking modal
+  // Auto-handle certain informational modals so they don't block play
   useEffect(() => {
-    if (!room) return
-    const modal: any = (room.you as any)?.modal
+    const modal: any = room?.you ? (room.you as any)?.modal : null
     if (!modal || !modal.id) return
-    const title = (modal as any).title
-    if (title === 'Dock Tax') {
-      if (lastDockHandled.current !== modal.id) {
-        lastDockHandled.current = modal.id
+    const title = (modal as any).title as string | undefined
+    if (title === 'Dock Tax' || title === 'New Sector Charted') {
+      if (lastAutoHandledModal.current === modal.id) return
+      lastAutoHandledModal.current = modal.id
+      if (title === 'Dock Tax') {
         setToasts(ts => [...ts, { id: modal.id, text: modal.body || 'Docking fee charged.', at: Date.now() }])
-        // Immediately ack so it doesn't block queue
-        send('ackModal', { id: modal.id })
+      } else if (title === 'New Sector Charted') {
+        const body = typeof modal.body === 'string' ? modal.body : ''
+        const colonIndex = body.indexOf(':')
+        if (colonIndex >= 0) {
+          const list = body.slice(colonIndex + 1).split(',')
+          triggerDiscoveryHighlight(list)
+        }
       }
+      send('ackModal', { id: modal.id })
     }
-  }, [room?.you && (room.you as any).modal?.id])
+  }, [room?.you?.modal?.id, send, triggerDiscoveryHighlight])
 
   // Auto-remove toasts after ~2.5s
   useEffect(() => {
@@ -1839,6 +1866,46 @@ export function App() {
       setActiveTab('map')
     }
   }, [room?.room?.started, activeTab])
+
+  useEffect(() => {
+    if (stage !== 'room') {
+      knownPlanetsInitializedRef.current = false
+      knownPlanetsRef.current = new Set()
+      setDiscoveryHighlights([])
+    }
+  }, [stage])
+
+  useEffect(() => {
+    const list = room?.you?.knownPlanets
+    if (!Array.isArray(list)) return
+    const normalized = list
+      .map(name => (typeof name === 'string' ? name.trim() : ''))
+      .filter((name): name is string => name.length > 0)
+    if (!knownPlanetsInitializedRef.current) {
+      knownPlanetsInitializedRef.current = true
+      knownPlanetsRef.current = new Set(normalized)
+      return
+    }
+    const previous = knownPlanetsRef.current
+    const newNames = normalized.filter(name => !previous.has(name))
+    if (newNames.length > 0) {
+      triggerDiscoveryHighlight(newNames)
+    }
+    if (newNames.length > 0 || normalized.length !== previous.size) {
+      const updated = new Set(previous)
+      normalized.forEach(name => updated.add(name))
+      knownPlanetsRef.current = updated
+    }
+  }, [room?.you?.knownPlanets, triggerDiscoveryHighlight])
+
+  useEffect(() => {
+    if (discoveryHighlights.length === 0) return
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      setDiscoveryHighlights(prev => prev.filter(entry => entry.until > now))
+    }, 400)
+    return () => window.clearInterval(timer)
+  }, [discoveryHighlights.length])
 
   // Track wealth history per turn (numeric money only); reset on room change
   useEffect(() => {
@@ -4432,6 +4499,17 @@ export function App() {
               50% { transform: scale(1.05); box-shadow: 0 0 22px rgba(34,197,94,0.55); }
               100% { transform: scale(1); box-shadow: 0 0 0 rgba(34,197,94,0.45); }
             }
+            @keyframes discoveryPulse {
+              0% { transform: translate(-50%, -50%) scale(0.7); opacity: 0; }
+              25% { opacity: 0.55; }
+              55% { opacity: 0.4; }
+              100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; }
+            }
+            @keyframes discoveryRing {
+              0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.85; }
+              60% { opacity: 0.3; }
+              100% { transform: translate(-50%, -50%) scale(1.5); opacity: 0; }
+            }
           `}
         </style>
         <div aria-live="polite" style={{ position:'absolute', top: 42, right: 16, pointerEvents:'none', width: 280, height: 0 }}>
@@ -4515,6 +4593,8 @@ export function App() {
               const iconSize = Math.max(24, Math.round(basePlanetIconDiameter * locationIconScale))
               const haloPadding = isHere ? Math.max(18, Math.round(iconSize * 0.42)) : 0
               const containerDiameter = iconSize + haloPadding
+              const isDiscoveryHighlighted = discoveryHighlightNames.has(p)
+              const highlightDiameter = containerDiameter + Math.max(28, Math.round(iconSize * 0.95))
               const labelFontPx = Math.round((isMobile ? Math.max(11, Math.round(14 * mobileScale)) : 14) * clampNumber(Math.sqrt(locationIconScale), 1, 1.3))
               const labelFontSize = `${labelFontPx}px`
               const labelColor = isStationLocation
@@ -4527,7 +4607,8 @@ export function App() {
               const labelVisibleFull = 4.4
               const labelFadeRange = Math.max(0.0001, labelVisibleFull - labelVisibleStart)
               const labelVisibility = clampNumber((mapView.zoom - labelVisibleStart) / labelFadeRange, 0, 1)
-              const showLabelStack = mapView.zoom >= labelVisibleStart
+              const effectiveLabelVisibility = isDiscoveryHighlighted ? 1 : labelVisibility
+              const showLabelStack = isDiscoveryHighlighted || mapView.zoom >= labelVisibleStart
               const buttonGapBase = Math.max(4, Math.round((isMobile ? 6 : 4) * mobileScale))
               const buttonGap = Math.max(3, Math.round(buttonGapBase * clampNumber(locationIconScale, 0.9, 1.2)))
               const labelAnchorHeight = ((isHere ? containerDiameter : iconSize) / 2) + buttonGap
@@ -4567,6 +4648,43 @@ export function App() {
                       background: 'transparent'
                     }}
                   >
+                    {isDiscoveryHighlighted && (
+                      <>
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            inset: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: highlightDiameter,
+                            height: highlightDiameter,
+                            borderRadius: '50%',
+                            background: 'radial-gradient(circle, rgba(200,243,255,0.55) 0%, rgba(59,130,246,0.35) 45%, rgba(14,116,144,0.15) 65%, rgba(14,116,144,0) 100%)',
+                            boxShadow: '0 0 28px rgba(56,189,248,0.35), 0 0 60px rgba(34,211,238,0.25)',
+                            pointerEvents: 'none',
+                            zIndex: 0,
+                            animation: 'discoveryPulse 2.8s ease-out infinite'
+                          }}
+                        />
+                        <span
+                          aria-hidden
+                          style={{
+                            position: 'absolute',
+                            inset: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: highlightDiameter * 0.68,
+                            height: highlightDiameter * 0.68,
+                            borderRadius: '50%',
+                            border: '2px solid rgba(224,242,254,0.9)',
+                            boxShadow: '0 0 18px rgba(125,211,252,0.45)',
+                            mixBlendMode: 'screen',
+                            pointerEvents: 'none',
+                            zIndex: 2,
+                            animation: 'discoveryRing 1.9s ease-out infinite'
+                          }}
+                        />
+                      </>
+                    )}
                     {isHere && (
                       <span
                         aria-hidden
@@ -4710,7 +4828,7 @@ export function App() {
                           gap: Math.max(4, Math.round(buttonGap * 0.8)),
                           pointerEvents: 'none',
                           zIndex: 3,
-                          opacity: labelVisibility,
+                          opacity: effectiveLabelVisibility,
                           transition: 'opacity 160ms ease'
                         }}
                       >
