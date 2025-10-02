@@ -342,14 +342,30 @@ type singleplayerRoomSnapshot struct {
 }
 
 type singleplayerRoomPlayerSnapshot struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	CurrentPlanet     string `json:"currentPlanet"`
-	DestinationPlanet string `json:"destinationPlanet"`
-	Ready             bool   `json:"ready"`
-	EndGame           bool   `json:"endGame"`
-	Bankrupt          bool   `json:"bankrupt"`
-	CashValue         int    `json:"cashValue"`
+	ID                 string         `json:"id"`
+	Name               string         `json:"name"`
+	CurrentPlanet      string         `json:"currentPlanet"`
+	DestinationPlanet  string         `json:"destinationPlanet"`
+	Ready              bool           `json:"ready"`
+	EndGame            bool           `json:"endGame"`
+	Bankrupt           bool           `json:"bankrupt"`
+	CashValue          int            `json:"cashValue"`
+	Fuel               int            `json:"fuel"`
+	Inventory          map[string]int `json:"inventory,omitempty"`
+	InventoryAvgCost   map[string]int `json:"inventoryAvgCost,omitempty"`
+	InTransit          bool           `json:"inTransit"`
+	TransitFrom        string         `json:"transitFrom"`
+	TransitRemaining   int            `json:"transitRemaining"`
+	TransitTotal       int            `json:"transitTotal"`
+	Capacity           int            `json:"capacity"`
+	FuelCapacity       int            `json:"fuelCapacity"`
+	SpeedPerTurn       int            `json:"speedPerTurn"`
+	FacilityInvestment int            `json:"facilityInvestment"`
+	UpgradeInvestment  int            `json:"upgradeInvestment"`
+	UpgradeValue       int            `json:"upgradeValue"`
+	CargoValue         int            `json:"cargoValue"`
+	KnownPlanets       []string       `json:"knownPlanets,omitempty"`
+	IsBot              bool           `json:"isBot"`
 }
 
 type singleplayerNewsSnapshot struct {
@@ -1648,17 +1664,68 @@ func (gs *GameServer) restoreSingleplayerSnapshot(p *Player, roomID, encoded, ow
 			p.Bankrupt = ps.Bankrupt
 			continue
 		}
-		if other := room.Players[pid]; other != nil {
-			other.Name = defaultStr(ps.Name, other.Name)
-			other.CurrentPlanet = defaultStr(ps.CurrentPlanet, other.CurrentPlanet)
-			other.DestinationPlanet = ps.DestinationPlanet
-			other.Ready = ps.Ready
-			other.EndGame = ps.EndGame
-			other.Bankrupt = ps.Bankrupt
-			if ps.CashValue != 0 {
-				other.Money = ps.CashValue
-			}
+		other := room.Players[pid]
+		if other == nil {
+			other = &Player{ID: pid, roomID: room.ID}
+			room.Players[pid] = other
 		}
+		other.IsBot = ps.IsBot || other.IsBot
+		other.Name = defaultStr(ps.Name, other.Name)
+		other.CurrentPlanet = defaultStr(ps.CurrentPlanet, other.CurrentPlanet)
+		other.DestinationPlanet = ps.DestinationPlanet
+		other.Ready = ps.Ready
+		other.EndGame = ps.EndGame
+		other.Bankrupt = ps.Bankrupt
+		other.Money = ps.CashValue
+		other.Fuel = maxInt(0, ps.Fuel)
+		if ps.Inventory != nil {
+			other.Inventory = cloneIntMap(ps.Inventory)
+		} else {
+			other.Inventory = map[string]int{}
+		}
+		if ps.InventoryAvgCost != nil {
+			other.InventoryAvgCost = cloneIntMap(ps.InventoryAvgCost)
+		} else {
+			other.InventoryAvgCost = map[string]int{}
+		}
+		other.InTransit = ps.InTransit
+		other.TransitFrom = ps.TransitFrom
+		other.TransitRemaining = ps.TransitRemaining
+		other.TransitTotal = ps.TransitTotal
+		other.FacilityInvestment = ps.FacilityInvestment
+		other.UpgradeInvestment = ps.UpgradeInvestment
+		capBonus := ps.Capacity - shipCapacity
+		if capBonus < 0 {
+			capBonus = 0
+		}
+		other.CapacityBonus = capBonus
+		speedBonusOther := ps.SpeedPerTurn - 20
+		if speedBonusOther < 0 {
+			speedBonusOther = 0
+		}
+		other.SpeedBonus = speedBonusOther
+		fuelBonusOther := ps.FuelCapacity - fuelCapacity
+		if fuelBonusOther < 0 {
+			fuelBonusOther = 0
+		}
+		other.FuelCapacityBonus = fuelBonusOther
+		otherKnown := make(map[string]bool)
+		addKnownOther := func(name string) {
+			if name == "" {
+				return
+			}
+			otherKnown[name] = true
+		}
+		for _, name := range ps.KnownPlanets {
+			addKnownOther(name)
+		}
+		addKnownOther(other.CurrentPlanet)
+		addKnownOther(other.DestinationPlanet)
+		if len(otherKnown) == 0 && other.CurrentPlanet != "" {
+			otherKnown[other.CurrentPlanet] = true
+		}
+		other.KnownPlanets = otherKnown
+		other.roomID = room.ID
 	}
 
 	startTicker := state.Room.Started && !originalStarted
@@ -4098,15 +4165,60 @@ func (gs *GameServer) buildSingleplayerStateSnapshot(room *Room, p *Player) *sin
 			if other == nil {
 				continue
 			}
+			knownSetOther := make(map[string]struct{}, len(other.KnownPlanets)+2)
+			for name := range other.KnownPlanets {
+				if name != "" {
+					knownSetOther[name] = struct{}{}
+				}
+			}
+			if other.CurrentPlanet != "" {
+				knownSetOther[other.CurrentPlanet] = struct{}{}
+			}
+			if other.DestinationPlanet != "" {
+				knownSetOther[other.DestinationPlanet] = struct{}{}
+			}
+			knownOther := make([]string, 0, len(knownSetOther))
+			for name := range knownSetOther {
+				knownOther = append(knownOther, name)
+			}
+			sort.Strings(knownOther)
+			capTotal := shipCapacity + other.CapacityBonus
+			if capTotal < shipCapacity {
+				capTotal = shipCapacity
+			}
+			fuelCapTotal := fuelCapacity + other.FuelCapacityBonus
+			if fuelCapTotal < fuelCapacity {
+				fuelCapTotal = fuelCapacity
+			}
+			speedTotal := 20 + other.SpeedBonus
+			if speedTotal < 20 {
+				speedTotal = 20
+			}
 			players = append(players, singleplayerRoomPlayerSnapshot{
-				ID:                string(other.ID),
-				Name:              other.Name,
-				CurrentPlanet:     other.CurrentPlanet,
-				DestinationPlanet: other.DestinationPlanet,
-				Ready:             other.Ready,
-				EndGame:           other.EndGame,
-				Bankrupt:          other.Bankrupt,
-				CashValue:         other.Money,
+				ID:                 string(other.ID),
+				Name:               other.Name,
+				CurrentPlanet:      other.CurrentPlanet,
+				DestinationPlanet:  other.DestinationPlanet,
+				Ready:              other.Ready,
+				EndGame:            other.EndGame,
+				Bankrupt:           other.Bankrupt,
+				CashValue:          other.Money,
+				Fuel:               other.Fuel,
+				Inventory:          cloneIntMap(other.Inventory),
+				InventoryAvgCost:   cloneIntMap(other.InventoryAvgCost),
+				InTransit:          other.InTransit,
+				TransitFrom:        other.TransitFrom,
+				TransitRemaining:   other.TransitRemaining,
+				TransitTotal:       other.TransitTotal,
+				Capacity:           capTotal,
+				FuelCapacity:       fuelCapTotal,
+				SpeedPerTurn:       speedTotal,
+				FacilityInvestment: other.FacilityInvestment,
+				UpgradeInvestment:  other.UpgradeInvestment,
+				UpgradeValue:       other.UpgradeInvestment,
+				CargoValue:         inventoryValue(other.Inventory, other.InventoryAvgCost),
+				KnownPlanets:       knownOther,
+				IsBot:              other.IsBot,
 			})
 		}
 		roomSnap.Players = players
