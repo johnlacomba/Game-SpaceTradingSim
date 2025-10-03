@@ -1,6 +1,6 @@
 # AWS Cognito Integration - Implementation Summary
 
-This document summarizes the changes made to integrate AWS Cognito authentication with the Space Trading Simulation game.
+This document summarizes the changes made to integrate AWS Cognito authentication with the Sphere of Influence game.
 
 ## 🔄 Changes Made
 
@@ -162,7 +162,7 @@ cd backend && go run cmd/server/main.go
 ### Terraform Variables (`terraform.tfvars`)
 ```hcl
 aws_region = "us-east-1"
-project_name = "space-trading-sim"
+project_name = "sphere-of-influence"
 environment = "dev"
 cognito_callback_urls = ["http://localhost:5173"]
 cognito_logout_urls = ["http://localhost:5173"]
@@ -177,7 +177,7 @@ VITE_COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 VITE_COGNITO_IDENTITY_POOL_ID=us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 VITE_API_GATEWAY_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
 VITE_WEBSOCKET_URL=wss://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
-VITE_COGNITO_DOMAIN=https://space-trading-sim-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com
+VITE_COGNITO_DOMAIN=https://sphere-of-influence-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com
 ```
 
 ## 🔍 Testing the Integration
@@ -261,4 +261,4 @@ Access through AWS CloudWatch console or included Prometheus setup.
 
 ---
 
-This completes the AWS Cognito integration for the Space Trading Simulation game. The implementation provides enterprise-grade authentication while maintaining the real-time multiplayer gaming experience.
+This completes the AWS Cognito integration for the Sphere of Influence game. The implementation provides enterprise-grade authentication while maintaining the real-time multiplayer gaming experience.

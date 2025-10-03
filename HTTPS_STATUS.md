@@ -1,4 +1,4 @@
-# Space Trader HTTPS Configuration
+# Sphere of Influence HTTPS Configuration
 
 ## Current Status
 ✅ **HTTPS Setup Complete!**
@@ -51,4 +51,4 @@ For production deployment, replace the self-signed certificates with certificate
 - 🚫 **HTTP Strict Transport Security** headers
 - 🛡️ **Additional security headers** (XSS protection, etc.)
 
-Your Space Trader application is now ready for secure internet hosting!
+Your Sphere of Influence application is now ready for secure internet hosting!

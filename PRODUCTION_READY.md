@@ -153,7 +153,7 @@ Automatic renewal is set up via cron when using `--profile ssl-renew`
 ### Backup
 ```bash
 # Backup data volumes
-docker run --rm -v game-spacetradingsim_db_data:/data -v $(pwd):/backup ubuntu tar czf /backup/backup.tar.gz /data
+docker run --rm -v sphereofinfluence_db_data:/data -v $(pwd):/backup ubuntu tar czf /backup/backup.tar.gz /data
 
 # Backup SSL certificates
 tar czf ssl-backup.tar.gz ssl/
@@ -182,4 +182,4 @@ tar czf ssl-backup.tar.gz ssl/
 - Verify firewall settings
 - Ensure no other services on ports 80/443
 
-Your Space Trader application is now production-ready! 🎉
+Your Sphere of Influence application is now production-ready! 🎉

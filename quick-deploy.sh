@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Simplified Docker deployment for Space Trader
+# Simplified Docker deployment for Sphere of Influence
 
 set -e
 
-echo "🚀 Space Trader Deployment"
+echo "🌌 Sphere of Influence Deployment"
 echo "=========================="
 
 # Parse arguments
@@ -72,7 +72,7 @@ else
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout ssl/privkey.pem \
             -out ssl/fullchain.pem \
-            -subj "/C=US/ST=CA/L=San Francisco/O=SpaceTrader/CN=$DOMAIN"
+            -subj "/C=US/ST=CA/L=San Francisco/O=SphereOfInfluence/CN=$DOMAIN"
     fi
 fi
 

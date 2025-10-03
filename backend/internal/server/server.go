@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/space-trader/internal/auth"
+	"github.com/example/sphere-of-influence/internal/auth"
 	"github.com/gorilla/websocket"
 )
 

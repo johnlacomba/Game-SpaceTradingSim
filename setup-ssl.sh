@@ -4,8 +4,10 @@
 
 set -e
 
-DOMAIN="space-trader.click"
-EMAIL="admin@space-trader.click"
+DOMAIN="sphereofinfluence.click"
+EMAIL="admin@sphereofinfluence.click"
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-sphereofinfluence}"
+SSL_VOLUME="${COMPOSE_PROJECT}_ssl_certs"
 
 if [ -z "$DOMAIN" ]; then
     echo "Usage: $0 <domain> [email]"
@@ -45,18 +47,18 @@ docker stop temp-nginx && docker rm temp-nginx
 echo "🔍 Checking certificate files..."
 
 # Check in the Docker volume (where they actually are)
-if docker run --rm -v game-spacetradingsim_ssl_certs:/ssl alpine test -f /ssl/fullchain.pem && \
-   docker run --rm -v game-spacetradingsim_ssl_certs:/ssl alpine test -f /ssl/privkey.pem; then
+if docker run --rm -v "$SSL_VOLUME":/ssl alpine test -f /ssl/fullchain.pem && \
+    docker run --rm -v "$SSL_VOLUME":/ssl alpine test -f /ssl/privkey.pem; then
     echo "✅ SSL certificates successfully obtained!"
     echo "📋 Certificate files stored in Docker volume:"
-    echo "  game-spacetradingsim_ssl_certs:/fullchain.pem"
-    echo "  game-spacetradingsim_ssl_certs:/privkey.pem"
+    echo "  ${SSL_VOLUME}:/fullchain.pem"
+    echo "  ${SSL_VOLUME}:/privkey.pem"
     
     # Optional: Copy to local ssl/ directory for backup/inspection
     echo "📁 Creating local backup copies..."
     mkdir -p ssl
-    docker run --rm -v game-spacetradingsim_ssl_certs:/ssl -v $(pwd)/ssl:/backup alpine cp /ssl/fullchain.pem /backup/
-    docker run --rm -v game-spacetradingsim_ssl_certs:/ssl -v $(pwd)/ssl:/backup alpine cp /ssl/privkey.pem /backup/
+    docker run --rm -v "$SSL_VOLUME":/ssl -v $(pwd)/ssl:/backup alpine cp /ssl/fullchain.pem /backup/
+    docker run --rm -v "$SSL_VOLUME":/ssl -v $(pwd)/ssl:/backup alpine cp /ssl/privkey.pem /backup/
     echo "  Local copies: ssl/fullchain.pem, ssl/privkey.pem"
     
     echo ""

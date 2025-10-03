@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o space-trader-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o sphere-of-influence-server ./cmd/server
 
 # Final stage
 FROM alpine:latest
@@ -22,7 +22,7 @@ RUN apk --no-cache add ca-certificates wget
 WORKDIR /app
 
 # Copy the binary from builder stage
-COPY --from=builder /app/space-trader-server .
+COPY --from=builder /app/sphere-of-influence-server .
 
 # Create certs directory
 RUN mkdir -p /app/certs
@@ -31,4 +31,4 @@ RUN mkdir -p /app/certs
 EXPOSE 8443
 
 # Run the server
-CMD ["./space-trader-server", "-https-port=8443", "-cert=/app/certs/server-san.crt", "-key=/app/certs/server-san.key", "-http-port=8080"]
+CMD ["./sphere-of-influence-server", "-https-port=8443", "-cert=/app/certs/server-san.crt", "-key=/app/certs/server-san.key", "-http-port=8080"]

@@ -199,7 +199,7 @@ echo "  #   - Build applications"
 
 echo ""
 echo "Step 4: Run in Production Mode"
-echo "  cd backend && ./bin/space-trader-server"
+echo "  cd backend && ./bin/sphere-of-influence-server"
 echo "  cd frontend && npm run dev  # Will use production AWS"
 
 echo ""

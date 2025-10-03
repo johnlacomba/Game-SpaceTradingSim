@@ -2,7 +2,7 @@
 
 ## 🎯 Implementation Status: ✅ COMPLETE
 
-Your Space Trading Simulation game now has complete AWS Cognito authentication integration with both development and production modes.
+Your Sphere of Influence game now has complete AWS Cognito authentication integration with both development and production modes.
 
 ## 🏗️ Infrastructure (Terraform)
 

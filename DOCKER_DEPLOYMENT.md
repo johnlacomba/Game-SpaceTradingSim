@@ -1,6 +1,6 @@
-# Docker Deployment Guide for Space Trader
+# Docker Deployment Guide for Sphere of Influence
 
-This guide provides complete instructions for deploying Space Trader using Docker with full automation.
+This guide provides complete instructions for deploying Sphere of Influence using Docker with full automation.
 
 ## 🚀 Quick Start
 
@@ -284,4 +284,4 @@ docker volume ls
 docker volume inspect spacetrader_ssl_certs
 ```
 
-Your Space Trader application is now ready for production deployment with full automation! 🎉
+Your Sphere of Influence application is now ready for production deployment with full automation! 🎉

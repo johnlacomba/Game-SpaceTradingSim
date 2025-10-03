@@ -1209,7 +1209,7 @@ export function App() {
               WebkitTextFillColor: 'transparent',
               textShadow: 'none'
             }}>
-              Space Trader
+              Sphere of Influence
             </h1>
             <p style={{
               fontSize: isMobile ? '1.1rem' : '1.3rem',
@@ -1352,7 +1352,7 @@ export function App() {
                     🔐 Authentication Required
                   </div>
                   <div style={{ fontSize: '0.9em', opacity: 0.8 }}>
-                    Please sign in to access the space trading simulation
+                    Please sign in to access Sphere of Influence
                   </div>
                 </div>
                 

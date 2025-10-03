@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Production initialization script for Space Trader
+# Production initialization script for Sphere of Influence
 
 set -e
 
-echo "🔧 Space Trader Production Setup"
+echo "🔧 Sphere of Influence Production Setup"
 echo "================================"
 
 # Check for required environment variables

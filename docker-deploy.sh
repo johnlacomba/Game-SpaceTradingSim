@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Space Trader Docker Deployment Script
+# Sphere of Influence Docker Deployment Script
 
 set -e
 
-echo "🚀 Space Trader Docker Deployment"
+echo "🌌 Sphere of Influence Docker Deployment"
 echo "=================================="
 
 # Configuration
@@ -64,12 +64,12 @@ else
         openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
             -keyout ssl/privkey.pem \
             -out ssl/fullchain.pem \
-            -subj "/C=US/ST=CA/L=San Francisco/O=SpaceTrader/CN=$DOMAIN"
+            -subj "/C=US/ST=CA/L=San Francisco/O=SphereOfInfluence/CN=$DOMAIN"
     fi
 fi
 
 # Start the application
-echo "🚀 Starting Space Trader..."
+echo "🚀 Starting Sphere of Influence..."
 
 if [ "$MODE" = "production" ]; then
     # Production deployment with all services
@@ -98,7 +98,7 @@ else
 fi
 
 echo ""
-echo "🎉 Space Trader is now running!"
+echo "🎉 Sphere of Influence is now running!"
 echo ""
 echo "📱 Access your application:"
 if [ "$DOMAIN" = "localhost" ]; then

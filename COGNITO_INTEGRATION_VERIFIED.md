@@ -2,7 +2,7 @@
 
 ## 🎯 CONFIRMED: Ready for AWS Cognito Authentication
 
-Your Space Trading Simulation is **fully configured** for AWS Cognito authentication. Here's the complete verification:
+Your Sphere of Influence experience is **fully configured** for AWS Cognito authentication. Here's the complete verification:
 
 ---
 
@@ -112,7 +112,7 @@ cd ..
 ./deploy-aws.sh
 
 # 3. Run in production mode
-cd backend && ./bin/space-trader-server &
+cd backend && ./bin/sphere-of-influence-server &
 cd frontend && npm run dev
 ```
 
@@ -167,4 +167,4 @@ cd frontend && npm run dev
 
 **Next Step**: Install Terraform and run `./deploy-aws.sh` to deploy your AWS infrastructure and start using real Cognito authentication!
 
-Your Space Trading Simulation now has enterprise-grade authentication powered by AWS Cognito! 🚀
+Your Sphere of Influence game now has enterprise-grade authentication powered by AWS Cognito! 🚀

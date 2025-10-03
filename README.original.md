@@ -1,6 +1,6 @@
-# Space Trader
+# Sphere of Influence
 
-Server-authoritative multiplayer space trading sim with HTTPS/WSS support and Docker deployment.
+Server-authoritative multiplayer sphere dominance sim with HTTPS/WSS support and Docker deployment.
 
 ## Stack
 - Backend: Go, Gorilla WebSocket, Gorilla Mux with TLS 1.2+
@@ -72,10 +72,10 @@ sudo usermod -aG docker $USER
 ```
 
 ### One-Command Production Deployment
-Replace `space-trader.click` with your domain and `admin@space-trader.click` with your email:
+Replace `sphereofinfluence.click` with your domain and `admin@sphereofinfluence.click` with your email:
 
 ```bash
-cd && sudo rm -rf Game-SpaceTradingSim ; sudo ./cleanupDocker.sh ; git clone https://github.com/johnlacomba/Game-SpaceTradingSim.git && cd Game-SpaceTradingSim/ && cp cleanupDocker.sh ~/cleanupDocker.sh && sudo ./setup-ssl.sh && sudo ./quick-deploy.sh space-trader.click admin@space-trader.click production
+cd && sudo rm -rf Game-SpaceTradingSim ; sudo ./cleanupDocker.sh ; git clone https://github.com/johnlacomba/Game-SpaceTradingSim.git && cd Game-SpaceTradingSim/ && cp cleanupDocker.sh ~/cleanupDocker.sh && sudo ./setup-ssl.sh && sudo ./quick-deploy.sh sphereofinfluence.click admin@sphereofinfluence.click production
 ```
 
 This command will:

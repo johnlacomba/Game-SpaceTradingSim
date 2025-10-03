@@ -1,6 +1,6 @@
-# Terraform Configuration for Space Trading Simulation
+# Terraform Configuration for Sphere of Influence
 
-This directory contains Terraform configurations to deploy AWS infrastructure for the Space Trading Simulation game with AWS Cognito authentication and API Gateway.
+This directory contains Terraform configurations to deploy AWS infrastructure for the Sphere of Influence game with AWS Cognito authentication and API Gateway.
 
 ## Prerequisites
 
@@ -29,8 +29,10 @@ This directory contains Terraform configurations to deploy AWS infrastructure fo
 2. **Edit `terraform.tfvars` with your specific values:**
    ```hcl
    aws_region     = "us-east-1"
-   project_name   = "space-trading-sim"
+   project_name   = "sphere-of-influence"
    environment    = "dev"
+   domain_name    = "sphereofinfluence.click"
+   apex_a_record_ip = "203.0.113.42" # Replace with the public IP (or leave blank to skip)
    
    cognito_callback_urls = [
      "http://localhost:5173",
@@ -72,6 +74,8 @@ After deployment, Terraform will output important values needed for your applica
 - `api_gateway_url` - REST API endpoint
 - `websocket_api_url` - WebSocket API endpoint
 - `aws_config` - Complete configuration object for the frontend
+- `route53_zone_id` - Hosted zone ID for DNS updates
+- `route53_name_servers` - Name server values to place at your registrar
 
 ## Configuration for Applications
 
@@ -87,7 +91,7 @@ export const awsConfig = {
   identityPoolId: "us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
   apiGatewayUrl: "https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev",
   websocketUrl: "wss://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev",
-  cognitoDomain: "https://space-trading-sim-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com"
+   cognitoDomain: "https://sphere-of-influence-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com"
 };
 ```
 
@@ -114,11 +118,11 @@ If you set `enable_ecs = true`, additional resources will be created:
    
    # Build and tag image
    cd ../backend
-   docker build -t space-trading-sim-dev-backend .
-   docker tag space-trading-sim-dev-backend:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/space-trading-sim-dev-backend:latest
+   docker build -t sphere-of-influence-dev-backend .
+   docker tag sphere-of-influence-dev-backend:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/sphere-of-influence-dev-backend:latest
    
    # Push image
-   docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/space-trading-sim-dev-backend:latest
+   docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/sphere-of-influence-dev-backend:latest
    ```
 
 2. **Deploy ECS service** (you'll need to create ECS service resources separately or use AWS Console)
@@ -142,6 +146,13 @@ terraform destroy
   - VPC endpoints
   - Enhanced monitoring
 
+## DNS Wiring
+
+1. Set `domain_name` and `apex_a_record_ip` in `terraform.tfvars`. The IP should be the public endpoint (EC2 elastic IP, load balancer, etc.) that serves `sphereofinfluence.click`.
+2. Apply Terraform. The outputs will now include `route53_name_servers` and `route53_zone_id`.
+3. At your domain registrar, update the NS record set to match `route53_name_servers`. (SOA is managed automatically by Route53.)
+4. If you ever need the full SOA record, use the AWS CLI: `aws route53 get-hosted-zone --id <route53_zone_id>`.
+
 ## Customization
 
 You can customize the deployment by:
@@ -157,7 +168,7 @@ You can customize the deployment by:
        ```
     - In Google Cloud Console (OAuth consent + Credentials), add Authorized redirect URIs matching your Cognito Hosted UI callback, for example:
        - `https://<your-cognito-domain>.auth.${var.aws_region}.amazoncognito.com/oauth2/idpresponse`
-       - And ensure your app callback URLs in `cognito_callback_urls` include your site, e.g. `https://space-trader.click/auth/callback`.
+   - And ensure your app callback URLs in `cognito_callback_urls` include your site, e.g. `https://sphereofinfluence.click/auth/callback`.
     - Apply Terraform. The Hosted UI will automatically show "Continue with Google"; no frontend changes or buttons needed.
 3. **Adding API endpoints** - Create additional API Gateway resources in `api_gateway.tf`
 4. **Enhanced monitoring** - Add CloudWatch alarms and dashboards

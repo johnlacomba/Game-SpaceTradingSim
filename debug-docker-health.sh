@@ -6,8 +6,11 @@ echo "============================"
 echo ""
 echo "Testing the exact Docker health check command inside the container..."
 
-if sudo docker ps | grep -q "game-spacetradingsim_backend"; then
-    CONTAINER_ID=$(sudo docker ps | grep "game-spacetradingsim_backend" | awk '{print $1}')
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-sphereofinfluence}"
+BACKEND_CONTAINER_PREFIX="${COMPOSE_PROJECT}_backend"
+
+if sudo docker ps | grep -q "$BACKEND_CONTAINER_PREFIX"; then
+    CONTAINER_ID=$(sudo docker ps | grep "$BACKEND_CONTAINER_PREFIX" | awk '{print $1}')
     echo "Found backend container: $CONTAINER_ID"
     
     echo ""
@@ -46,4 +49,4 @@ fi
 
 echo ""
 echo "🔍 Docker health check status:"
-sudo docker inspect $(sudo docker ps | grep "game-spacetradingsim_backend" | awk '{print $1}') | grep -A 20 '"Health"'
+sudo docker inspect $(sudo docker ps | grep "$BACKEND_CONTAINER_PREFIX" | awk '{print $1}') | grep -A 20 '"Health"'

@@ -1,8 +1,9 @@
 # Development environment example
 aws_region     = "us-east-1"
-project_name   = "space-trading-sim"
+project_name   = "sphere-of-influence"
 environment    = "dev"
-domain_name    = ""  # Set this if you have a custom domain
+domain_name    = "sphereofinfluence.click"  # Override if you use a different domain per environment
+apex_a_record_ip = ""                        # Set to your server/public load balancer IP to publish DNS
 
 cognito_callback_urls = [
   "http://localhost:5173",

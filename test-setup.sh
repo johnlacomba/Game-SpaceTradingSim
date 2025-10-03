@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Quick test script for Space Trader Docker setup
+# Quick test script for Sphere of Influence Docker setup
 
-echo "🧪 Testing Space Trader Docker Setup"
+echo "🧪 Testing Sphere of Influence Docker Setup"
 echo "===================================="
 
 # Test basic docker-compose build

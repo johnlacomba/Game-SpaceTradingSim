@@ -103,4 +103,4 @@ When everything is working correctly, you should see:
 3. Console shows: "WebSocket connected successfully"
 4. App moves from title screen to lobby
 
-Your Space Trader application should now work with secure HTTPS/WSS connections!
+Your Sphere of Influence application should now work with secure HTTPS/WSS connections!

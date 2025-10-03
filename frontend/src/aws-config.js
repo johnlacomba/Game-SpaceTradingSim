@@ -15,11 +15,11 @@ export const awsConfig = {
   websocketUrl: import.meta.env.VITE_WEBSOCKET_URL || 'wss://flwxzhxehj.execute-api.us-east-1.amazonaws.com/dev',
   
   // Cognito domain for hosted UI
-  cognitoDomain: import.meta.env.VITE_COGNITO_DOMAIN || 'space-trading-sim-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com',
+  cognitoDomain: import.meta.env.VITE_COGNITO_DOMAIN || 'sphere-of-influence-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com',
   
   // OAuth configuration
   oauth: {
-    domain: import.meta.env.VITE_COGNITO_DOMAIN || 'space-trading-sim-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com',
+  domain: import.meta.env.VITE_COGNITO_DOMAIN || 'sphere-of-influence-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com',
   scopes: ['email', 'openid', 'profile'],
   redirectSignIn: [import.meta.env.VITE_COGNITO_CALLBACK_URL || window.location.origin],
   redirectSignOut: [import.meta.env.VITE_COGNITO_LOGOUT_URL || window.location.origin],

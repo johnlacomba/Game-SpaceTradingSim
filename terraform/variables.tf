@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "project_name" {
   description = "Name of the project"
   type        = string
-  default     = "space-trading-sim"
+  default     = "sphere-of-influence"
 }
 
 variable "environment" {
@@ -19,7 +19,7 @@ variable "environment" {
 variable "domain_name" {
   description = "Domain name for the application (optional for HTTPS)"
   type        = string
-  default     = ""
+  default     = "sphereofinfluence.click"
 }
 
 variable "cognito_callback_urls" {
@@ -28,8 +28,8 @@ variable "cognito_callback_urls" {
   default     = [
     "http://localhost:5173", 
     "https://localhost:5173",
-    "https://space-trader.click",
-    "https://space-trader.click/auth/callback"
+  "https://sphereofinfluence.click",
+  "https://sphereofinfluence.click/auth/callback"
   ]
 }
 
@@ -39,8 +39,8 @@ variable "cognito_logout_urls" {
   default     = [
     "http://localhost:5173", 
     "https://localhost:5173",
-    "https://space-trader.click",
-    "https://space-trader.click/"
+  "https://sphereofinfluence.click",
+  "https://sphereofinfluence.click/"
   ]
 }
 
@@ -48,6 +48,12 @@ variable "enable_ecs" {
   description = "Whether to enable ECS deployment"
   type        = bool
   default     = false
+}
+
+variable "apex_a_record_ip" {
+  description = "IPv4 address for the root domain A record"
+  type        = string
+  default     = ""
 }
 
 # --- Google Identity Provider (optional) ---

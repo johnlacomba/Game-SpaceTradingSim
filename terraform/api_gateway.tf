@@ -1,7 +1,7 @@
 # API Gateway REST API
 resource "aws_api_gateway_rest_api" "main" {
   name        = "${var.project_name}-${var.environment}-api"
-  description = "Space Trading Simulation API"
+  description = "Sphere of Influence Game API"
 
   endpoint_configuration {
     types = ["REGIONAL"]

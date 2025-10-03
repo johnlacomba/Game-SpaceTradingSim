@@ -1,5 +1,5 @@
-# Nginx configuration for Space Trader frontend
-# Place this in /etc/nginx/sites-available/space-trader
+# Nginx configuration for Sphere of Influence frontend
+# Place this in /etc/nginx/sites-available/sphere-of-influence
 # and create a symlink to /etc/nginx/sites-enabled/
 
 server {
@@ -33,7 +33,7 @@ server {
     add_header Referrer-Policy "strict-origin-when-cross-origin";
 
     # Root directory for the built frontend
-    root /path/to/space-trader/frontend/dist;
+    root /path/to/sphere-of-influence/frontend/dist;
     index index.html;
 
     # Serve static files

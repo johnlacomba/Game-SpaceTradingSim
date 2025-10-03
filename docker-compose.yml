@@ -19,9 +19,9 @@ services:
       - AWS_REGION=us-east-1
       - COGNITO_USER_POOL_ID=us-east-1_EI39ptGfg
       - COGNITO_CLIENT_ID=67uon7lhabu3qfh6lchjru523k
-      - COGNITO_DOMAIN=space-trading-sim-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com
-      - COGNITO_CALLBACK_URL=https://space-trader.click/auth/callback
-      - COGNITO_LOGOUT_URL=https://space-trader.click/
+  - COGNITO_DOMAIN=sphere-of-influence-dev-z3xqj6c6.auth.us-east-1.amazoncognito.com
+  - COGNITO_CALLBACK_URL=https://sphereofinfluence.click/auth/callback
+  - COGNITO_LOGOUT_URL=https://sphereofinfluence.click/
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--timeout=5", "-O", "/dev/null", "http://localhost:8080/health"]

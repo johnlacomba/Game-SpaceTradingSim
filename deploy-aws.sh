@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Deploy AWS infrastructure and Space Trading Simulation
+# Deploy AWS infrastructure and Sphere of Influence
 set -e
 
-echo "🚀 Space Trading Simulation AWS Deployment Script"
+echo "🌌 Sphere of Influence AWS Deployment Script"
 echo "================================================="
 
 # Check if required tools are installed
@@ -131,7 +131,7 @@ build_applications() {
     
     echo "   Building backend..."
     cd backend
-    go build -o bin/space-trader-server ./cmd/server
+    go build -o bin/sphere-of-influence-server ./cmd/server
     cd ..
     
     echo "✅ Applications built successfully"
@@ -145,7 +145,7 @@ print_summary() {
     echo ""
     echo "📋 Next steps:"
     echo "1. Frontend development server: cd frontend && npm run dev"
-    echo "2. Backend development server: cd backend && ./bin/space-trader-server"
+    echo "2. Backend development server: cd backend && ./bin/sphere-of-influence-server"
     echo ""
     echo "🔗 Important URLs:"
     if [ -f "aws-outputs.json" ]; then

@@ -1,6 +1,6 @@
-# HTTPS Setup Guide for Space Trader
+# HTTPS Setup Guide for Sphere of Influence
 
-This guide explains how to set up HTTPS for the Space Trader application for both development and production environments.
+This guide explains how to set up HTTPS for the Sphere of Influence application for both development and production environments.
 
 ## 🔧 Quick Setup
 
@@ -56,8 +56,8 @@ Your application will now be available at:
 
 4. **Configure Nginx**
    ```bash
-   cp ../nginx.conf.example /etc/nginx/sites-available/space-trader
-   ln -s /etc/nginx/sites-available/space-trader /etc/nginx/sites-enabled/
+   cp ../nginx.conf.example /etc/nginx/sites-available/sphere-of-influence
+   ln -s /etc/nginx/sites-available/sphere-of-influence /etc/nginx/sites-enabled/
    nginx -t && systemctl reload nginx
    ```
 

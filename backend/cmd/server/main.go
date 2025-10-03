@@ -8,8 +8,8 @@ import (
 	"net/url"
 	"os"
 
-	"github.com/example/space-trader/internal/auth"
-	srv "github.com/example/space-trader/internal/server"
+	"github.com/example/sphere-of-influence/internal/auth"
+	srv "github.com/example/sphere-of-influence/internal/server"
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
@@ -165,7 +165,7 @@ func main() {
 	// Start HTTPS server
 	go func() {
 		httpsAddr := ":" + *httpsPort
-		log.Printf("Space Trader backend (HTTPS) listening on %s", httpsAddr)
+		log.Printf("Sphere of Influence backend (HTTPS) listening on %s", httpsAddr)
 
 		server := &http.Server{
 			Addr:      httpsAddr,
@@ -181,7 +181,7 @@ func main() {
 	// Start HTTP server (redirect to HTTPS) unless TLS-only mode
 	if !*tlsOnly {
 		httpAddr := ":" + *httpPort
-		log.Printf("Space Trader backend (HTTP->HTTPS redirect) listening on %s", httpAddr)
+		log.Printf("Sphere of Influence backend (HTTP->HTTPS redirect) listening on %s", httpAddr)
 
 		// Create a separate router for HTTP that handles health checks
 		httpRouter := mux.NewRouter()

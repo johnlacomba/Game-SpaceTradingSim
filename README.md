@@ -1,6 +1,6 @@
-# Space Trading Simulation - AWS Cognito Integration
+# Sphere of Influence - AWS Cognito Integration
 
-A real-time multiplayer space trading game with AWS Cognito authentication, API Gateway, and WebSocket support.
+A strategic space empire game with AWS Cognito authentication, API Gateway, and WebSocket support.
 
 ## Current Architecture (Cognito + Nginx + Go backend + Vite frontend)
 
@@ -19,7 +19,7 @@ The app is deployed as a small stack:
 ```mermaid
 flowchart LR
    User((Browser))
-   subgraph Edge [space-trader.click]
+   subgraph Edge [sphereofinfluence.click]
       Nginx
       FE[Static Frontend]
    end
@@ -43,7 +43,7 @@ flowchart LR
 ```
 
 Notes:
-- OAuth callback is https://space-trader.click/auth/callback.
+- OAuth callback is https://sphereofinfluence.click/auth/callback.
 - Tokens are exchanged/stored by Amplify; REST and WebSocket connections use the access token (JWT) for auth.
 
 ## How the flows work
@@ -57,7 +57,7 @@ Notes:
 
 ### Launch Mission (WebSocket)
 1) Frontend requests an access token via fetchAuthSession().
-2) It opens wss://space-trader.click/ws?token=ACCESS_TOKEN.
+2) It opens wss://sphereofinfluence.click/ws?token=ACCESS_TOKEN.
 3) Backend validates the token (Cognito JWKS) and registers the player.
 
 ### REST API
@@ -87,9 +87,9 @@ Frontend (.env.production):
 - VITE_COGNITO_USER_POOL_ID=...
 - VITE_COGNITO_CLIENT_ID=...
 - VITE_COGNITO_IDENTITY_POOL_ID=...
-- VITE_COGNITO_DOMAIN=space-trading-sim-....auth.us-east-1.amazoncognito.com
-- VITE_COGNITO_CALLBACK_URL=https://space-trader.click/auth/callback
-- VITE_COGNITO_LOGOUT_URL=https://space-trader.click/
+- VITE_COGNITO_DOMAIN=sphere-of-influence-....auth.us-east-1.amazoncognito.com
+- VITE_COGNITO_CALLBACK_URL=https://sphereofinfluence.click/auth/callback
+- VITE_COGNITO_LOGOUT_URL=https://sphereofinfluence.click/
 
 Backend env (docker-compose.yml):
 - AWS_REGION
@@ -114,7 +114,7 @@ Backend env (docker-compose.yml):
    - Verify callback URL in Cognito app client matches.
    - Confirm bundle built with VITE_USE_AWS_AUTH=true and the right VITE_* values.
 - WebSocket won’t connect:
-   - Check endpoint is wss://space-trader.click/ws (not API Gateway).
+   - Check endpoint is wss://sphereofinfluence.click/ws (not API Gateway).
    - Verify token query parameter is present and valid.
 ## 🚀 Features
 
@@ -214,7 +214,7 @@ VITE_COGNITO_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxx
 VITE_COGNITO_IDENTITY_POOL_ID=us-east-1:xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 VITE_API_GATEWAY_URL=https://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
 VITE_WEBSOCKET_URL=wss://xxxxxxxxxx.execute-api.us-east-1.amazonaws.com/dev
-VITE_COGNITO_DOMAIN=https://space-trading-sim-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com
+VITE_COGNITO_DOMAIN=https://sphere-of-influence-dev-xxxxxxxx.auth.us-east-1.amazoncognito.com
 ```
 
 #### Backend
@@ -230,7 +230,7 @@ Key variables in `terraform/terraform.tfvars`:
 
 ```hcl
 aws_region = "us-east-1"
-project_name = "space-trading-sim"
+project_name = "sphere-of-influence"
 environment = "dev"
 
 cognito_callback_urls = [
@@ -250,7 +250,7 @@ enable_ecs = false
 ## 🎮 How to Play
 
 1. **Sign Up/Sign In** - Create an account or sign in with existing credentials
-2. **Enter Commander Name** - Choose your space trader identity
+2. **Enter Commander Name** - Choose your Sphere of Influence identity
 3. **Join/Create Room** - Join an existing game or create a new one
 4. **Start Trading** - Buy low, sell high, and build your fortune
 5. **Navigate Space** - Travel between planets using fuel
@@ -274,9 +274,9 @@ To deploy using AWS ECS:
    
    # Build and push backend
    cd backend
-   docker build -t space-trading-sim-backend .
-   docker tag space-trading-sim-backend:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/space-trading-sim-dev-backend:latest
-   docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/space-trading-sim-dev-backend:latest
+   docker build -t sphere-of-influence-backend .
+   docker tag sphere-of-influence-backend:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/sphere-of-influence-dev-backend:latest
+   docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/sphere-of-influence-dev-backend:latest
    ```
 
 ### Frontend Deployment

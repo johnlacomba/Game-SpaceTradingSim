@@ -1,8 +1,8 @@
 #!/bin/bash
 
-# Development setup script for Space Trader HTTPS
+# Development setup script for Sphere of Influence HTTPS
 
-echo "🔧 Space Trader HTTPS Development Setup"
+echo "🔧 Sphere of Influence HTTPS Development Setup"
 echo "======================================"
 
 # Check if backend server is running
@@ -35,7 +35,7 @@ echo "3. For the WebSocket connection, you may also need to visit:"
 echo "   https://localhost:8443/rooms"
 echo "   and accept the certificate there as well"
 echo ""
-echo "🚀 Your Space Trader application is ready for secure development!"
+echo "🚀 Your Sphere of Influence application is ready for secure development!"
 
 # Optionally open the browser
 if command -v open > /dev/null 2>&1; then

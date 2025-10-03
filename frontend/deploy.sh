@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Production deployment script for Space Trader
+# Production deployment script for Sphere of Influence
 
 set -e
 
-echo "🚀 Space Trader Production Deployment"
+echo "🌌 Sphere of Influence Production Deployment"
 echo "======================================"
 
 # Configuration
@@ -44,7 +44,7 @@ npm run build
 # Build backend
 echo "🏗️  Building backend..."
 cd ../backend
-go build -o space-trader-server ./cmd/server
+go build -o sphere-of-influence-server ./cmd/server
 
 echo "✅ Build complete!"
 echo ""
@@ -52,7 +52,7 @@ echo "🚀 To start the production servers:"
 echo ""
 echo "Backend (HTTPS):"
 echo "  cd backend"
-echo "  ./space-trader-server -https-port=$BACKEND_PORT -tls-only"
+echo "  ./sphere-of-influence-server -https-port=$BACKEND_PORT -tls-only"
 echo ""
 echo "Frontend (serve the dist folder with a web server like nginx):"
 echo "  # Example nginx configuration needed for the frontend"

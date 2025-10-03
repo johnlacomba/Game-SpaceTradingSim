@@ -9,7 +9,7 @@ echo "=================================="
 # Test backend compilation
 echo "📦 Testing backend compilation..."
 cd backend
-if go build -o bin/space-trader-server ./cmd/server; then
+if go build -o bin/sphere-of-influence-server ./cmd/server; then
     echo "✅ Backend compiles successfully"
 else
     echo "❌ Backend compilation failed"

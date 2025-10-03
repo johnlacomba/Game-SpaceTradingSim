@@ -1,6 +1,6 @@
-# Space Trader Frontend (React + Vite)
+# Sphere of Influence Frontend (React + Vite)
 
-Simple UI to connect to the Go backend via WebSocket.
+Strategic UI to command your empire via the Go backend WebSocket.
 
 ## Run
 

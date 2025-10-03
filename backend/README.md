@@ -1,6 +1,6 @@
-# Space Trader Backend (Go)
+# Sphere of Influence Backend (Go)
 
-Server-authoritative multiplayer game server using WebSockets.
+Server-authoritative strategic empire server using WebSockets.
 
 ## Features
 - Lobby with active game rooms

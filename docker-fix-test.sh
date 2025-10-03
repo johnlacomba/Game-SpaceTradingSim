@@ -53,8 +53,8 @@ docker-compose logs --tail=10 frontend-builder
 
 echo ""
 echo "🌐 Testing External Access:"
-echo "Frontend should be available at: https://space-trader.click"
-echo "Health check should work at: http://space-trader.click/health"
+echo "Frontend should be available at: https://sphereofinfluence.click"
+echo "Health check should work at: http://sphereofinfluence.click/health"
 
 echo ""
 echo "✅ Docker fix test complete!"
