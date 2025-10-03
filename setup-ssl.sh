@@ -6,7 +6,19 @@ set -e
 
 DOMAIN="sphereofinfluence.click"
 EMAIL="admin@sphereofinfluence.click"
-COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-sphereofinfluence}"
+
+# Determine docker compose project/volume naming (reuse .env/.env.docker if available)
+if [ -z "$COMPOSE_PROJECT_NAME" ]; then
+    if [ -f .env ] && grep -q '^COMPOSE_PROJECT_NAME=' .env; then
+        COMPOSE_PROJECT_NAME=$(grep '^COMPOSE_PROJECT_NAME=' .env | tail -1 | cut -d'=' -f2-)
+    elif [ -f .env.docker ] && grep -q '^COMPOSE_PROJECT_NAME=' .env.docker; then
+        COMPOSE_PROJECT_NAME=$(grep '^COMPOSE_PROJECT_NAME=' .env.docker | tail -1 | cut -d'=' -f2-)
+    fi
+fi
+
+DEFAULT_COMPOSE_PROJECT=$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/-\{2,\}/-/g')
+COMPOSE_PROJECT="${COMPOSE_PROJECT_NAME:-$DEFAULT_COMPOSE_PROJECT}"
+export COMPOSE_PROJECT_NAME="$COMPOSE_PROJECT"
 SSL_VOLUME="${COMPOSE_PROJECT}_ssl_certs"
 
 if [ -z "$DOMAIN" ]; then
