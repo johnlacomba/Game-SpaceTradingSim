@@ -40,7 +40,7 @@ Your Sphere of Influence experience is **fully configured** for AWS Cognito auth
 ### AWS Configuration (`frontend/src/aws-config.js`)
 - **Environment Variables**: Reads all required VITE_* variables
 - **Development Fallback**: Uses localhost when AWS vars not set
-- **OAuth Config**: Properly configured for Cognito hosted UI
+- **Auth Config**: Supplies Cognito user pool IDs for direct Amplify username/password flows
 
 ### Authentication Context (`frontend/src/contexts/AuthContext.tsx`)
 - **Amplify v6**: Uses latest AWS Amplify with correct imports

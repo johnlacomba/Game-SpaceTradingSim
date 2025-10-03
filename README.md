@@ -6,7 +6,7 @@ A strategic space empire game with AWS Cognito authentication, API Gateway, and 
 
 The app is deployed as a small stack:
 
-- Frontend: Vite + React, served by Nginx (static assets). Uses AWS Amplify Auth v6 with Cognito Hosted UI (Authorization Code + PKCE).
+- Frontend: Vite + React, served by Nginx (static assets). Uses AWS Amplify Auth v6 against the Cognito user pool with in-app username/password flows.
 - Reverse Proxy: Nginx terminates TLS and proxies:
    - /api/* → backend HTTPS (8443 inside the Docker network)
    - /ws → backend WebSocket endpoint, with Upgrade headers
@@ -29,15 +29,13 @@ flowchart LR
    end
 
    subgraph AWS [AWS]
-      Cognito[Cognito User Pool\nHosted UI]
+      Cognito[Cognito User Pool\nUser/Auth APIs]
    end
 
    User -- HTTPS GET --> Nginx
    Nginx -- serves --> FE
-   User -- Sign In / Sign Up --> Cognito
-   Cognito -- redirect code --> User
-   User -- loads /auth/callback --> FE
-   FE -- Amplify exchanges code --> Cognito
+   User -- Sign In / Sign Up --> FE
+   FE -- Amplify Auth API calls --> Cognito
    FE -- REST /api/* (Bearer access token) --> Nginx --> BE
    FE -- WebSocket /ws?token=access_token --> Nginx --> BE
 ```
@@ -49,11 +47,10 @@ Notes:
 ## How the flows work
 
 ### Sign In / Sign Up
-1) Click “Sign In / Sign Up”.
-2) Frontend calls Amplify signInWithRedirect() → Cognito Hosted UI.
-3) After authentication, Cognito redirects back to /auth/callback.
-4) Frontend calls fetchAuthSession() to exchange the code for tokens and stores the session.
-5) UI updates to authenticated state.
+1) Click “Sign In / Sign Up” to open the in-app modal.
+2) Submit credentials (or create a new account). The frontend calls Amplify `signIn`, `signUp`, or `confirmSignUp` directly against Cognito.
+3) On success, Amplify stores the Cognito session locally.
+4) UI updates to authenticated state and unlocks gameplay.
 
 ### Launch Mission (WebSocket)
 1) Frontend requests an access token via fetchAuthSession().
@@ -109,10 +106,10 @@ Backend env (docker-compose.yml):
 
 ## Troubleshooting
 
-- Hosted UI returns but app doesn’t sign in:
-   - Ensure oauth.scopes are set and redirectSignIn/redirectSignOut are arrays.
-   - Verify callback URL in Cognito app client matches.
-   - Confirm bundle built with VITE_USE_AWS_AUTH=true and the right VITE_* values.
+- Login form fails to authenticate:
+   - Confirm the Cognito user pool client allows username/password auth (no SRP-only restriction).
+   - Ensure the frontend `.env` values match Terraform outputs (user pool IDs, region).
+   - Check CloudWatch logs for the user pool to verify sign-in attempts and error messages.
 - WebSocket won’t connect:
    - Check endpoint is wss://sphereofinfluence.click/ws (not API Gateway).
    - Verify token query parameter is present and valid.
