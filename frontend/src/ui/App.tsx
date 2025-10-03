@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
-import LoginForm from '../components/LoginForm.jsx'
 
 // Mobile detection hook
 function useIsMobile() {
@@ -839,9 +837,8 @@ export function App() {
   const [stage, setStage] = useState<'title'|'lobby'|'room'>('title')
   const [name, setName] = useState('')
   const [url, setUrl] = useState<string | null>(null)
-  const [showLogin, setShowLogin] = useState(false)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
-  const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
+  const { user, loading: authLoading, signOut, getAccessToken, signInWithHostedUI } = useAuth()
   
   // Debug auth state
   //
@@ -986,14 +983,14 @@ export function App() {
   // Actions
   const onConnect = async () => {
     if (!user) {
-      setShowLogin(true)
+      await signInWithHostedUI()
       return
     }
 
     try {
       const token = await getAccessToken()
       if (!token) {
-        setShowLogin(true)
+        await signInWithHostedUI()
         return
       }
 
@@ -1009,7 +1006,8 @@ export function App() {
       setUrl(wsUrlWithAuth)
     } catch (error) {
   // Failed to get access token
-      setShowLogin(true)
+      console.error('Failed to establish authenticated connection', error)
+      await signInWithHostedUI()
     }
   }
   useEffect(() => { if (ready) send('connect', { name: name || undefined }) }, [ready])
@@ -1355,7 +1353,13 @@ export function App() {
                 </div>
                 
                 <button 
-                  onClick={() => setShowLogin(true)}
+          onClick={async () => {
+                    try {
+            await signInWithHostedUI()
+                    } catch (e) {
+                      console.error('Hosted UI redirect failed', e)
+                    }
+                  }}
                   disabled={authLoading}
                   style={{ 
                     padding: isMobile ? '16px 32px' : '12px 24px',
@@ -2687,11 +2691,6 @@ export function App() {
       isMobile={isMobile}
     />
     
-    {/* Login Modal (render via Portal to escape stacking contexts) */}
-    {showLogin && createPortal(
-      <LoginForm onClose={() => setShowLogin(false)} />,
-      document.body
-    )}
     </div>
   )
 }

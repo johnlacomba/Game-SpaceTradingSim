@@ -1,16 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Amplify } from 'aws-amplify';
-import { 
-  getCurrentUser, 
-  signIn, 
-  signOut, 
-  signUp, 
-  confirmSignUp, 
-  resendSignUpCode,
+import {
   fetchAuthSession,
-  fetchUserAttributes
+  fetchUserAttributes,
+  getCurrentUser,
+  signInWithRedirect,
+  signOut as amplifySignOut
 } from 'aws-amplify/auth';
-import { handleSignIn } from 'aws-amplify/auth';
 import awsConfig from '../aws-config.js';
 
 // Check if we're in development mode
@@ -20,7 +16,6 @@ const isDevMode = process.env.NODE_ENV !== 'production' && import.meta.env.VITE_
 
 // Configure Amplify only in production mode or when explicitly enabled
 if (!isDevMode) {
-  // Configure Amplify
   try {
     Amplify.configure({
       Auth: {
@@ -29,19 +24,14 @@ if (!isDevMode) {
           userPoolClientId: awsConfig.userPoolWebClientId,
           identityPoolId: awsConfig.identityPoolId,
           loginWith: {
-            oauth: awsConfig.oauth,
-            username: true,
-            email: true
+            oauth: awsConfig.oauth
           }
         }
       }
     });
-  // Amplify configured
   } catch (error) {
     console.error('Error configuring Amplify:', error);
   }
-} else {
-  // Dev mode: Amplify not configured
 }
 
 interface User {
@@ -54,11 +44,8 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signIn: (username: string, password: string) => Promise<any>;
-  signUp: (username: string, password: string, email: string, name: string) => Promise<any>;
+  signInWithHostedUI: () => Promise<void>;
   signOut: () => Promise<void>;
-  confirmSignUp: (username: string, code: string) => Promise<any>;
-  resendConfirmationCode: (username: string) => Promise<any>;
   getAccessToken: () => Promise<string | null>;
 }
 
@@ -87,7 +74,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       // Complete the Hosted UI redirect flow (exchanges code for tokens)
       const complete = async () => {
         try {
-          const hasCode = /[?&]code=/.test(window.location.search)
           // Callback detected
           // Exchange code for tokens
           await fetchAuthSession()
@@ -135,39 +121,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     setLoading(false);
   };
 
-  const mockSignIn = async (username: string, password: string) => {
+  const mockHostedUISignIn = async () => {
     const mockUser: User = {
-      username: username,
-      email: `${username}@example.com`,
-      name: username,
-      sub: `mock-${username}-123`
+      username: 'devuser',
+      email: 'dev@example.com',
+      name: 'Development User',
+      sub: 'dev-user-123'
     };
     setUser(mockUser);
-    return { isSignInComplete: true };
-  };
-
-  const mockSignUp = async (username: string, password: string, email: string, name: string) => {
-    // In dev mode, immediately complete signup
-    const mockUser: User = {
-      username: username,
-      email: email,
-      name: name,
-      sub: `mock-${username}-123`
-    };
-    setUser(mockUser);
-    return { isSignUpComplete: true };
+    setLoading(false);
   };
 
   const mockSignOut = async () => {
     setUser(null);
-  };
-
-  const mockConfirmSignUp = async (username: string, code: string) => {
-    return { isSignUpComplete: true };
-  };
-
-  const mockResendConfirmationCode = async (username: string) => {
-    return { success: true };
   };
 
   const getAccessToken = async (): Promise<string | null> => {
@@ -227,34 +193,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     doCheck()
   }, []);
 
-  const handleSignIn = async (username: string, password: string) => {
-    if (isDevMode) return mockSignIn(username, password);
+  const signInWithHostedUI = async () => {
+    if (isDevMode) return mockHostedUISignIn();
     try {
-      const result = await signIn({ username, password });
-      await checkAuthState(); // Refresh user state
-      return result;
+      await signInWithRedirect();
     } catch (error) {
-      console.error('Sign in error:', error);
-      throw error;
-    }
-  };
-
-  const handleSignUp = async (username: string, password: string, email: string, name: string) => {
-    if (isDevMode) return mockSignUp(username, password, email, name);
-    try {
-      const result = await signUp({
-        username,
-        password,
-        options: {
-          userAttributes: {
-            email,
-            name
-          }
-        }
-      });
-      return result;
-    } catch (error) {
-      console.error('Sign up error:', error);
+      console.error('Hosted UI redirect error:', error);
       throw error;
     }
   };
@@ -262,7 +206,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const handleSignOut = async () => {
     if (isDevMode) return mockSignOut();
     try {
-      await signOut();
+      await amplifySignOut();
       setUser(null);
     } catch (error) {
       console.error('Sign out error:', error);
@@ -270,36 +214,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const handleConfirmSignUp = async (username: string, code: string) => {
-    if (isDevMode) return mockConfirmSignUp(username, code);
-    try {
-      const result = await confirmSignUp({ username, confirmationCode: code });
-      return result;
-    } catch (error) {
-      console.error('Confirm sign up error:', error);
-      throw error;
-    }
-  };
-
-  const handleResendConfirmationCode = async (username: string) => {
-    if (isDevMode) return mockResendConfirmationCode(username);
-    try {
-      const result = await resendSignUpCode({ username });
-      return result;
-    } catch (error) {
-      console.error('Resend confirmation code error:', error);
-      throw error;
-    }
-  };
-
   const value = {
     user,
     loading,
-    signIn: handleSignIn,
-    signUp: handleSignUp,
+    signInWithHostedUI,
     signOut: handleSignOut,
-    confirmSignUp: handleConfirmSignUp,
-    resendConfirmationCode: handleResendConfirmationCode,
     getAccessToken
   };
 

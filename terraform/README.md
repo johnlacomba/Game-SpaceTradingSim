@@ -159,12 +159,22 @@ You can customize the deployment by:
 
 1. **Adding custom domain** - Set `domain_name` variable and add Route53/ACM resources
 2. **Modifying Cognito settings** - Edit `cognito.tf` for different password policies, attributes, etc.
-3. **Adding API endpoints** - Create additional API Gateway resources in `api_gateway.tf`
-4. **Enhanced monitoring** - Add CloudWatch alarms and dashboards
+3. **(Optional) Re-enable Google Sign-In**
+   - Google is disabled by default for this environment; the Hosted UI now presents only Cognito native sign-in.
+   - If you need Google again, set the following and re-apply:
+      ```hcl
+      enable_google_idp    = true
+      google_client_id     = "<your-google-oauth-client-id>"
+      google_client_secret = "<your-google-oauth-client-secret>"
+      ```
+   - Remember to register the Cognito callback URLs in Google Cloud if you turn this back on.
+4. **Adding API endpoints** - Create additional API Gateway resources in `api_gateway.tf`
+5. **Enhanced monitoring** - Add CloudWatch alarms and dashboards
 
 ## Troubleshooting
 
 - Ensure your AWS credentials have sufficient permissions
 - Check CloudWatch logs for ECS tasks if using containerized deployment
 - Verify Cognito callback URLs match your application URLs
+- If you re-enable Google and it doesn't appear in the Hosted UI, ensure `enable_google_idp` is true and the Google client ID/secret are set before re-applying Terraform
 - API Gateway CORS settings may need adjustment for your frontend domain

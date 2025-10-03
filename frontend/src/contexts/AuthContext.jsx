@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Amplify } from 'aws-amplify';
-import { getCurrentUser, signIn, signOut, signUp, confirmSignUp, resendSignUpCode, fetchAuthSession } from 'aws-amplify/auth';
+import {
+  fetchAuthSession,
+  fetchUserAttributes,
+  getCurrentUser,
+  signInWithRedirect,
+  signOut as amplifySignOut
+} from 'aws-amplify/auth';
 import awsConfig from '../aws-config.js';
 
 // Check if we're in development mode without AWS configuration
@@ -8,21 +14,23 @@ const isDevMode = import.meta.env.DEV && (!awsConfig.userPoolId || !awsConfig.us
 
 // Configure Amplify only if we have valid AWS configuration
 if (!isDevMode) {
-  Amplify.configure({
-    Auth: {
-      Cognito: {
-        region: awsConfig.region,
-        userPoolId: awsConfig.userPoolId,
-        userPoolClientId: awsConfig.userPoolWebClientId,
-        identityPoolId: awsConfig.identityPoolId,
-        loginWith: {
-          oauth: awsConfig.oauth,
-          username: true,
-          email: true
+  try {
+    Amplify.configure({
+      Auth: {
+        Cognito: {
+          region: awsConfig.region,
+          userPoolId: awsConfig.userPoolId,
+          userPoolClientId: awsConfig.userPoolWebClientId,
+          identityPoolId: awsConfig.identityPoolId,
+          loginWith: {
+            oauth: awsConfig.oauth
+          }
         }
       }
-    }
-  });
+    });
+  } catch (error) {
+    console.error('Error configuring Amplify:', error);
+  }
 }
 
 const AuthContext = createContext({});
@@ -39,59 +47,53 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Mock functions for development mode
-  const mockGetAccessToken = async () => {
-    return 'mock-jwt-token';
+  useEffect(() => {
+    const isCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth/callback');
+    if (!isDevMode && isCallback) {
+      const complete = async () => {
+        try {
+          await fetchAuthSession();
+          try {
+            const currentUser = await getCurrentUser();
+            const attrs = await fetchUserAttributes();
+            setUser({
+              username: currentUser.username,
+              email: attrs.email || '',
+              name: attrs.name || attrs.email || currentUser.username,
+              sub: attrs.sub || ''
+            });
+          } catch (inner) {
+            console.warn('Unable to populate user immediately after callback', inner);
+          }
+        } catch (error) {
+          console.error('Hosted UI callback processing failed', error);
+        } finally {
+          const target = window.location.origin + '/';
+          window.history.replaceState({}, document.title, target);
+        }
+      };
+      complete();
+    }
+  }, []);
+
+  const mockUser = {
+    username: 'devuser',
+    email: 'dev@example.com',
+    name: 'Development User',
+    sub: 'dev-user-123'
   };
 
-  const mockCheckAuthState = async () => {
-    // In dev mode, automatically sign in with a mock user
-    const mockUser = {
-      username: 'devuser',
-      email: 'dev@example.com',
-      name: 'Development User',
-      sub: 'dev-user-123'
-    };
+  const mockGetAccessToken = async () => 'mock-jwt-token';
+
+  const mockSignIn = async () => {
     setUser(mockUser);
     setLoading(false);
-  };
-
-  const mockSignIn = async (username, password) => {
-    const mockUser = {
-      username: username,
-      email: `${username}@example.com`,
-      name: username,
-      sub: `mock-${username}-123`
-    };
-    setUser(mockUser);
-    return { isSignInComplete: true };
-  };
-
-  const mockSignUp = async (username, password, email, name) => {
-    // In dev mode, immediately complete signup
-    const mockUser = {
-      username: username,
-      email: email,
-      name: name,
-      sub: `mock-${username}-123`
-    };
-    setUser(mockUser);
-    return { isSignUpComplete: true };
   };
 
   const mockSignOut = async () => {
     setUser(null);
   };
 
-  const mockConfirmSignUp = async (username, code) => {
-    return { isSignUpComplete: true };
-  };
-
-  const mockResendConfirmationCode = async (username) => {
-    return { success: true };
-  };
-
-  // Real AWS functions
   const getAccessToken = async () => {
     if (isDevMode) return mockGetAccessToken();
     try {
@@ -104,15 +106,20 @@ export const AuthProvider = ({ children }) => {
   };
 
   const checkAuthState = async () => {
-    if (isDevMode) return mockCheckAuthState();
+    if (isDevMode) {
+      await mockSignIn();
+      return;
+    }
+
     try {
       const currentUser = await getCurrentUser();
       if (currentUser) {
+        const attrs = await fetchUserAttributes();
         setUser({
           username: currentUser.username,
-          email: currentUser.signInDetails?.loginId || '',
-          name: currentUser.signInDetails?.loginId || currentUser.username,
-          sub: currentUser.userId || ''
+          email: attrs.email || '',
+          name: attrs.name || attrs.email || currentUser.username,
+          sub: attrs.sub || ''
         });
       } else {
         setUser(null);
@@ -126,37 +133,23 @@ export const AuthProvider = ({ children }) => {
   };
 
   useEffect(() => {
-    checkAuthState();
+    const doCheck = async () => {
+      try {
+        await fetchAuthSession();
+      } catch (e) {
+        // ignore - likely no session yet
+      }
+      await checkAuthState();
+    };
+    doCheck();
   }, []);
 
-  const handleSignIn = async (username, password) => {
-    if (isDevMode) return mockSignIn(username, password);
+  const signInWithHostedUI = async () => {
+    if (isDevMode) return mockSignIn();
     try {
-      const result = await signIn({ username, password });
-      await checkAuthState(); // Refresh user state
-      return result;
+      await signInWithRedirect();
     } catch (error) {
-      console.error('Sign in error:', error);
-      throw error;
-    }
-  };
-
-  const handleSignUp = async (username, password, email, name) => {
-    if (isDevMode) return mockSignUp(username, password, email, name);
-    try {
-      const result = await signUp({
-        username,
-        password,
-        options: {
-          userAttributes: {
-            email,
-            name
-          }
-        }
-      });
-      return result;
-    } catch (error) {
-      console.error('Sign up error:', error);
+      console.error('Hosted UI redirect error:', error);
       throw error;
     }
   };
@@ -164,7 +157,7 @@ export const AuthProvider = ({ children }) => {
   const handleSignOut = async () => {
     if (isDevMode) return mockSignOut();
     try {
-      await signOut();
+      await amplifySignOut();
       setUser(null);
     } catch (error) {
       console.error('Sign out error:', error);
@@ -172,36 +165,11 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const handleConfirmSignUp = async (username, code) => {
-    if (isDevMode) return mockConfirmSignUp(username, code);
-    try {
-      const result = await confirmSignUp({ username, confirmationCode: code });
-      return result;
-    } catch (error) {
-      console.error('Confirm sign up error:', error);
-      throw error;
-    }
-  };
-
-  const handleResendConfirmationCode = async (username) => {
-    if (isDevMode) return mockResendConfirmationCode(username);
-    try {
-      const result = await resendSignUpCode({ username });
-      return result;
-    } catch (error) {
-      console.error('Resend confirmation code error:', error);
-      throw error;
-    }
-  };
-
   const value = {
     user,
     loading,
-    signIn: handleSignIn,
-    signUp: handleSignUp,
+    signInWithHostedUI,
     signOut: handleSignOut,
-    confirmSignUp: handleConfirmSignUp,
-    resendConfirmationCode: handleResendConfirmationCode,
     getAccessToken
   };
 
