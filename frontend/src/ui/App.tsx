@@ -1049,6 +1049,7 @@ export function App() {
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
+  const exitingRoomRef = useRef<string | null>(null)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
   const currentUserId = useMemo(() => user?.sub || user?.username || '', [user?.sub, user?.username])
@@ -1717,11 +1718,18 @@ export function App() {
           return
         }
       }
+      exitingRoomRef.current = null
       setRoom(null)
       setStage('lobby')
     }
     if (last.type === 'roomState') {
       const payload = last.payload
+      const exitingId = exitingRoomRef.current
+      const payloadRoomId = payload?.room?.id
+      if (exitingId && exitingId === payloadRoomId) {
+        return
+      }
+      exitingRoomRef.current = null
       setRoom(payload)
       setStage('room')
       setLobbyNotice(null)
@@ -2017,7 +2025,10 @@ export function App() {
       setNewRoomName('')
     }
   }, [newRoomName, singleplayerMode, send])
-  const joinRoom = useCallback((roomId: string) => send('joinRoom', { roomId }), [send])
+  const joinRoom = useCallback((roomId: string) => {
+    exitingRoomRef.current = null
+    return send('joinRoom', { roomId })
+  }, [send])
   const handleContinueSave = useCallback((save: SingleplayerSaveSummary) => {
     const activeRoom = lobby.rooms.find(r => r.id === save.roomId)
     if (activeRoom) {
@@ -2062,11 +2073,17 @@ export function App() {
   const startGame = () => send('startGame')
   const addBot = () => send('addBot')
   const exitRoom = useCallback(() => {
+    const currentRoomId = room?.room?.id ?? null
     const ok = send('exitRoom')
     if (!ok) return
+
+    exitingRoomRef.current = currentRoomId
+    pendingRestoreRef.current = null
+    restoreTargetRoomRef.current = null
+    setSingleplayerMode(false)
     setRoom(null)
     setStage('lobby')
-  }, [send, setRoom, setStage])
+  }, [room?.room?.id, send])
   const setEndGame = (end: boolean) => send('setEndGame', { endGame: end })
 
   const selectPlanet = (planet: string) => send('selectPlanet', { planet })
