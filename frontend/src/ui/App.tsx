@@ -1050,6 +1050,7 @@ export function App() {
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
   const exitingRoomRef = useRef<string | null>(null)
+  const allowRoomStateRef = useRef(true)
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
   const currentUserId = useMemo(() => user?.sub || user?.username || '', [user?.sub, user?.username])
@@ -1708,6 +1709,7 @@ export function App() {
     const last = messages[messages.length-1]
     if (!last) return
     if (last.type === 'lobbyState') {
+      allowRoomStateRef.current = false
       setLobby(last.payload)
       if (stage === 'room' && room?.room?.id && room?.you?.id) {
         const roomsList: Array<{ id?: string; playerCount?: number }> = Array.isArray(last.payload?.rooms)
@@ -1726,6 +1728,12 @@ export function App() {
       const payload = last.payload
       const exitingId = exitingRoomRef.current
       const payloadRoomId = payload?.room?.id
+      if (!allowRoomStateRef.current) {
+        if (exitingId && exitingId === payloadRoomId) {
+          return
+        }
+        return
+      }
       if (exitingId && exitingId === payloadRoomId) {
         return
       }
@@ -2020,14 +2028,24 @@ export function App() {
     if (singleplayerMode) {
       payload.singleplayer = true
     }
+    const previous = allowRoomStateRef.current
+    allowRoomStateRef.current = true
     const ok = send('createRoom', Object.keys(payload).length ? payload : undefined)
     if (ok) {
       setNewRoomName('')
+    } else {
+      allowRoomStateRef.current = previous
     }
   }, [newRoomName, singleplayerMode, send])
   const joinRoom = useCallback((roomId: string) => {
     exitingRoomRef.current = null
-    return send('joinRoom', { roomId })
+    const previous = allowRoomStateRef.current
+    allowRoomStateRef.current = true
+    const ok = send('joinRoom', { roomId })
+    if (!ok) {
+      allowRoomStateRef.current = previous
+    }
+    return ok
   }, [send])
   const handleContinueSave = useCallback((save: SingleplayerSaveSummary) => {
     const activeRoom = lobby.rooms.find(r => r.id === save.roomId)
@@ -2046,8 +2064,11 @@ export function App() {
       payload.name = sanitizedName
     }
 
+    const previousAllow = allowRoomStateRef.current
+    allowRoomStateRef.current = true
     const created = send('createRoom', payload)
     if (!created) {
+      allowRoomStateRef.current = previousAllow
       pendingRestoreRef.current = null
       setLobbyNotice('Unable to relaunch singleplayer mission. Please check your connection and try again.')
       return
@@ -2078,6 +2099,7 @@ export function App() {
     if (!ok) return
 
     exitingRoomRef.current = currentRoomId
+    allowRoomStateRef.current = false
     pendingRestoreRef.current = null
     restoreTargetRoomRef.current = null
     setSingleplayerMode(false)
