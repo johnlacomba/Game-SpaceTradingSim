@@ -1,0 +1,395 @@
+package server
+
+import (
+	"fmt"
+	"math/rand"
+	"time"
+)
+
+type spreadSources map[PlayerID]map[int]struct{}
+
+type SpreaditTile struct {
+	Owner           PlayerID
+	CoreOf          PlayerID
+	HasResource     bool
+	ResourceSpawner bool
+}
+
+type SpreaditPlayerState struct {
+	Color     string
+	CoreIndex int
+	Resources int
+}
+
+type SpreaditState struct {
+	Rows        int
+	Cols        int
+	CreatedAt   time.Time
+	StartedAt   time.Time
+	Tick        int
+	Tiles       []SpreaditTile
+	Players     map[PlayerID]*SpreaditPlayerState
+	LastSources []spreadSources
+}
+
+const (
+	spreaditDefaultRows     = 12
+	spreaditDefaultCols     = 20
+	spreaditResourceDensity = 12
+	spreaditTickerInterval  = time.Second
+)
+
+func newSpreaditState(rows, cols int) *SpreaditState {
+	if rows <= 0 {
+		rows = spreaditDefaultRows
+	}
+	if cols <= 0 {
+		cols = spreaditDefaultCols
+	}
+	total := rows * cols
+	tiles := make([]SpreaditTile, total)
+	last := make([]spreadSources, total)
+
+	state := &SpreaditState{
+		Rows:        rows,
+		Cols:        cols,
+		CreatedAt:   time.Now(),
+		Tiles:       tiles,
+		Players:     make(map[PlayerID]*SpreaditPlayerState),
+		LastSources: last,
+	}
+
+	resourceTargets := spreaditResourceDensity
+	if resourceTargets <= 0 {
+		resourceTargets = 1
+	}
+	used := map[int]struct{}{}
+	attempts := 0
+	for len(used) < resourceTargets && attempts < total*2 {
+		idx := rand.Intn(total)
+		if _, ok := used[idx]; ok {
+			attempts++
+			continue
+		}
+		tiles[idx].ResourceSpawner = true
+		used[idx] = struct{}{}
+		attempts++
+	}
+
+	return state
+}
+
+func (s *SpreaditState) index(row, col int) int {
+	return row*s.Cols + col
+}
+
+func (s *SpreaditState) coord(idx int) (int, int) {
+	if idx < 0 {
+		return 0, 0
+	}
+	row := idx / s.Cols
+	col := idx % s.Cols
+	return row, col
+}
+
+func (s *SpreaditState) neighbors(idx int) []int {
+	if idx < 0 {
+		return nil
+	}
+	row, col := s.coord(idx)
+	result := make([]int, 0, 8)
+	for dr := -1; dr <= 1; dr++ {
+		for dc := -1; dc <= 1; dc++ {
+			if dr == 0 && dc == 0 {
+				continue
+			}
+			nr := row + dr
+			nc := col + dc
+			if nr < 0 || nr >= s.Rows || nc < 0 || nc >= s.Cols {
+				continue
+			}
+			result = append(result, s.index(nr, nc))
+		}
+	}
+	return result
+}
+
+func (s *SpreaditState) stepTowards(fromIdx, targetIdx int) int {
+	if fromIdx < 0 || targetIdx < 0 || fromIdx == targetIdx {
+		return fromIdx
+	}
+	fr, fc := s.coord(fromIdx)
+	tr, tc := s.coord(targetIdx)
+	dr := 0
+	if fr < tr {
+		dr = 1
+	} else if fr > tr {
+		dr = -1
+	}
+	dc := 0
+	if fc < tc {
+		dc = 1
+	} else if fc > tc {
+		dc = -1
+	}
+	nr := fr + dr
+	nc := fc + dc
+	if nr < 0 || nr >= s.Rows || nc < 0 || nc >= s.Cols {
+		return fromIdx
+	}
+	return s.index(nr, nc)
+}
+
+func (s *SpreaditState) randomAvailableCoreTile() (int, bool) {
+	preferred := []int{}
+	fallback := []int{}
+	for idx, tile := range s.Tiles {
+		if tile.CoreOf != "" {
+			continue
+		}
+		fallback = append(fallback, idx)
+		if !tile.ResourceSpawner {
+			preferred = append(preferred, idx)
+		}
+	}
+	candidates := preferred
+	if len(candidates) == 0 {
+		candidates = fallback
+	}
+	if len(candidates) == 0 {
+		return -1, false
+	}
+	return candidates[rand.Intn(len(candidates))], true
+}
+
+func randomSpreaditColor(used map[string]struct{}) string {
+	for i := 0; i < 16; i++ {
+		r := 70 + rand.Intn(156)
+		g := 70 + rand.Intn(156)
+		b := 70 + rand.Intn(156)
+		color := fmt.Sprintf("#%02X%02X%02X", r, g, b)
+		if _, exists := used[color]; !exists {
+			return color
+		}
+	}
+	// fallback even if duplicate
+	r := 70 + rand.Intn(156)
+	g := 70 + rand.Intn(156)
+	b := 70 + rand.Intn(156)
+	return fmt.Sprintf("#%02X%02X%02X", r, g, b)
+}
+
+func ensureSpreaditPlayerLocked(room *Room, player *Player) {
+	if room.Spreadit == nil {
+		room.Spreadit = newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
+	}
+	spreadit := room.Spreadit
+	if spreadit.Players == nil {
+		spreadit.Players = make(map[PlayerID]*SpreaditPlayerState)
+	}
+	if _, exists := spreadit.Players[player.ID]; exists {
+		return
+	}
+	usedColors := make(map[string]struct{})
+	for _, ps := range spreadit.Players {
+		if ps != nil && ps.Color != "" {
+			usedColors[ps.Color] = struct{}{}
+		}
+	}
+	color := randomSpreaditColor(usedColors)
+	idx, ok := spreadit.randomAvailableCoreTile()
+	if !ok {
+		idx = 0
+	}
+	if idx < 0 || idx >= len(spreadit.Tiles) {
+		idx = 0
+	}
+	tile := &spreadit.Tiles[idx]
+	tile.CoreOf = player.ID
+	tile.Owner = player.ID
+	tile.HasResource = false
+	spreadit.Players[player.ID] = &SpreaditPlayerState{
+		Color:     color,
+		CoreIndex: idx,
+		Resources: 0,
+	}
+}
+
+func (gs *GameServer) runSpreaditTicker(room *Room) {
+	ticker := time.NewTicker(spreaditTickerInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-room.closeCh:
+			return
+		case <-ticker.C:
+			if gs.advanceSpreadit(room) {
+				gs.broadcastRoom(room)
+			}
+		case <-room.stateCh:
+			// allow immediate reactions to pause/resume
+		}
+	}
+}
+
+func (gs *GameServer) advanceSpreadit(room *Room) bool {
+	room.mu.Lock()
+	defer room.mu.Unlock()
+	if room.GameType != "spreadit" || !room.Started || room.Paused {
+		return false
+	}
+	if room.Spreadit == nil {
+		room.Spreadit = newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
+	}
+	spreadit := room.Spreadit
+	total := spreadit.Rows * spreadit.Cols
+	newSources := make([]spreadSources, total)
+	spreadCounts := make([]map[PlayerID]int, total)
+	addEffect := func(pid PlayerID, fromIdx, toIdx int) {
+		if toIdx < 0 || toIdx >= total {
+			return
+		}
+		if newSources[toIdx] == nil {
+			newSources[toIdx] = make(spreadSources)
+		}
+		sourcesByPlayer := newSources[toIdx][pid]
+		if sourcesByPlayer == nil {
+			sourcesByPlayer = make(map[int]struct{})
+			newSources[toIdx][pid] = sourcesByPlayer
+		}
+		if _, exists := sourcesByPlayer[fromIdx]; exists {
+			return
+		}
+		sourcesByPlayer[fromIdx] = struct{}{}
+		if spreadCounts[toIdx] == nil {
+			spreadCounts[toIdx] = make(map[PlayerID]int)
+		}
+		spreadCounts[toIdx][pid]++
+	}
+
+	for pid, ps := range spreadit.Players {
+		if ps == nil || ps.CoreIndex < 0 {
+			continue
+		}
+		for _, neighbor := range spreadit.neighbors(ps.CoreIndex) {
+			addEffect(pid, ps.CoreIndex, neighbor)
+		}
+	}
+
+	for idx, sourceByPlayer := range spreadit.LastSources {
+		if len(sourceByPlayer) == 0 {
+			continue
+		}
+		tile := &spreadit.Tiles[idx]
+		for pid, origins := range sourceByPlayer {
+			if tile.Owner != pid {
+				continue
+			}
+			for origin := range origins {
+				for _, neighbor := range spreadit.neighbors(idx) {
+					if neighbor == origin {
+						continue
+					}
+					addEffect(pid, idx, neighbor)
+				}
+			}
+		}
+	}
+
+	for idx := 0; idx < total; idx++ {
+		tile := &spreadit.Tiles[idx]
+		counts := spreadCounts[idx]
+		var best PlayerID
+		bestCount := 0
+		secondCount := 0
+		for pid, count := range counts {
+			if count > bestCount {
+				secondCount = bestCount
+				bestCount = count
+				best = pid
+			} else if count > secondCount {
+				secondCount = count
+			}
+		}
+		if tile.CoreOf != "" {
+			tile.Owner = tile.CoreOf
+			continue
+		}
+		if bestCount > 0 && bestCount > secondCount {
+			tile.Owner = best
+		} else {
+			tile.Owner = ""
+		}
+	}
+
+	for idx := range spreadit.Tiles {
+		tile := &spreadit.Tiles[idx]
+		if tile.ResourceSpawner && !tile.HasResource {
+			tile.HasResource = true
+		}
+	}
+
+	type resourceMove struct {
+		from   int
+		to     int
+		player PlayerID
+	}
+	moves := make([]resourceMove, 0)
+	occupied := make(map[int]bool)
+	for idx := range spreadit.Tiles {
+		tile := &spreadit.Tiles[idx]
+		if !tile.HasResource {
+			continue
+		}
+		owner := tile.Owner
+		if owner == "" {
+			continue
+		}
+		playerState := spreadit.Players[owner]
+		if playerState == nil || playerState.CoreIndex < 0 {
+			continue
+		}
+		if idx == playerState.CoreIndex {
+			tile.HasResource = false
+			playerState.Resources++
+			continue
+		}
+		dest := spreadit.stepTowards(idx, playerState.CoreIndex)
+		if dest == idx {
+			continue
+		}
+		destTile := &spreadit.Tiles[dest]
+		isCoreDestination := destTile.CoreOf == owner
+		if destTile.HasResource && !isCoreDestination {
+			continue
+		}
+		if occupied[dest] && !isCoreDestination {
+			continue
+		}
+		moves = append(moves, resourceMove{from: idx, to: dest, player: owner})
+		if !isCoreDestination {
+			occupied[dest] = true
+		}
+	}
+
+	for _, mv := range moves {
+		fromTile := &spreadit.Tiles[mv.from]
+		if !fromTile.HasResource {
+			continue
+		}
+		fromTile.HasResource = false
+		destTile := &spreadit.Tiles[mv.to]
+		destTile.HasResource = true
+		if destTile.CoreOf == mv.player {
+			destTile.HasResource = false
+			if ps := spreadit.Players[mv.player]; ps != nil {
+				ps.Resources++
+			}
+		}
+	}
+
+	spreadit.LastSources = newSources
+	room.Turn++
+	spreadit.Tick = room.Turn
+	return true
+}

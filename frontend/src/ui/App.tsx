@@ -93,6 +93,12 @@ type RoomPlayer = {
   cargoValue?: number
   upgradeValue?: number
   facilityInvestment?: number
+  isBot?: boolean
+  spreadit?: {
+    color?: string
+    coreIndex?: number
+    resources?: number
+  }
 }
 
 type FacilitySummary = {
@@ -120,12 +126,31 @@ type MapViewState = {
   zoom: number
 }
 
+type SpreaditPlayerInfo = {
+  id: string
+  name?: string
+  color?: string
+  coreIndex?: number
+  resources?: number
+  isBot?: boolean
+}
+
+type SpreaditTileState = {
+  owner?: string
+  coreOf?: string
+  hasResource?: boolean
+  resourceSpawner?: boolean
+}
+
 type SpreaditRoomState = {
   rows?: number
   cols?: number
   createdAt?: number
   startedAt?: number
   elapsedSeconds?: number
+  tick?: number
+  tiles?: SpreaditTileState[]
+  players?: SpreaditPlayerInfo[]
 }
 
 type RoomState = {
@@ -180,6 +205,12 @@ type RoomState = {
     cargoValue?: number
     marketMemory?: Record<string, MarketSnapshot>
     knownPlanets?: string[]
+    isBot?: boolean
+    spreadit?: {
+      color?: string
+      coreIndex?: number
+      resources?: number
+    }
   }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
   spreadit?: SpreaditRoomState
@@ -4103,18 +4134,30 @@ export function App() {
     const gridCols = typeof spreaditInfo.cols === 'number' && spreaditInfo.cols > 0 ? spreaditInfo.cols : 20
     const startedAt = typeof spreaditInfo.startedAt === 'number' ? spreaditInfo.startedAt : 0
     const elapsedFromServer = typeof spreaditInfo.elapsedSeconds === 'number' ? spreaditInfo.elapsedSeconds : 0
+    const spreaditTiles = Array.isArray(spreaditInfo.tiles) ? (spreaditInfo.tiles as SpreaditTileState[]) : []
+    const spreaditPlayerInfoList = Array.isArray(spreaditInfo.players) ? (spreaditInfo.players as SpreaditPlayerInfo[]) : []
+    const spreaditPlayerLookup: Record<string, SpreaditPlayerInfo> = {}
+    for (const info of spreaditPlayerInfoList) {
+      if (info && typeof info.id === 'string') {
+        spreaditPlayerLookup[info.id] = info
+      }
+    }
     let computedElapsed = elapsedFromServer
     if (r.room.started && startedAt > 0) {
       computedElapsed = Math.max(elapsedFromServer, Math.floor((now - startedAt) / 1000))
     }
     const gameTimeDisplay = r.room.started ? formatDuration(computedElapsed) : '--:--'
-    const playersList: Array<{ id: string; name: string; ready?: boolean; isBot?: boolean }> = Array.isArray(r.room.players)
-      ? (r.room.players as any[])
+    const playersList: RoomPlayer[] = Array.isArray(r.room.players)
+      ? (r.room.players as RoomPlayer[])
       : []
     const readyCount = playersList.filter(pl => pl?.ready).length
     const readyToStartSpreadit = Boolean(r.room.allReady)
     const youReady = Boolean(r.you.ready)
     const preLaunch = !r.room.started
+  const youSpreadit = (r.you as any).spreadit as undefined | { color?: string; coreIndex?: number; resources?: number }
+  const yourSpreaditResources = typeof youSpreadit?.resources === 'number' ? youSpreadit.resources : 0
+  const yourSpreaditColor = typeof youSpreadit?.color === 'string' ? youSpreadit.color : undefined
+    const youId = r.you.id
     const gridCells = Array.from({ length: gridRows * gridCols }, (_, index) => index)
 
     return (
@@ -4164,6 +4207,27 @@ export function App() {
                 fontSize: isMobile ? shrinkFont(13) : '0.9rem'
               }}>
                 Game Time: <strong>{gameTimeDisplay}</strong>
+              </span>
+              <span style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                color: 'rgba(191, 219, 254, 0.88)',
+                fontSize: isMobile ? shrinkFont(13) : '0.88rem',
+                fontWeight: 600
+              }}>
+                <span
+                  aria-hidden
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 6,
+                    border: `2px solid ${yourSpreaditColor || 'rgba(191, 219, 254, 0.6)'}`,
+                    background: yourSpreaditColor || 'rgba(148, 163, 184, 0.35)',
+                    boxShadow: yourSpreaditColor ? `0 0 10px ${yourSpreaditColor}70` : 'none'
+                  }}
+                />
+                Stockpile: <span style={{ color: '#38bdf8' }}>{yourSpreaditResources}</span>
               </span>
             </div>
             <div style={{
@@ -4284,18 +4348,151 @@ export function App() {
                     const row = Math.floor(index / gridCols)
                     const col = index % gridCols
                     const shade = (row + col) % 2 === 0 ? 'rgba(148, 163, 184, 0.12)' : 'rgba(71, 85, 105, 0.18)'
+                    const tile = spreaditTiles[index] || {}
+                    const ownerId = typeof tile.owner === 'string' ? tile.owner : ''
+                    const coreOwnerId = typeof tile.coreOf === 'string' ? tile.coreOf : ''
+                    const ownerInfo = ownerId ? spreaditPlayerLookup[ownerId] : undefined
+                    const ownerColor = typeof ownerInfo?.color === 'string' ? ownerInfo.color : undefined
+                    const coreInfo = coreOwnerId ? spreaditPlayerLookup[coreOwnerId] : undefined
+                    const coreColor = typeof coreInfo?.color === 'string' ? coreInfo.color : undefined
+                    const hasResource = Boolean(tile.hasResource)
+                    const resourceSpawner = Boolean(tile.resourceSpawner)
+                    const isYourTile = ownerId !== '' && ownerId === youId
+                    const coreHighlight = coreOwnerId !== ''
                     return (
                       <div
                         key={index}
                         style={{
+                          position: 'relative',
                           borderRight: col === gridCols - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
                           borderBottom: row === gridRows - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
-                          background: shade
+                          background: shade,
+                          overflow: 'hidden'
                         }}
-                      />
+                      >
+                        {ownerColor && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: resourceSpawner ? 1 : 2,
+                              borderRadius: resourceSpawner ? 4 : 6,
+                              background: ownerColor,
+                              opacity: isYourTile ? 0.55 : 0.38,
+                              filter: 'saturate(1.35)',
+                              transition: 'opacity 120ms ease',
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        )}
+                        {resourceSpawner && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: 3,
+                              borderRadius: 6,
+                              border: '1px dashed rgba(226, 232, 240, 0.45)',
+                              opacity: 0.7,
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        )}
+                        {hasResource && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              width: '52%',
+                              height: '52%',
+                              borderRadius: '50%',
+                              background: 'radial-gradient(circle at 35% 30%, #fef08a, #fbbf24 45%, #f97316 100%)',
+                              boxShadow: '0 0 12px rgba(251, 191, 36, 0.58)',
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        )}
+                        {coreHighlight && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: 4,
+                              borderRadius: 8,
+                              border: `2px solid ${coreColor || 'rgba(226, 232, 240, 0.85)'}`,
+                              boxShadow: coreOwnerId === youId
+                                ? '0 0 12px rgba(96, 165, 250, 0.7)'
+                                : '0 0 8px rgba(226, 232, 240, 0.35)',
+                              pointerEvents: 'none'
+                            }}
+                          />
+                        )}
+                      </div>
                     )
                   })}
                 </div>
+                {!preLaunch && spreaditPlayerInfoList.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    top: isMobile ? 10 : 14,
+                    left: isMobile ? 10 : 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 6,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    background: 'rgba(15, 23, 42, 0.68)',
+                    border: '1px solid rgba(148, 163, 184, 0.25)',
+                    boxShadow: '0 16px 32px -26px rgba(15, 23, 42, 0.8)',
+                    pointerEvents: 'none',
+                    maxWidth: isMobile ? '70%' : '40%'
+                  }}>
+                    {spreaditPlayerInfoList.map(player => {
+                      if (!player || typeof player.id !== 'string') return null
+                      const color = typeof player.color === 'string' ? player.color : '#f8fafc'
+                      const resources = typeof player.resources === 'number' ? player.resources : 0
+                      const isYouPlayer = player.id === youId
+                      return (
+                        <div
+                          key={player.id}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'auto 1fr auto',
+                            alignItems: 'center',
+                            gap: 8,
+                            color: 'rgba(226, 232, 240, 0.92)',
+                            fontSize: isMobile ? shrinkFont(12) : '0.8rem',
+                            fontWeight: isYouPlayer ? 600 : 500
+                          }}
+                        >
+                          <span
+                            aria-hidden
+                            style={{
+                              width: 12,
+                              height: 12,
+                              borderRadius: 6,
+                              background: color,
+                              boxShadow: `0 0 8px ${color}80`
+                            }}
+                          />
+                          <span style={{
+                            whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}>
+                            {player.name || 'Commander'}
+                          </span>
+                          <span style={{
+                            justifySelf: 'flex-end',
+                            fontVariantNumeric: 'tabular-nums',
+                            color: isYouPlayer ? '#38bdf8' : 'rgba(226, 232, 240, 0.82)'
+                          }}>
+                            ⚡ {resources}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
                 {preLaunch && (
                   <div style={{
                     position: 'absolute',
@@ -4427,8 +4624,11 @@ export function App() {
                     flexDirection: 'column',
                     gap: isMobile ? 10 : 12
                   }}>
-                    {playersList.map(player => (
-                      <li
+                    {playersList.map(player => {
+                      const playerColor = typeof player.spreadit?.color === 'string' ? player.spreadit?.color : undefined
+                      const resourceCount = typeof player.spreadit?.resources === 'number' ? player.spreadit?.resources : 0
+                      return (
+                        <li
                         key={player.id}
                         style={{
                           display: 'grid',
@@ -4446,11 +4646,12 @@ export function App() {
                         <span
                           title={player.ready ? 'Ready' : 'Not Ready'}
                           style={{
-                            width: 12,
-                            height: 12,
-                            borderRadius: 6,
+                            width: 14,
+                            height: 14,
+                            borderRadius: 7,
+                            border: `2px solid ${playerColor || 'rgba(148, 163, 184, 0.65)'}`,
                             background: player.ready ? '#34d399' : '#f87171',
-                            boxShadow: `0 0 10px ${player.ready ? 'rgba(52,211,153,0.45)' : 'rgba(248,113,113,0.35)'}`
+                            boxShadow: `0 0 12px ${player.ready ? 'rgba(52,211,153,0.45)' : 'rgba(248,113,113,0.35)'}`
                           }}
                         />
                         <div style={{
@@ -4467,9 +4668,16 @@ export function App() {
                           </span>
                           <span style={{
                             color: 'rgba(148, 163, 184, 0.78)',
-                            fontSize: isMobile ? shrinkFont(13) : '0.9rem'
+                            fontSize: isMobile ? shrinkFont(13) : '0.85rem'
                           }}>
                             {player.isBot ? 'Automation Pilot' : 'Human Pilot'}
+                          </span>
+                          <span style={{
+                            color: 'rgba(96, 165, 250, 0.8)',
+                            fontSize: isMobile ? shrinkFont(12) : '0.8rem',
+                            fontWeight: 500
+                          }}>
+                            Resources: {resourceCount}
                           </span>
                         </div>
                         <span style={{
@@ -4480,8 +4688,9 @@ export function App() {
                         }}>
                           {player.ready ? 'Ready' : 'Not Ready'}
                         </span>
-                      </li>
-                    ))}
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>

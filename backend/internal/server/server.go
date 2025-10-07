@@ -286,13 +286,6 @@ type Room struct {
 	Spreadit        *SpreaditState        `json:"-"`
 }
 
-type SpreaditState struct {
-	Rows      int
-	Cols      int
-	CreatedAt time.Time
-	StartedAt time.Time
-}
-
 // ModalItem represents a queued modal to show to a specific player
 type ModalItem struct {
 	ID    string `json:"id"`
@@ -1174,11 +1167,7 @@ func (gs *GameServer) createRoom(name string, creator PlayerID, private bool, ga
 			if gt != "spreadit" {
 				return nil
 			}
-			return &SpreaditState{
-				Rows:      12,
-				Cols:      20,
-				CreatedAt: time.Now(),
-			}
+			return newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
 		}(),
 	}
 	if gt == "spaceTrader" {
@@ -1340,6 +1329,9 @@ func (gs *GameServer) joinRoom(p *Player, roomID string) {
 	}
 	if p.KnownPlanets == nil {
 		p.KnownPlanets = make(map[string]bool)
+	}
+	if room.GameType == "spreadit" {
+		ensureSpreaditPlayerLocked(room, p)
 	}
 	room.Players[p.ID] = p
 	if pos, ok := room.PlanetPositions[p.CurrentPlanet]; ok {
@@ -1802,6 +1794,7 @@ func (gs *GameServer) startGame(roomID string) {
 	}
 	room.mu.Lock()
 	if room.GameType == "spreadit" {
+		startedNow := false
 		if !room.Started {
 			canStart := true
 			for _, pl := range room.Players {
@@ -1822,13 +1815,18 @@ func (gs *GameServer) startGame(roomID string) {
 				room.Started = true
 				room.Turn = 0
 				if room.Spreadit == nil {
-					room.Spreadit = &SpreaditState{Rows: 12, Cols: 20, CreatedAt: time.Now()}
+					room.Spreadit = newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
 				}
 				room.Spreadit.StartedAt = time.Now()
+				room.Spreadit.Tick = 0
 				room.TurnEndsAt = time.Time{}
+				startedNow = true
 			}
 		}
 		room.mu.Unlock()
+		if startedNow {
+			go gs.runSpreaditTicker(room)
+		}
 		gs.broadcastRoom(room)
 		return
 	}
@@ -3423,15 +3421,22 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 	}
 	if room.GameType == "spreadit" {
 		if room.Spreadit == nil {
-			room.Spreadit = &SpreaditState{Rows: 12, Cols: 20, CreatedAt: time.Now()}
+			room.Spreadit = newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
 		}
 		spreadit := room.Spreadit
+		for _, pp := range room.Players {
+			if pp == nil {
+				continue
+			}
+			ensureSpreaditPlayerLocked(room, pp)
+		}
 		type spreaditPlayerSnapshot struct {
 			ID      PlayerID
 			Name    string
 			Ready   bool
 			EndGame bool
 			IsBot   bool
+			State   *SpreaditPlayerState
 		}
 		type spreaditPlayerEntry struct {
 			player   *Player
@@ -3439,12 +3444,16 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 		}
 		entries := make([]spreaditPlayerEntry, 0, len(room.Players))
 		for _, pp := range room.Players {
+			if pp == nil {
+				continue
+			}
 			snap := spreaditPlayerSnapshot{
 				ID:      pp.ID,
 				Name:    pp.Name,
 				Ready:   pp.Ready,
 				EndGame: pp.EndGame,
 				IsBot:   pp.IsBot,
+				State:   spreadit.Players[pp.ID],
 			}
 			entries = append(entries, spreaditPlayerEntry{player: pp, snapshot: snap})
 		}
@@ -3452,14 +3461,43 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			return strings.ToLower(entries[i].snapshot.Name) < strings.ToLower(entries[j].snapshot.Name)
 		})
 		playersView := make([]map[string]interface{}, len(entries))
+		spreaditPlayers := make([]map[string]interface{}, len(entries))
 		for i, entry := range entries {
 			snap := entry.snapshot
-			playersView[i] = map[string]interface{}{
+			view := map[string]interface{}{
 				"id":      string(snap.ID),
 				"name":    snap.Name,
 				"ready":   snap.Ready,
 				"endGame": snap.EndGame,
 				"isBot":   snap.IsBot,
+			}
+			if snap.State != nil {
+				view["spreadit"] = map[string]interface{}{
+					"color":     snap.State.Color,
+					"coreIndex": snap.State.CoreIndex,
+					"resources": snap.State.Resources,
+				}
+			}
+			playersView[i] = view
+			spreaditEntry := map[string]interface{}{
+				"id":    string(snap.ID),
+				"name":  snap.Name,
+				"isBot": snap.IsBot,
+			}
+			if snap.State != nil {
+				spreaditEntry["color"] = snap.State.Color
+				spreaditEntry["coreIndex"] = snap.State.CoreIndex
+				spreaditEntry["resources"] = snap.State.Resources
+			}
+			spreaditPlayers[i] = spreaditEntry
+		}
+		tilesPayload := make([]map[string]interface{}, len(spreadit.Tiles))
+		for idx, tile := range spreadit.Tiles {
+			tilesPayload[idx] = map[string]interface{}{
+				"owner":           string(tile.Owner),
+				"coreOf":          string(tile.CoreOf),
+				"hasResource":     tile.HasResource,
+				"resourceSpawner": tile.ResourceSpawner,
 			}
 		}
 		payloadByPlayer := make(map[PlayerID]interface{}, len(entries))
@@ -3510,8 +3548,19 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"createdAt":      createdAt,
 					"startedAt":      startedAt,
 					"elapsedSeconds": elapsedSeconds,
+					"tick":           spreadit.Tick,
+					"tiles":          tilesPayload,
+					"players":        spreaditPlayers,
 				},
 				"visiblePlanet": map[string]interface{}{},
+			}
+			if snap.State != nil {
+				youSpreadit := map[string]interface{}{
+					"color":     snap.State.Color,
+					"coreIndex": snap.State.CoreIndex,
+					"resources": snap.State.Resources,
+				}
+				payload["you"].(map[string]interface{})["spreadit"] = youSpreadit
 			}
 			payloadByPlayer[snap.ID] = payload
 			if entry.player != nil && entry.player.conn != nil {
