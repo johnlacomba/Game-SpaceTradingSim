@@ -1981,6 +1981,10 @@ export function App() {
     if (!room) return
     const currRoomId = (room.room as any)?.id
     const turn = (room.room as any)?.turn
+    const mode = (room.room as any)?.gameType
+    if (typeof mode === 'string' && mode.toLowerCase() === 'spreadit') {
+      return
+    }
     if (currRoomId == null || typeof turn !== 'number') return
     setWealthHistory(prev => {
       let next = prev
