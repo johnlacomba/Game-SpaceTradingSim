@@ -882,6 +882,15 @@ func (gs *GameServer) readLoop(p *Player) {
 			if p.roomID != "" {
 				gs.addBot(p.roomID)
 			}
+		case "spreaditDestroyWall":
+			var data struct {
+				Row int `json:"row"`
+				Col int `json:"col"`
+			}
+			if len(msg.Payload) > 0 {
+				_ = json.Unmarshal(msg.Payload, &data)
+			}
+			gs.handleSpreaditDestroyWall(p, data.Row, data.Col)
 		case "selectPlanet":
 			var data struct {
 				Planet string `json:"planet"`
@@ -3498,6 +3507,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"coreOf":          string(tile.CoreOf),
 				"hasResource":     tile.HasResource,
 				"resourceSpawner": tile.ResourceSpawner,
+				"wall":            tile.Wall,
 			}
 		}
 		payloadByPlayer := make(map[PlayerID]interface{}, len(entries))

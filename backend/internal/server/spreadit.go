@@ -13,6 +13,7 @@ type SpreaditTile struct {
 	CoreOf          PlayerID
 	HasResource     bool
 	ResourceSpawner bool
+	Wall            bool
 }
 
 type SpreaditPlayerState struct {
@@ -33,10 +34,13 @@ type SpreaditState struct {
 }
 
 const (
-	spreaditDefaultRows     = 12
-	spreaditDefaultCols     = 20
-	spreaditResourceDensity = 12
-	spreaditTickerInterval  = time.Second
+	spreaditDefaultRows      = 12
+	spreaditDefaultCols      = 20
+	spreaditResourceDensity  = 12
+	spreaditTickerInterval   = time.Second
+	spreaditResourceInterval = 10
+	spreaditWallChance       = 0.14
+	spreaditWallDestroyCost  = 20
 )
 
 func newSpreaditState(rows, cols int) *SpreaditState {
@@ -74,6 +78,15 @@ func newSpreaditState(rows, cols int) *SpreaditState {
 		tiles[idx].ResourceSpawner = true
 		used[idx] = struct{}{}
 		attempts++
+	}
+
+	for idx := range tiles {
+		if tiles[idx].ResourceSpawner {
+			continue
+		}
+		if rand.Float64() < spreaditWallChance {
+			tiles[idx].Wall = true
+		}
 	}
 
 	return state
@@ -147,6 +160,9 @@ func (s *SpreaditState) randomAvailableCoreTile() (int, bool) {
 		if tile.CoreOf != "" {
 			continue
 		}
+		if tile.Wall {
+			continue
+		}
 		fallback = append(fallback, idx)
 		if !tile.ResourceSpawner {
 			preferred = append(preferred, idx)
@@ -205,6 +221,7 @@ func ensureSpreaditPlayerLocked(room *Room, player *Player) {
 		idx = 0
 	}
 	tile := &spreadit.Tiles[idx]
+	tile.Wall = false
 	tile.CoreOf = player.ID
 	tile.Owner = player.ID
 	tile.HasResource = false
@@ -272,6 +289,12 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 			continue
 		}
 		for _, neighbor := range spreadit.neighbors(ps.CoreIndex) {
+			if neighbor < 0 || neighbor >= total {
+				continue
+			}
+			if spreadit.Tiles[neighbor].Wall {
+				continue
+			}
 			addEffect(pid, ps.CoreIndex, neighbor)
 		}
 	}
@@ -281,6 +304,9 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 			continue
 		}
 		tile := &spreadit.Tiles[idx]
+		if tile.Wall {
+			continue
+		}
 		for pid, origins := range sourceByPlayer {
 			if tile.Owner != pid {
 				continue
@@ -288,6 +314,12 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 			for origin := range origins {
 				for _, neighbor := range spreadit.neighbors(idx) {
 					if neighbor == origin {
+						continue
+					}
+					if neighbor < 0 || neighbor >= total {
+						continue
+					}
+					if spreadit.Tiles[neighbor].Wall {
 						continue
 					}
 					addEffect(pid, idx, neighbor)
@@ -298,6 +330,10 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 
 	for idx := 0; idx < total; idx++ {
 		tile := &spreadit.Tiles[idx]
+		if tile.Wall {
+			tile.Owner = ""
+			continue
+		}
 		counts := spreadCounts[idx]
 		var best PlayerID
 		bestCount := 0
@@ -322,10 +358,16 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 		}
 	}
 
-	for idx := range spreadit.Tiles {
-		tile := &spreadit.Tiles[idx]
-		if tile.ResourceSpawner && !tile.HasResource {
-			tile.HasResource = true
+	spawnResources := spreadit.Tick == 0 || (spreadit.Tick+1)%spreaditResourceInterval == 0
+	if spawnResources {
+		for idx := range spreadit.Tiles {
+			tile := &spreadit.Tiles[idx]
+			if tile.Wall {
+				continue
+			}
+			if tile.ResourceSpawner && !tile.HasResource {
+				tile.HasResource = true
+			}
 		}
 	}
 
@@ -338,6 +380,10 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 	occupied := make(map[int]bool)
 	for idx := range spreadit.Tiles {
 		tile := &spreadit.Tiles[idx]
+		if tile.Wall {
+			tile.HasResource = false
+			continue
+		}
 		if !tile.HasResource {
 			continue
 		}
@@ -359,6 +405,9 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 			continue
 		}
 		destTile := &spreadit.Tiles[dest]
+		if destTile.Wall {
+			continue
+		}
 		isCoreDestination := destTile.CoreOf == owner
 		if destTile.HasResource && !isCoreDestination {
 			continue
@@ -392,4 +441,50 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 	room.Turn++
 	spreadit.Tick = room.Turn
 	return true
+}
+
+func (gs *GameServer) handleSpreaditDestroyWall(p *Player, row, col int) {
+	room := gs.getRoom(p.roomID)
+	if room == nil {
+		return
+	}
+	room.mu.Lock()
+	if room.GameType != "spreadit" || !room.Started {
+		room.mu.Unlock()
+		return
+	}
+	if room.Spreadit == nil {
+		room.Spreadit = newSpreaditState(spreaditDefaultRows, spreaditDefaultCols)
+	}
+	spreadit := room.Spreadit
+	if row < 0 || row >= spreadit.Rows || col < 0 || col >= spreadit.Cols {
+		room.mu.Unlock()
+		return
+	}
+	idx := spreadit.index(row, col)
+	if idx < 0 || idx >= len(spreadit.Tiles) {
+		room.mu.Unlock()
+		return
+	}
+	tile := &spreadit.Tiles[idx]
+	if !tile.Wall {
+		room.mu.Unlock()
+		return
+	}
+	ps := spreadit.Players[p.ID]
+	if ps == nil || ps.Resources < spreaditWallDestroyCost {
+		room.mu.Unlock()
+		return
+	}
+
+	ps.Resources -= spreaditWallDestroyCost
+	tile.Wall = false
+	tile.HasResource = false
+	tile.Owner = ""
+	if idx >= 0 && idx < len(spreadit.LastSources) {
+		spreadit.LastSources[idx] = nil
+	}
+
+	room.mu.Unlock()
+	gs.broadcastRoom(room)
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { signInWithRedirect } from 'aws-amplify/auth'
 import { createPortal } from 'react-dom'
 import { useAuth } from '../contexts/AuthContext.jsx'
@@ -140,6 +140,7 @@ type SpreaditTileState = {
   coreOf?: string
   hasResource?: boolean
   resourceSpawner?: boolean
+  wall?: boolean
 }
 
 type SpreaditRoomState = {
@@ -221,6 +222,8 @@ type LobbyState = { rooms: LobbyRoom[] }
 type WSOut = { type: string; payload?: any }
 
 type GameMode = 'spaceTrader' | 'spreadit'
+
+const SPREADIT_WALL_DESTROY_COST = 20
 
 function useWS(url: string | null) {
   // WebSocket and connection management refs/state
@@ -1203,6 +1206,7 @@ export function App() {
   // Local floating notifications (e.g., Dock Tax)
   const [toasts, setToasts] = useState<{ id: string; text: string; at: number }[]>([])
   const [discoveryHighlights, setDiscoveryHighlights] = useState<{ name: string; until: number }[]>([])
+  const lastWallWarningRef = useRef<number>(0)
   const knownPlanetsInitializedRef = useRef(false)
   const knownPlanetsRef = useRef<Set<string>>(new Set())
   const handleOrbitPlayerClick = useCallback((player: RoomPlayer) => {
@@ -4359,17 +4363,97 @@ export function App() {
                     const resourceSpawner = Boolean(tile.resourceSpawner)
                     const isYourTile = ownerId !== '' && ownerId === youId
                     const coreHighlight = coreOwnerId !== ''
+                    const isWall = Boolean(tile.wall)
+                    const canAttemptDestroyWall = !preLaunch && isWall
+                    const hasWallResources = yourSpreaditResources >= SPREADIT_WALL_DESTROY_COST
+                    const destroyEnabled = canAttemptDestroyWall && hasWallResources
+                    const tileTitle = canAttemptDestroyWall
+                      ? hasWallResources
+                        ? `Spend ${SPREADIT_WALL_DESTROY_COST} resources to demolish this wall`
+                        : `Need ${SPREADIT_WALL_DESTROY_COST} resources to demolish this wall`
+                      : undefined
+                    const handleTileClick = () => {
+                      if (!canAttemptDestroyWall) return
+                      if (!hasWallResources) {
+                        const nowTs = Date.now()
+                        if (nowTs - lastWallWarningRef.current > 1200) {
+                          const toastId = `wall-short-${row}-${col}-${nowTs}`
+                          setToasts(prev => [...prev, {
+                            id: toastId,
+                            text: `You need ${SPREADIT_WALL_DESTROY_COST} resources to demolish walls.`,
+                            at: nowTs
+                          }])
+                          lastWallWarningRef.current = nowTs
+                        }
+                        return
+                      }
+                      const sent = send('spreaditDestroyWall', { row, col })
+                      if (!sent) {
+                        const nowTs = Date.now()
+                        const toastId = `wall-send-${row}-${col}-${nowTs}`
+                        setToasts(prev => [...prev, {
+                          id: toastId,
+                          text: 'Unable to contact command — demolition aborted.',
+                          at: nowTs
+                        }])
+                      }
+                    }
+                    const handleTileKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault()
+                        handleTileClick()
+                      }
+                    }
                     return (
                       <div
                         key={index}
+                        role={canAttemptDestroyWall ? 'button' : undefined}
+                        tabIndex={canAttemptDestroyWall ? 0 : undefined}
+                        aria-label={canAttemptDestroyWall ? 'Demolish wall tile' : undefined}
+                        title={tileTitle}
+                        onClick={handleTileClick}
+                        onKeyDown={handleTileKeyDown}
                         style={{
                           position: 'relative',
                           borderRight: col === gridCols - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
                           borderBottom: row === gridRows - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
                           background: shade,
-                          overflow: 'hidden'
+                          overflow: 'hidden',
+                          cursor: canAttemptDestroyWall
+                            ? (destroyEnabled ? 'pointer' : 'not-allowed')
+                            : 'default',
+                          transition: 'transform 120ms ease, box-shadow 120ms ease'
                         }}
                       >
+                        {isWall && (
+                          <div
+                            style={{
+                              position: 'absolute',
+                              inset: 3,
+                              borderRadius: 6,
+                              border: destroyEnabled
+                                ? '1px solid rgba(56, 189, 248, 0.75)'
+                                : '1px solid rgba(30, 41, 59, 0.85)',
+                              backgroundImage: 'repeating-linear-gradient(135deg, rgba(148, 163, 184, 0.18) 0px, rgba(148, 163, 184, 0.18) 6px, rgba(30, 41, 59, 0.78) 6px, rgba(30, 41, 59, 0.78) 12px)',
+                              backgroundColor: 'rgba(15, 23, 42, 0.86)',
+                              boxShadow: destroyEnabled
+                                ? '0 0 8px rgba(56, 189, 248, 0.55)'
+                                : '0 0 6px rgba(15, 23, 42, 0.7)',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              color: 'rgba(226, 232, 240, 0.9)',
+                              fontSize: '0.55rem',
+                              fontWeight: 700,
+                              letterSpacing: 1.4,
+                              textTransform: 'uppercase',
+                              opacity: destroyEnabled ? 0.95 : 0.75,
+                              pointerEvents: 'none'
+                            }}
+                          >
+                            Wall
+                          </div>
+                        )}
                         {ownerColor && (
                           <div
                             style={{
@@ -4491,6 +4575,39 @@ export function App() {
                         </div>
                       )
                     })}
+                  </div>
+                )}
+                {!preLaunch && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: isMobile ? 10 : 16,
+                    right: isMobile ? 10 : 18,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                    padding: isMobile ? '9px 12px' : '12px 16px',
+                    borderRadius: 12,
+                    background: 'rgba(15, 23, 42, 0.78)',
+                    border: '1px solid rgba(148, 163, 184, 0.3)',
+                    color: 'rgba(226, 232, 240, 0.88)',
+                    boxShadow: '0 18px 36px -24px rgba(15, 23, 42, 0.9)',
+                    maxWidth: isMobile ? '76%' : '42%',
+                    pointerEvents: 'none'
+                  }}>
+                    <strong style={{
+                      color: '#fbbf24',
+                      fontSize: isMobile ? shrinkFont(12) : '0.75rem',
+                      letterSpacing: 0.8,
+                      textTransform: 'uppercase'
+                    }}>
+                      Walls in play
+                    </strong>
+                    <span style={{
+                      fontSize: isMobile ? shrinkFont(12) : '0.78rem',
+                      lineHeight: 1.35
+                    }}>
+                      Walls block spread. Click one to spend <span style={{ color: '#38bdf8', fontWeight: 600 }}>{SPREADIT_WALL_DESTROY_COST} ⚡</span> and clear the tile.
+                    </span>
                   </div>
                 )}
                 {preLaunch && (
