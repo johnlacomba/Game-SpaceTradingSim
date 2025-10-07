@@ -2231,6 +2231,9 @@ export function App() {
   // Compute planet center positions from server data, with a stable fallback
   useEffect(() => {
     if (!room) return
+    if ((room.room as any)?.gameType === 'spreadit') {
+      return
+    }
     const container = planetsContainerRef.current
     if (container) {
       const rect = container.getBoundingClientRect()
