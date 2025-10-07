@@ -574,19 +574,25 @@ function WealthPieChart({ players, isMobile }: { players: any[], isMobile: boole
   }
 
   // Calculate wealth for all players
-  const playerWealth = players.map(player => {
-    const wealth = calculatePlayerWealth(player)
-    return {
-      id: player.id,
-      name: player.name,
-      ...wealth,
-      color: (() => {
-        let h = 0
-        for (let i = 0; i < player.id.length; i++) h = (h * 31 + player.id.charCodeAt(i)) % 360
-        return `hsl(${h},70%,45%)`
-      })()
-    }
-  }).filter(p => p.total > 0) // Only include players with wealth
+  const playerWealth = players
+    .map(player => {
+      const idRaw = player?.id
+      const id = typeof idRaw === 'string' && idRaw.length > 0
+        ? idRaw
+        : (idRaw != null ? String(idRaw) : 'unknown')
+      const wealth = calculatePlayerWealth(player)
+      return {
+        id,
+        name: player?.name ?? 'Commander',
+        ...wealth,
+        color: (() => {
+          let h = 0
+          for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) % 360
+          return `hsl(${h},70%,45%)`
+        })()
+      }
+    })
+    .filter(p => p.total > 0) // Only include players with wealth
 
   if (playerWealth.length === 0) {
     return <div>No wealth data available.</div>
