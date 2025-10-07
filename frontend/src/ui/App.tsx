@@ -1077,8 +1077,7 @@ export function App() {
   const [gameMode, setGameMode] = useState<GameMode>('spaceTrader')
   const [showGameModeModal, setShowGameModeModal] = useState(false)
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
-  const [spreaditPlayersOpen, setSpreaditPlayersOpen] = useState(false)
-  const [spreaditMapOpen, setSpreaditMapOpen] = useState(false)
+  const [spreaditTab, setSpreaditTab] = useState<'map' | 'players'>('map')
   const spreaditRoomInitRef = useRef<string | null>(null)
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
@@ -1942,15 +1941,14 @@ export function App() {
 
   useEffect(() => {
     if (stage !== 'room' || room?.room?.gameType !== 'spreadit') {
-      setSpreaditPlayersOpen(false)
-      setSpreaditMapOpen(false)
       spreaditRoomInitRef.current = null
+      setSpreaditTab('map')
       return
     }
     const currentId = room?.room?.id ?? null
     if (currentId && spreaditRoomInitRef.current !== currentId) {
       spreaditRoomInitRef.current = currentId
-      setSpreaditMapOpen(true)
+      setSpreaditTab('map')
     }
   }, [room?.room?.gameType, room?.room?.id, stage])
 
@@ -4175,52 +4173,38 @@ export function App() {
               flexWrap: isMobile ? 'wrap' : 'nowrap'
             }}>
               <button
-                onClick={() => {
-                  setSpreaditMapOpen(prev => {
-                    const next = !prev
-                    if (next) {
-                      setSpreaditPlayersOpen(false)
-                    }
-                    return next
-                  })
-                }}
-                aria-pressed={spreaditMapOpen}
+                onClick={() => setSpreaditTab('map')}
+                aria-pressed={spreaditTab === 'map'}
                 style={{
                   padding: isMobile ? '10px 16px' : '8px 14px',
                   borderRadius: 8,
                   border: '1px solid rgba(148, 163, 184, 0.35)',
-                  background: spreaditMapOpen ? 'rgba(96, 165, 250, 0.28)' : 'rgba(59, 130, 246, 0.16)',
+                  background: spreaditTab === 'map' ? 'rgba(96, 165, 250, 0.28)' : 'rgba(59, 130, 246, 0.16)',
                   color: 'rgba(191, 219, 254, 0.95)',
                   fontSize: isMobile ? shrinkFont(14) : '0.9rem',
                   fontWeight: 600,
-                  minHeight: isMobile ? 40 : 'auto'
+                  minHeight: isMobile ? 40 : 'auto',
+                  boxShadow: spreaditTab === 'map' ? '0 0 0 1px rgba(147, 197, 253, 0.3)' : 'none'
                 }}
               >
-                Map Menu
+                Map
               </button>
               <button
-                onClick={() => {
-                  setSpreaditPlayersOpen(prev => {
-                    const next = !prev
-                    if (next) {
-                      setSpreaditMapOpen(false)
-                    }
-                    return next
-                  })
-                }}
-                aria-pressed={spreaditPlayersOpen}
+                onClick={() => setSpreaditTab('players')}
+                aria-pressed={spreaditTab === 'players'}
                 style={{
                   padding: isMobile ? '10px 16px' : '8px 14px',
                   borderRadius: 8,
                   border: '1px solid rgba(148, 163, 184, 0.35)',
-                  background: spreaditPlayersOpen ? 'rgba(147, 197, 253, 0.28)' : 'rgba(59, 130, 246, 0.18)',
+                  background: spreaditTab === 'players' ? 'rgba(147, 197, 253, 0.28)' : 'rgba(59, 130, 246, 0.18)',
                   color: 'rgba(191, 219, 254, 0.95)',
                   fontSize: isMobile ? shrinkFont(14) : '0.9rem',
                   fontWeight: 600,
-                  minHeight: isMobile ? 40 : 'auto'
+                  minHeight: isMobile ? 40 : 'auto',
+                  boxShadow: spreaditTab === 'players' ? '0 0 0 1px rgba(191, 219, 254, 0.25)' : 'none'
                 }}
               >
-                Players Menu ({playersList.length})
+                Players ({playersList.length})
               </button>
               <button
                 onClick={() => send('setReady', { ready: !youReady })}
@@ -4255,207 +4239,251 @@ export function App() {
               </button>
             </div>
           </div>
-          {spreaditPlayersOpen && (
-            <div
-              style={{
-                position: 'absolute',
-                top: isMobile ? 'calc(100% + 12px)' : 'calc(100% + 10px)',
-                right: isMobile ? 12 : 24,
-                background: 'rgba(15, 23, 42, 0.96)',
-                border: '1px solid rgba(148, 163, 184, 0.35)',
-                borderRadius: 12,
-                padding: isMobile ? 12 : 16,
-                minWidth: isMobile ? 'calc(100% - 48px)' : 260,
-                boxShadow: '0 20px 45px -25px rgba(2, 6, 23, 0.75)',
-                zIndex: 5
-              }}
-            >
-              <div style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 8
-              }}>
-                <span style={{ fontWeight: 600, color: 'white', fontSize: isMobile ? shrinkFont(15) : '0.95rem' }}>Players</span>
-                <span style={{ fontSize: isMobile ? shrinkFont(12) : '0.8rem', color: 'rgba(148, 163, 184, 0.75)' }}>
-                  {readyCount}/{playersList.length} ready
-                </span>
-              </div>
-              {playersList.length === 0 ? (
-                <div style={{
-                  padding: isMobile ? 10 : 12,
-                  borderRadius: 8,
-                  background: 'rgba(30, 41, 59, 0.6)',
-                  color: 'rgba(148, 163, 184, 0.8)',
-                  fontSize: isMobile ? shrinkFont(13) : '0.85rem'
-                }}>
-                  No commanders are docked yet.
-                </div>
-              ) : (
-                <ul style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: 0,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: isMobile ? 8 : 10
-                }}>
-                  {playersList.map(player => (
-                    <li
-                      key={player.id}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 12,
-                        padding: isMobile ? '6px 8px' : '6px 10px',
-                        borderRadius: 8,
-                        background: 'rgba(30, 41, 59, 0.45)',
-                        border: '1px solid rgba(71, 85, 105, 0.4)'
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{
-                          width: 10,
-                          height: 10,
-                          borderRadius: '50%',
-                          background: player.ready ? '#34d399' : '#f87171'
-                        }} />
-                        <span style={{ color: 'rgba(226, 232, 240, 0.92)', fontWeight: 500, fontSize: isMobile ? shrinkFont(14) : '0.95rem' }}>
-                          {player.name || 'Commander'}
-                        </span>
-                      </div>
-                      <span style={{
-                        fontSize: isMobile ? shrinkFont(12) : '0.8rem',
-                        color: player.ready ? '#34d399' : 'rgba(148, 163, 184, 0.75)'
-                      }}>
-                        {player.ready ? 'Ready' : 'Not Ready'}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
         </div>
         <div style={{
           flex: '1 1 auto',
           position: 'relative',
-          padding: isMobile ? 16 : 24
+          padding: isMobile ? 16 : 24,
+          display: 'flex',
+          flexDirection: 'column'
         }}>
-          {spreaditMapOpen ? (
+          {spreaditTab === 'map' ? (
             <div style={{
-              position: 'relative',
-              borderRadius: isMobile ? 16 : 20,
-              border: '1px solid rgba(148, 163, 184, 0.35)',
-              background: 'linear-gradient(160deg, rgba(30, 41, 59, 0.88), rgba(17, 24, 39, 0.95))',
-              overflow: 'hidden',
-              minHeight: isMobile ? 320 : 520,
-              boxShadow: '0 34px 60px -30px rgba(15, 23, 42, 0.68)'
+              flex: '1 1 auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
               <div style={{
-                position: 'absolute',
-                inset: 0,
-                opacity: 0.2,
-                background: 'radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.25), transparent 55%), radial-gradient(circle at 80% 30%, rgba(129, 199, 212, 0.18), transparent 60%)'
-              }} />
-              <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+                position: 'relative',
+                width: '100%',
+                maxWidth: isMobile ? '100%' : 960,
+                aspectRatio: `${gridCols} / ${gridRows}`,
+                borderRadius: isMobile ? 18 : 22,
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                background: 'linear-gradient(160deg, rgba(30, 41, 59, 0.92), rgba(17, 24, 39, 0.98))',
+                boxShadow: '0 32px 68px -34px rgba(15, 23, 42, 0.7)',
+                overflow: 'hidden'
+              }}>
                 <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
-                  gridAutoRows: 'minmax(0, 1fr)',
-                  gap: 1,
+                  position: 'absolute',
+                  inset: 0,
+                  background: 'radial-gradient(circle at 18% 22%, rgba(94, 234, 212, 0.08), transparent 60%), radial-gradient(circle at 82% 28%, rgba(147, 197, 253, 0.12), transparent 65%)',
+                  opacity: 0.8
+                }} />
+                <div style={{
+                  position: 'relative',
+                  inset: 0,
                   width: '100%',
-                  height: '100%'
+                  height: '100%',
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(${gridCols}, 1fr)`,
+                  gridTemplateRows: `repeat(${gridRows}, 1fr)`
                 }}>
                   {gridCells.map(index => {
                     const row = Math.floor(index / gridCols)
                     const col = index % gridCols
-                    const pattern = (row + col) % 4
-                    const baseOpacity = pattern === 0 ? 0.22 : pattern === 1 ? 0.16 : pattern === 2 ? 0.12 : 0.08
+                    const shade = (row + col) % 2 === 0 ? 'rgba(148, 163, 184, 0.12)' : 'rgba(71, 85, 105, 0.18)'
                     return (
                       <div
                         key={index}
                         style={{
-                          background: `rgba(96, 165, 250, ${baseOpacity})`,
-                          borderRadius: 4,
-                          border: '1px solid rgba(148, 163, 184, 0.12)',
-                          boxShadow: pattern === 0 ? 'inset 0 0 6px rgba(15, 23, 42, 0.4)' : 'none'
+                          borderRight: col === gridCols - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
+                          borderBottom: row === gridRows - 1 ? 'none' : '1px solid rgba(148, 163, 184, 0.22)',
+                          background: shade
                         }}
                       />
                     )
                   })}
                 </div>
-              </div>
-              {preLaunch && (
-                <div style={{
-                  position: 'absolute',
-                  inset: 0,
-                  zIndex: 2,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  gap: isMobile ? 12 : 18,
-                  background: 'rgba(10, 14, 29, 0.72)',
-                  backdropFilter: 'blur(1.8px)',
-                  padding: isMobile ? 16 : 24
-                }}>
-                  <button
-                    onClick={startGame}
-                    disabled={!readyToStartSpreadit}
-                    title={readyToStartSpreadit ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
-                    style={{
-                      padding: isMobile ? '18px 34px' : '18px 44px',
-                      fontSize: isMobile ? shrinkFont(22) : '1.15rem',
-                      fontWeight: 700,
-                      borderRadius: 999,
-                      border: readyToStartSpreadit ? '1px solid rgba(21, 128, 61, 0.75)' : '1px solid rgba(148,163,184,0.45)',
-                      color: readyToStartSpreadit ? '#052e16' : 'rgba(226,232,240,0.9)',
-                      background: readyToStartSpreadit
-                        ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 40%, #16a34a 100%)'
-                        : 'linear-gradient(135deg, rgba(148,163,184,0.65) 0%, rgba(71,85,105,0.82) 100%)',
-                      cursor: readyToStartSpreadit ? 'pointer' : 'not-allowed',
-                      boxShadow: readyToStartSpreadit ? '0 16px 32px rgba(34,197,94,0.45)' : '0 10px 26px rgba(15,23,42,0.55)',
-                      transition: 'transform 160ms ease, box-shadow 160ms ease',
-                      animation: readyToStartSpreadit ? 'readyPulse 1.6s ease-in-out infinite' : 'none'
-                    }}
-                  >
-                    Start Game
-                  </button>
-                  <span style={{
-                    fontSize: isMobile ? shrinkFont(16) : '1rem',
-                    color: 'rgba(226,232,240,0.88)',
-                    textAlign: 'center',
-                    maxWidth: 420,
-                    lineHeight: 1.45
+                {preLaunch && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    zIndex: 2,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    gap: isMobile ? 12 : 18,
+                    background: 'rgba(10, 14, 29, 0.72)',
+                    backdropFilter: 'blur(1.8px)',
+                    padding: isMobile ? 16 : 24
                   }}>
-                    {readyToStartSpreadit
-                      ? 'All commanders are ready. Launch when you are!'
-                      : 'Waiting for every commander to ready up. The tactical grid unlocks once the mission begins.'}
-                  </span>
-                </div>
-              )}
+                    <button
+                      onClick={startGame}
+                      disabled={!readyToStartSpreadit}
+                      title={readyToStartSpreadit ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
+                      style={{
+                        padding: isMobile ? '18px 34px' : '18px 44px',
+                        fontSize: isMobile ? shrinkFont(22) : '1.15rem',
+                        fontWeight: 700,
+                        borderRadius: 999,
+                        border: readyToStartSpreadit ? '1px solid rgba(21, 128, 61, 0.75)' : '1px solid rgba(148,163,184,0.45)',
+                        color: readyToStartSpreadit ? '#052e16' : 'rgba(226,232,240,0.9)',
+                        background: readyToStartSpreadit
+                          ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 40%, #16a34a 100%)'
+                          : 'linear-gradient(135deg, rgba(148,163,184,0.65) 0%, rgba(71,85,105,0.82) 100%)',
+                        cursor: readyToStartSpreadit ? 'pointer' : 'not-allowed',
+                        boxShadow: readyToStartSpreadit ? '0 16px 32px rgba(34,197,94,0.45)' : '0 10px 26px rgba(15,23,42,0.55)',
+                        transition: 'transform 160ms ease, box-shadow 160ms ease',
+                        animation: readyToStartSpreadit ? 'readyPulse 1.6s ease-in-out infinite' : 'none'
+                      }}
+                    >
+                      Start Game
+                    </button>
+                    <span style={{
+                      fontSize: isMobile ? shrinkFont(16) : '1rem',
+                      color: 'rgba(226,232,240,0.88)',
+                      textAlign: 'center',
+                      maxWidth: 420,
+                      lineHeight: 1.45
+                    }}>
+                      {readyToStartSpreadit
+                        ? 'All commanders are ready. Launch when you are!'
+                        : 'Waiting for every commander to ready up. The tactical grid unlocks once the mission begins.'}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{
-              borderRadius: isMobile ? 16 : 20,
-              border: '1px solid rgba(148, 163, 184, 0.35)',
-              background: 'linear-gradient(160deg, rgba(30, 41, 59, 0.78), rgba(17, 24, 39, 0.92))',
-              minHeight: isMobile ? 280 : 420,
+              flex: '1 1 auto',
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              textAlign: 'center',
-              padding: isMobile ? 24 : 32,
-              color: 'rgba(191, 219, 254, 0.9)',
-              boxShadow: '0 24px 50px -28px rgba(15, 23, 42, 0.6)'
+              flexDirection: 'column',
+              gap: isMobile ? 12 : 16
             }}>
-              <div style={{ maxWidth: 420 }}>
-                <h3 style={{ margin: 0, fontSize: isMobile ? shrinkFont(20) : '1.25rem', fontWeight: 600 }}>Map closed</h3>
-                <p style={{ marginTop: 12, fontSize: isMobile ? shrinkFont(16) : '1rem', lineHeight: 1.5 }}>
-                  Open the Map Menu to inspect the Spreadit tactical grid. Gameplay is still under construction, so feel free to explore the layout and coordinate with your crew.
-                </p>
+              <div style={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                alignItems: isMobile ? 'stretch' : 'center',
+                justifyContent: 'space-between',
+                gap: isMobile ? 12 : 16,
+                background: 'rgba(15, 23, 42, 0.78)',
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                borderRadius: isMobile ? 14 : 16,
+                padding: isMobile ? 16 : 20,
+                boxShadow: '0 24px 50px -36px rgba(15, 23, 42, 0.55)'
+              }}>
+                <div style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 6,
+                  color: 'rgba(226, 232, 240, 0.92)'
+                }}>
+                  <span style={{ fontSize: isMobile ? shrinkFont(16) : '1.05rem', fontWeight: 600 }}>Crew Roster</span>
+                  <span style={{ fontSize: isMobile ? shrinkFont(14) : '0.95rem', color: 'rgba(148, 163, 184, 0.85)' }}>
+                    {playersList.length === 0
+                      ? 'No commanders have joined this Spreadit session yet.'
+                      : `${readyCount} of ${playersList.length} commanders are marked ready.`}
+                  </span>
+                </div>
+                <button
+                  onClick={startGame}
+                  disabled={!readyToStartSpreadit}
+                  title={readyToStartSpreadit ? 'All players ready — launch mission' : 'Waiting for every commander to ready up'}
+                  style={{
+                    padding: isMobile ? '14px 26px' : '12px 28px',
+                    fontSize: isMobile ? shrinkFont(16) : '1rem',
+                    fontWeight: 650,
+                    borderRadius: 999,
+                    border: readyToStartSpreadit ? '1px solid rgba(21, 128, 61, 0.75)' : '1px solid rgba(148,163,184,0.35)',
+                    color: readyToStartSpreadit ? '#052e16' : 'rgba(226,232,240,0.88)',
+                    background: readyToStartSpreadit
+                      ? 'linear-gradient(135deg, #bbf7d0 0%, #22c55e 40%, #16a34a 100%)'
+                      : 'linear-gradient(135deg, rgba(148,163,184,0.3) 0%, rgba(71,85,105,0.6) 100%)',
+                    cursor: readyToStartSpreadit ? 'pointer' : 'not-allowed',
+                    boxShadow: readyToStartSpreadit ? '0 10px 24px rgba(34,197,94,0.35)' : 'none'
+                  }}
+                >
+                  Start Game
+                </button>
+              </div>
+              <div style={{
+                flex: '1 1 auto',
+                minHeight: 0,
+                background: 'rgba(15, 23, 42, 0.82)',
+                border: '1px solid rgba(148, 163, 184, 0.28)',
+                borderRadius: isMobile ? 14 : 16,
+                padding: isMobile ? 12 : 16,
+                overflowY: 'auto'
+              }}>
+                {playersList.length === 0 ? (
+                  <div style={{
+                    color: 'rgba(148, 163, 184, 0.8)',
+                    textAlign: 'center',
+                    padding: isMobile ? 24 : 32,
+                    fontSize: isMobile ? shrinkFont(15) : '0.95rem'
+                  }}>
+                    Awaiting commanders. Share the room link to invite your crew.
+                  </div>
+                ) : (
+                  <ul style={{
+                    listStyle: 'none',
+                    padding: 0,
+                    margin: 0,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: isMobile ? 10 : 12
+                  }}>
+                    {playersList.map(player => (
+                      <li
+                        key={player.id}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: isMobile
+                            ? 'auto 1fr auto'
+                            : 'auto minmax(0,1fr) auto',
+                          alignItems: 'center',
+                          gap: isMobile ? 10 : 14,
+                          padding: isMobile ? '12px 10px' : '12px 14px',
+                          borderRadius: 10,
+                          background: 'rgba(30, 41, 59, 0.72)',
+                          border: '1px solid rgba(71, 85, 105, 0.45)'
+                        }}
+                      >
+                        <span
+                          title={player.ready ? 'Ready' : 'Not Ready'}
+                          style={{
+                            width: 12,
+                            height: 12,
+                            borderRadius: 6,
+                            background: player.ready ? '#34d399' : '#f87171',
+                            boxShadow: `0 0 10px ${player.ready ? 'rgba(52,211,153,0.45)' : 'rgba(248,113,113,0.35)'}`
+                          }}
+                        />
+                        <div style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          gap: 4
+                        }}>
+                          <span style={{
+                            color: 'rgba(226, 232, 240, 0.95)',
+                            fontWeight: 600,
+                            fontSize: isMobile ? shrinkFont(15) : '1rem'
+                          }}>
+                            {player.name || 'Commander'}
+                          </span>
+                          <span style={{
+                            color: 'rgba(148, 163, 184, 0.78)',
+                            fontSize: isMobile ? shrinkFont(13) : '0.9rem'
+                          }}>
+                            {player.isBot ? 'Automation Pilot' : 'Human Pilot'}
+                          </span>
+                        </div>
+                        <span style={{
+                          justifySelf: 'flex-end',
+                          fontSize: isMobile ? shrinkFont(13) : '0.9rem',
+                          fontWeight: 600,
+                          color: player.ready ? '#34d399' : 'rgba(148, 163, 184, 0.75)'
+                        }}>
+                          {player.ready ? 'Ready' : 'Not Ready'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </div>
           )}
