@@ -24,7 +24,6 @@ function useIsMobile() {
       const isMobileDevice = width <= 768 || mobileRegex.test(userAgent)
       setIsMobile(isMobileDevice)
     }
-    
     checkMobile()
     window.addEventListener('resize', checkMobile)
     return () => window.removeEventListener('resize', checkMobile)
@@ -57,6 +56,16 @@ const formatRelativeTime = (timestamp: number) => {
   return `${days}d ago`
 }
 
+const formatDuration = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
+  const total = Math.floor(seconds)
+  const mins = Math.floor(total / 60)
+  const secs = total % 60
+  const mm = mins.toString().padStart(2, '0')
+  const ss = secs.toString().padStart(2, '0')
+  return `${mm}:${ss}`
+}
+
 // Simple client that manages ws and state machine: title -> lobby -> room -> game
 
 type LobbyRoom = {
@@ -68,6 +77,7 @@ type LobbyRoom = {
   private?: boolean
   paused?: boolean
   creatorId?: string
+  gameType?: string
 }
 
 type RoomPlayer = {
@@ -110,6 +120,14 @@ type MapViewState = {
   zoom: number
 }
 
+type SpreaditRoomState = {
+  rows?: number
+  cols?: number
+  createdAt?: number
+  startedAt?: number
+  elapsedSeconds?: number
+}
+
 type RoomState = {
   room: {
     id: string
@@ -127,6 +145,7 @@ type RoomState = {
     allReady?: boolean
     turnEndsAt?: number
     news?: { headline: string; planet: string; turnsRemaining: number }[]
+    gameType?: string
   }
   you: {
     id: string
@@ -163,6 +182,7 @@ type RoomState = {
     knownPlanets?: string[]
   }
   visiblePlanet: { name: string; goods: Record<string, number>; prices: Record<string, number>; priceRanges?: Record<string, [number, number]>; fuelPrice?: number } | {}
+  spreadit?: SpreaditRoomState
 }
 
 type LobbyState = { rooms: LobbyRoom[] }
@@ -1051,6 +1071,7 @@ export function App() {
   const [gameMode, setGameMode] = useState<GameMode>('spaceTrader')
   const [showGameModeModal, setShowGameModeModal] = useState(false)
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
+  const [spreaditPlayersOpen, setSpreaditPlayersOpen] = useState(false)
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
   const exitingRoomRef = useRef<string | null>(null)
@@ -1912,6 +1933,12 @@ export function App() {
   }, [stage])
 
   useEffect(() => {
+    if (stage !== 'room' || room?.room?.gameType !== 'spreadit') {
+      setSpreaditPlayersOpen(false)
+    }
+  }, [room?.room?.gameType, stage])
+
+  useEffect(() => {
     const list = room?.you?.knownPlanets
     if (!Array.isArray(list)) return
     const normalized = list
@@ -2048,7 +2075,8 @@ export function App() {
     if (singleplayerMode) {
       payload.singleplayer = true
     }
-    payload.mode = gameMode
+  payload.gameType = gameMode
+  payload.mode = gameMode
     const previous = allowRoomStateRef.current
     allowRoomStateRef.current = true
     const ok = send('createRoom', Object.keys(payload).length ? payload : undefined)
@@ -3876,130 +3904,145 @@ export function App() {
                     overflowY: 'auto',
                     paddingRight: 8
                   }}>
-                    {lobby.rooms.map(r => (
-                      <div 
-                        key={r.id}
-                        style={{
-                          background: 'rgba(255, 255, 255, 0.05)',
-                          border: '1px solid rgba(255, 255, 255, 0.1)',
-                          borderRadius: isMobile ? 12 : 14,
-                          padding: isMobile ? 16 : 20,
-                          transition: 'all 0.3s ease',
-                          cursor: 'pointer'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
-                          e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.3)'
-                          e.currentTarget.style.transform = 'translateY(-2px)'
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                          e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                          e.currentTarget.style.transform = 'translateY(0)'
-                        }}
-                        onClick={() => joinRoom(r.id)}
-                      >
-                        <div style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: isMobile ? 'flex-start' : 'center',
-                          flexDirection: isMobile ? 'column' : 'row',
-                          gap: isMobile ? 8 : 16
-                        }}>
-                          <div style={{ flex: 1 }}>
-                            <h4 style={{
-                              fontSize: isMobile ? '1.1rem' : '1.2rem',
-                              margin: '0 0 8px 0',
-                              color: 'white',
-                              fontWeight: 600
-                            }}>
-                              {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
-                              {r.name}
-                            </h4>
-                            <div style={{
-                              display: 'flex',
-                              flexWrap: 'wrap',
-                              gap: isMobile ? 8 : 12,
-                              fontSize: isMobile ? '0.85rem' : '0.9rem',
-                              color: 'rgba(255, 255, 255, 0.6)'
-                            }}>
-                              <span style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 4
+                    {lobby.rooms.map(r => {
+                      const gameType = (r.gameType ?? 'spaceTrader') as string
+                      const isSpreadit = gameType === 'spreadit'
+                      const gameTypeLabel = isSpreadit ? 'SPREADIT' : 'SPACE TRADER'
+                      const gameTagStyles: CSSProperties = {
+                        padding: isMobile ? '6px 12px' : '4px 8px',
+                        fontSize: isMobile ? '0.75rem' : '0.7rem',
+                        fontWeight: 600,
+                        borderRadius: 20,
+                        background: isSpreadit ? 'rgba(251, 191, 36, 0.18)' : 'rgba(96, 165, 250, 0.18)',
+                        color: isSpreadit ? '#fbbf24' : '#60a5fa',
+                        border: `1px solid ${isSpreadit ? 'rgba(251, 191, 36, 0.35)' : 'rgba(96, 165, 250, 0.35)'}`
+                      }
+                      return (
+                        <div 
+                          key={r.id}
+                          style={{
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: isMobile ? 12 : 14,
+                            padding: isMobile ? 16 : 20,
+                            transition: 'all 0.3s ease',
+                            cursor: 'pointer'
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
+                            e.currentTarget.style.borderColor = 'rgba(102, 126, 234, 0.3)'
+                            e.currentTarget.style.transform = 'translateY(-2px)'
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                            e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
+                            e.currentTarget.style.transform = 'translateY(0)'
+                          }}
+                          onClick={() => joinRoom(r.id)}
+                        >
+                          <div style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: isMobile ? 'flex-start' : 'center',
+                            flexDirection: isMobile ? 'column' : 'row',
+                            gap: isMobile ? 8 : 16
+                          }}>
+                            <div style={{ flex: 1 }}>
+                              <h4 style={{
+                                fontSize: isMobile ? '1.1rem' : '1.2rem',
+                                margin: '0 0 8px 0',
+                                color: 'white',
+                                fontWeight: 600
                               }}>
-                                <span style={{ fontSize: '1rem' }}>👥</span>
-                                {r.playerCount} commanders
-                              </span>
-                              {r.started && (
+                                {r.private && <span style={{ marginRight: 6 }} aria-hidden="true">🔒</span>}
+                                {r.name}
+                              </h4>
+                              <div style={{
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: isMobile ? 8 : 12,
+                                fontSize: isMobile ? '0.85rem' : '0.9rem',
+                                color: 'rgba(255, 255, 255, 0.6)'
+                              }}>
                                 <span style={{
                                   display: 'flex',
                                   alignItems: 'center',
-                                  gap: 4,
-                                  color: '#10b981'
+                                  gap: 4
                                 }}>
-                                  <span style={{ fontSize: '1rem' }}>🎯</span>
-                                  Turn {r.turn ?? 0}
+                                  <span style={{ fontSize: '1rem' }}>👥</span>
+                                  {r.playerCount} commanders
+                                </span>
+                                {r.started && (
+                                  <span style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    color: '#10b981'
+                                  }}>
+                                    <span style={{ fontSize: '1rem' }}>🎯</span>
+                                    Turn {r.turn ?? 0}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 8
+                            }}>
+                              <span style={gameTagStyles}>{gameTypeLabel}</span>
+                              {r.private && (
+                                <span style={{
+                                  padding: isMobile ? '6px 12px' : '4px 8px',
+                                  fontSize: isMobile ? '0.75rem' : '0.7rem',
+                                  fontWeight: 600,
+                                  borderRadius: 20,
+                                  background: 'rgba(167, 139, 250, 0.2)',
+                                  color: '#a855f7',
+                                  border: '1px solid rgba(167, 139, 250, 0.35)'
+                                }}>
+                                  PRIVATE
                                 </span>
                               )}
+                              {r.paused && (
+                                <span style={{
+                                  padding: isMobile ? '6px 12px' : '4px 8px',
+                                  fontSize: isMobile ? '0.75rem' : '0.7rem',
+                                  fontWeight: 600,
+                                  borderRadius: 20,
+                                  background: 'rgba(251, 191, 36, 0.2)',
+                                  color: '#fbbf24',
+                                  border: '1px solid rgba(251, 191, 36, 0.35)'
+                                }}>
+                                  PAUSED
+                                </span>
+                              )}
+                              <span style={{
+                                padding: isMobile ? '6px 12px' : '4px 8px',
+                                fontSize: isMobile ? '0.75rem' : '0.7rem',
+                                fontWeight: 600,
+                                borderRadius: 20,
+                                background: r.started 
+                                  ? 'rgba(16, 185, 129, 0.2)' 
+                                  : 'rgba(59, 130, 246, 0.2)',
+                                color: r.started ? '#10b981' : '#3b82f6',
+                                border: `1px solid ${r.started 
+                                  ? 'rgba(16, 185, 129, 0.3)' 
+                                  : 'rgba(59, 130, 246, 0.3)'}`
+                              }}>
+                                {r.started ? 'IN PROGRESS' : 'RECRUITING'}
+                              </span>
+                              <span style={{ 
+                                fontSize: isMobile ? '1.2rem' : '1.5rem',
+                                opacity: 0.6
+                              }}>
+                                →
+                              </span>
                             </div>
                           </div>
-                          <div style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8
-                          }}>
-                            {r.private && (
-                              <span style={{
-                                padding: isMobile ? '6px 12px' : '4px 8px',
-                                fontSize: isMobile ? '0.75rem' : '0.7rem',
-                                fontWeight: 600,
-                                borderRadius: 20,
-                                background: 'rgba(167, 139, 250, 0.2)',
-                                color: '#a855f7',
-                                border: '1px solid rgba(167, 139, 250, 0.35)'
-                              }}>
-                                PRIVATE
-                              </span>
-                            )}
-                            {r.paused && (
-                              <span style={{
-                                padding: isMobile ? '6px 12px' : '4px 8px',
-                                fontSize: isMobile ? '0.75rem' : '0.7rem',
-                                fontWeight: 600,
-                                borderRadius: 20,
-                                background: 'rgba(251, 191, 36, 0.2)',
-                                color: '#fbbf24',
-                                border: '1px solid rgba(251, 191, 36, 0.35)'
-                              }}>
-                                PAUSED
-                              </span>
-                            )}
-                            <span style={{
-                              padding: isMobile ? '6px 12px' : '4px 8px',
-                              fontSize: isMobile ? '0.75rem' : '0.7rem',
-                              fontWeight: 600,
-                              borderRadius: 20,
-                              background: r.started 
-                                ? 'rgba(16, 185, 129, 0.2)' 
-                                : 'rgba(59, 130, 246, 0.2)',
-                              color: r.started ? '#10b981' : '#3b82f6',
-                              border: `1px solid ${r.started 
-                                ? 'rgba(16, 185, 129, 0.3)' 
-                                : 'rgba(59, 130, 246, 0.3)'}`
-                            }}>
-                              {r.started ? 'IN PROGRESS' : 'RECRUITING'}
-                            </span>
-                            <span style={{ 
-                              fontSize: isMobile ? '1.2rem' : '1.5rem',
-                              opacity: 0.6
-                            }}>
-                              →
-                            </span>
-                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -4031,6 +4074,324 @@ export function App() {
   }
 
   const r = room!
+  const isSpreaditRoom = r?.room?.gameType === 'spreadit'
+
+  if (isSpreaditRoom) {
+    const spreaditInfo = r.spreadit || {}
+    const gridRows = typeof spreaditInfo.rows === 'number' && spreaditInfo.rows > 0 ? spreaditInfo.rows : 12
+    const gridCols = typeof spreaditInfo.cols === 'number' && spreaditInfo.cols > 0 ? spreaditInfo.cols : 20
+    const startedAt = typeof spreaditInfo.startedAt === 'number' ? spreaditInfo.startedAt : 0
+    const elapsedFromServer = typeof spreaditInfo.elapsedSeconds === 'number' ? spreaditInfo.elapsedSeconds : 0
+    let computedElapsed = elapsedFromServer
+    if (r.room.started && startedAt > 0) {
+      computedElapsed = Math.max(elapsedFromServer, Math.floor((now - startedAt) / 1000))
+    }
+    const gameTimeDisplay = r.room.started ? formatDuration(computedElapsed) : '--:--'
+    const playersList: Array<{ id: string; name: string; ready?: boolean; isBot?: boolean }> = Array.isArray(r.room.players)
+      ? (r.room.players as any[])
+      : []
+    const readyCount = playersList.filter(pl => pl?.ready).length
+    const readyToStartSpreadit = Boolean(r.room.allReady)
+    const youReady = Boolean(r.you.ready)
+    const preLaunch = !r.room.started
+    const gridCells = Array.from({ length: gridRows * gridCols }, (_, index) => index)
+
+    return (
+      <div style={{
+        overflowX: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0f1419 0%, #111827 55%, #1f2937 100%)'
+      }}>
+        <div style={{
+          borderBottom: '1px solid rgba(148, 163, 184, 0.28)',
+          padding: isMobile ? '12px 16px' : '16px 24px',
+          position: 'relative',
+          zIndex: 2
+        }}>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: isMobile ? 'wrap' : 'nowrap',
+            gap: isMobile ? 12 : 16
+          }}>
+            <div style={{
+              display: 'flex',
+              flexDirection: isMobile ? 'column' : 'row',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              gap: isMobile ? 6 : 12
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <strong className="glow" style={{ fontSize: isMobile ? shrinkFont(18) : '1.1rem' }}>{r.room.name}</strong>
+                <span style={{
+                  padding: '4px 10px',
+                  borderRadius: 999,
+                  background: 'rgba(251, 191, 36, 0.18)',
+                  border: '1px solid rgba(251, 191, 36, 0.35)',
+                  color: '#fbbf24',
+                  fontSize: isMobile ? '0.7rem' : '0.75rem',
+                  fontWeight: 700,
+                  letterSpacing: 0.6
+                }}>
+                  SPREADIT
+                </span>
+              </div>
+              <span style={{
+                color: 'rgba(226, 232, 240, 0.75)',
+                fontSize: isMobile ? shrinkFont(13) : '0.9rem'
+              }}>
+                Game Time: <strong>{gameTimeDisplay}</strong>
+              </span>
+            </div>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: isMobile ? 8 : 12,
+              flexWrap: isMobile ? 'wrap' : 'nowrap'
+            }}>
+              <button
+                onClick={() => setSpreaditPlayersOpen(prev => !prev)}
+                style={{
+                  padding: isMobile ? '10px 16px' : '8px 14px',
+                  borderRadius: 8,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: 'rgba(59, 130, 246, 0.18)',
+                  color: 'rgba(191, 219, 254, 0.95)',
+                  fontSize: isMobile ? shrinkFont(14) : '0.9rem',
+                  fontWeight: 600,
+                  minHeight: isMobile ? 40 : 'auto'
+                }}
+              >
+                Players ({playersList.length})
+              </button>
+              <button
+                onClick={() => send('setReady', { ready: !youReady })}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: youReady ? 'rgba(52, 211, 153, 0.18)' : 'rgba(248, 113, 113, 0.18)',
+                  color: youReady ? 'var(--good)' : 'var(--bad)',
+                  fontSize: isMobile ? shrinkFont(16) : '0.95rem',
+                  fontWeight: 600,
+                  minHeight: isMobile ? 44 : 'auto'
+                }}
+                title={youReady ? 'Ready' : 'Not Ready'}
+              >
+                Ready
+              </button>
+              <button
+                onClick={exitRoom}
+                style={{
+                  padding: isMobile ? '12px 20px' : '6px 12px',
+                  borderRadius: 6,
+                  border: '1px solid rgba(148, 163, 184, 0.35)',
+                  background: 'transparent',
+                  color: 'rgba(226, 232, 240, 0.9)',
+                  fontSize: isMobile ? shrinkFont(16) : '0.95rem',
+                  fontWeight: 600,
+                  minHeight: isMobile ? 44 : 'auto'
+                }}
+              >
+                Exit Game
+              </button>
+            </div>
+          </div>
+          {spreaditPlayersOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                top: isMobile ? 'calc(100% + 12px)' : 'calc(100% + 10px)',
+                right: isMobile ? 12 : 24,
+                background: 'rgba(15, 23, 42, 0.96)',
+                border: '1px solid rgba(148, 163, 184, 0.35)',
+                borderRadius: 12,
+                padding: isMobile ? 12 : 16,
+                minWidth: isMobile ? 'calc(100% - 48px)' : 260,
+                boxShadow: '0 20px 45px -25px rgba(2, 6, 23, 0.75)',
+                zIndex: 5
+              }}
+            >
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginBottom: 8
+              }}>
+                <span style={{ fontWeight: 600, color: 'white', fontSize: isMobile ? shrinkFont(15) : '0.95rem' }}>Players</span>
+                <span style={{ fontSize: isMobile ? shrinkFont(12) : '0.8rem', color: 'rgba(148, 163, 184, 0.75)' }}>
+                  {readyCount}/{playersList.length} ready
+                </span>
+              </div>
+              {playersList.length === 0 ? (
+                <div style={{
+                  padding: isMobile ? 10 : 12,
+                  borderRadius: 8,
+                  background: 'rgba(30, 41, 59, 0.6)',
+                  color: 'rgba(148, 163, 184, 0.8)',
+                  fontSize: isMobile ? shrinkFont(13) : '0.85rem'
+                }}>
+                  No commanders are docked yet.
+                </div>
+              ) : (
+                <ul style={{
+                  listStyle: 'none',
+                  padding: 0,
+                  margin: 0,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: isMobile ? 8 : 10
+                }}>
+                  {playersList.map(player => (
+                    <li
+                      key={player.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 12,
+                        padding: isMobile ? '6px 8px' : '6px 10px',
+                        borderRadius: 8,
+                        background: 'rgba(30, 41, 59, 0.45)',
+                        border: '1px solid rgba(71, 85, 105, 0.4)'
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          background: player.ready ? '#34d399' : '#f87171'
+                        }} />
+                        <span style={{ color: 'rgba(226, 232, 240, 0.92)', fontWeight: 500, fontSize: isMobile ? shrinkFont(14) : '0.95rem' }}>
+                          {player.name || 'Commander'}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: isMobile ? shrinkFont(12) : '0.8rem',
+                        color: player.ready ? '#34d399' : 'rgba(148, 163, 184, 0.75)'
+                      }}>
+                        {player.ready ? 'Ready' : 'Not Ready'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+        <div style={{
+          flex: '1 1 auto',
+          position: 'relative',
+          padding: isMobile ? 16 : 24
+        }}>
+          <div style={{
+            position: 'relative',
+            borderRadius: isMobile ? 16 : 20,
+            border: '1px solid rgba(148, 163, 184, 0.35)',
+            background: 'linear-gradient(160deg, rgba(30, 41, 59, 0.88), rgba(17, 24, 39, 0.95))',
+            overflow: 'hidden',
+            minHeight: isMobile ? 320 : 520,
+            boxShadow: '0 34px 60px -30px rgba(15, 23, 42, 0.68)'
+          }}>
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              opacity: 0.2,
+              background: 'radial-gradient(circle at 20% 20%, rgba(96, 165, 250, 0.25), transparent 55%), radial-gradient(circle at 80% 30%, rgba(129, 199, 212, 0.18), transparent 60%)'
+            }} />
+            <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))`,
+                gridAutoRows: 'minmax(0, 1fr)',
+                gap: 1,
+                width: '100%',
+                height: '100%'
+              }}>
+                {gridCells.map(index => {
+                  const row = Math.floor(index / gridCols)
+                  const col = index % gridCols
+                  const pattern = (row + col) % 4
+                  const baseOpacity = pattern === 0 ? 0.22 : pattern === 1 ? 0.16 : pattern === 2 ? 0.12 : 0.08
+                  return (
+                    <div
+                      key={index}
+                      style={{
+                        background: `rgba(96, 165, 250, ${baseOpacity})`,
+                        borderRadius: 4,
+                        border: '1px solid rgba(148, 163, 184, 0.12)',
+                        boxShadow: pattern === 0 ? 'inset 0 0 6px rgba(15, 23, 42, 0.4)' : 'none'
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+            {preLaunch && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                zIndex: 2,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: isMobile ? 12 : 18,
+                background: 'rgba(8, 12, 24, 0.76)',
+                backdropFilter: 'blur(1.8px)',
+                padding: isMobile ? 16 : 24
+              }}>
+                <button
+                  onClick={startGame}
+                  disabled={!readyToStartSpreadit}
+                  title={readyToStartSpreadit ? 'All players ready — launch Spreadit mission' : 'Waiting for every commander to ready up'}
+                  style={{
+                    padding: isMobile ? '18px 34px' : '18px 44px',
+                    fontSize: isMobile ? shrinkFont(22) : '1.15rem',
+                    fontWeight: 700,
+                    borderRadius: 999,
+                    border: readyToStartSpreadit ? '1px solid rgba(251, 191, 36, 0.65)' : '1px solid rgba(148, 163, 184, 0.45)',
+                    color: readyToStartSpreadit ? '#111827' : 'rgba(226, 232, 240, 0.88)',
+                    background: readyToStartSpreadit
+                      ? 'linear-gradient(135deg, #fde68a 0%, #fbbf24 45%, #f97316 100%)'
+                      : 'linear-gradient(135deg, rgba(148,163,184,0.65) 0%, rgba(71,85,105,0.82) 100%)',
+                    cursor: readyToStartSpreadit ? 'pointer' : 'not-allowed',
+                    boxShadow: readyToStartSpreadit ? '0 18px 36px rgba(251, 191, 36, 0.38)' : '0 12px 32px rgba(15, 23, 42, 0.55)',
+                    transition: 'transform 160ms ease, box-shadow 160ms ease',
+                    animation: readyToStartSpreadit ? 'readyPulse 1.6s ease-in-out infinite' : 'none'
+                  }}
+                >
+                  Start Game
+                </button>
+                <span style={{
+                  fontSize: isMobile ? shrinkFont(16) : '1rem',
+                  color: 'rgba(226, 232, 240, 0.88)',
+                  textAlign: 'center',
+                  maxWidth: 420,
+                  lineHeight: 1.45
+                }}>
+                  {readyToStartSpreadit
+                    ? 'All commanders are ready. Launch when you are!'
+                    : 'Waiting for every commander to ready up. The tactical grid unlocks once the mission begins.'}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <ConnectionStatus
+          connectionState={connectionState}
+          isReconnecting={isReconnecting}
+          error={error}
+          reconnect={reconnect}
+          isMobile={isMobile}
+        />
+      </div>
+    )
+  }
   const visible = (r.visiblePlanet || {}) as any
   const goods: Record<string, number> = visible.goods || {}
   const prices: Record<string, number> = visible.prices || {}

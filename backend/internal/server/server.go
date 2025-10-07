@@ -164,6 +164,15 @@ func sanitizeAlphanumeric(input string) string {
 	return alphanumericRegex.ReplaceAllString(input, "")
 }
 
+func normalizeGameType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "spreadit":
+		return "spreadit"
+	default:
+		return "spaceTrader"
+	}
+}
+
 type PlayerID string
 
 // PriceMemory stores remembered prices from visited planets
@@ -273,6 +282,15 @@ type Room struct {
 	PlanetPositions map[string][2]float64 `json:"-"`
 	ActiveAuction   *FederationAuction    `json:"-"`
 	PendingBlackOps []*BlackOpsContract   `json:"-"`
+	GameType        string                `json:"-"`
+	Spreadit        *SpreaditState        `json:"-"`
+}
+
+type SpreaditState struct {
+	Rows      int
+	Cols      int
+	CreatedAt time.Time
+	StartedAt time.Time
 }
 
 // ModalItem represents a queued modal to show to a specific player
@@ -587,6 +605,7 @@ func (gs *GameServer) HandleListRooms(w http.ResponseWriter, r *http.Request) {
 			"started":     room.Started,
 			"playerCount": len(room.Players),
 			"turn":        room.Turn,
+			"gameType":    room.GameType,
 		})
 		room.mu.Unlock()
 	}
@@ -600,6 +619,7 @@ func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	var data struct {
 		Name         string `json:"name"`
 		Singleplayer bool   `json:"singleplayer"`
+		GameType     string `json:"gameType"`
 	}
 	if r.Body != nil {
 		if err := json.NewDecoder(r.Body).Decode(&data); err != nil && err != io.EOF {
@@ -607,7 +627,7 @@ func (gs *GameServer) HandleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	data.Name = sanitizeAlphanumeric(data.Name)
-	room := gs.createRoom(data.Name, "", data.Singleplayer)
+	room := gs.createRoom(data.Name, "", data.Singleplayer, data.GameType)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": room.ID, "name": room.Name})
 }
@@ -736,6 +756,7 @@ func (gs *GameServer) readLoop(p *Player) {
 			var data struct {
 				Name         string `json:"name"`
 				Singleplayer bool   `json:"singleplayer"`
+				GameType     string `json:"gameType"`
 			}
 			if len(msg.Payload) > 0 {
 				if err := json.Unmarshal(msg.Payload, &data); err != nil {
@@ -743,7 +764,7 @@ func (gs *GameServer) readLoop(p *Player) {
 				}
 			}
 			data.Name = sanitizeAlphanumeric(data.Name)
-			room := gs.createRoom(data.Name, p.ID, data.Singleplayer)
+			room := gs.createRoom(data.Name, p.ID, data.Singleplayer, data.GameType)
 			gs.joinRoom(p, room.ID)
 		case "joinRoom":
 			var data struct {
@@ -1113,16 +1134,29 @@ func (gs *GameServer) sendLobbyState(p *Player) {
 	}
 }
 
-func (gs *GameServer) createRoom(name string, creator PlayerID, private bool) *Room {
+func (gs *GameServer) createRoom(name string, creator PlayerID, private bool, gameType string) *Room {
 	name = sanitizeAlphanumeric(name)
 	if name == "" {
 		name = "Room " + randID()[0:4]
+	}
+	gt := normalizeGameType(gameType)
+	planets := map[string]*Planet{}
+	var planetOrder []string
+	var planetPositions map[string][2]float64
+	if gt == "spaceTrader" {
+		planets = defaultPlanets()
+		planetOrder = planetNames(planets)
+		for i := range planetOrder {
+			j := rand.Intn(i + 1)
+			planetOrder[i], planetOrder[j] = planetOrder[j], planetOrder[i]
+		}
+		planetPositions = generatePlanetPositions(planetOrder)
 	}
 	room := &Room{
 		ID:      randID(),
 		Name:    name,
 		Players: map[PlayerID]*Player{},
-		Planets: defaultPlanets(),
+		Planets: planets,
 		Persist: map[PlayerID]*PersistedPlayer{},
 		readyCh: make(chan struct{}, 1),
 		closeCh: make(chan struct{}),
@@ -1133,17 +1167,24 @@ func (gs *GameServer) createRoom(name string, creator PlayerID, private bool) *R
 			}
 			return ""
 		}(),
-		Paused:  false,
-		stateCh: make(chan struct{}, 1),
+		Paused:   false,
+		stateCh:  make(chan struct{}, 1),
+		GameType: gt,
+		Spreadit: func() *SpreaditState {
+			if gt != "spreadit" {
+				return nil
+			}
+			return &SpreaditState{
+				Rows:      12,
+				Cols:      20,
+				CreatedAt: time.Now(),
+			}
+		}(),
 	}
-	// Pre-randomize planet order and positions so the map is ready before game start
-	names := planetNames(room.Planets)
-	for i := range names {
-		j := rand.Intn(i + 1)
-		names[i], names[j] = names[j], names[i]
+	if gt == "spaceTrader" {
+		room.PlanetOrder = planetOrder
+		room.PlanetPositions = planetPositions
 	}
-	room.PlanetOrder = names
-	room.PlanetPositions = generatePlanetPositions(names)
 	gs.roomsMu.Lock()
 	gs.rooms[room.ID] = room
 	gs.roomsMu.Unlock()
@@ -1760,6 +1801,37 @@ func (gs *GameServer) startGame(roomID string) {
 		return
 	}
 	room.mu.Lock()
+	if room.GameType == "spreadit" {
+		if !room.Started {
+			canStart := true
+			for _, pl := range room.Players {
+				if pl.IsBot || pl.Bankrupt {
+					continue
+				}
+				if !pl.Ready {
+					canStart = false
+					break
+				}
+			}
+			if canStart {
+				for _, pl := range room.Players {
+					if !pl.IsBot {
+						pl.Ready = false
+					}
+				}
+				room.Started = true
+				room.Turn = 0
+				if room.Spreadit == nil {
+					room.Spreadit = &SpreaditState{Rows: 12, Cols: 20, CreatedAt: time.Now()}
+				}
+				room.Spreadit.StartedAt = time.Now()
+				room.TurnEndsAt = time.Time{}
+			}
+		}
+		room.mu.Unlock()
+		gs.broadcastRoom(room)
+		return
+	}
 	if !room.Started {
 		canStart := true
 		for _, pl := range room.Players {
@@ -3349,6 +3421,121 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 			break
 		}
 	}
+	if room.GameType == "spreadit" {
+		if room.Spreadit == nil {
+			room.Spreadit = &SpreaditState{Rows: 12, Cols: 20, CreatedAt: time.Now()}
+		}
+		spreadit := room.Spreadit
+		type spreaditPlayerSnapshot struct {
+			ID      PlayerID
+			Name    string
+			Ready   bool
+			EndGame bool
+			IsBot   bool
+		}
+		type spreaditPlayerEntry struct {
+			player   *Player
+			snapshot spreaditPlayerSnapshot
+		}
+		entries := make([]spreaditPlayerEntry, 0, len(room.Players))
+		for _, pp := range room.Players {
+			snap := spreaditPlayerSnapshot{
+				ID:      pp.ID,
+				Name:    pp.Name,
+				Ready:   pp.Ready,
+				EndGame: pp.EndGame,
+				IsBot:   pp.IsBot,
+			}
+			entries = append(entries, spreaditPlayerEntry{player: pp, snapshot: snap})
+		}
+		sort.Slice(entries, func(i, j int) bool {
+			return strings.ToLower(entries[i].snapshot.Name) < strings.ToLower(entries[j].snapshot.Name)
+		})
+		playersView := make([]map[string]interface{}, len(entries))
+		for i, entry := range entries {
+			snap := entry.snapshot
+			playersView[i] = map[string]interface{}{
+				"id":      string(snap.ID),
+				"name":    snap.Name,
+				"ready":   snap.Ready,
+				"endGame": snap.EndGame,
+				"isBot":   snap.IsBot,
+			}
+		}
+		payloadByPlayer := make(map[PlayerID]interface{}, len(entries))
+		elapsedSeconds := 0
+		if !spreadit.StartedAt.IsZero() {
+			elapsedSeconds = int(time.Since(spreadit.StartedAt).Seconds())
+			if elapsedSeconds < 0 {
+				elapsedSeconds = 0
+			}
+		}
+		createdAt := spreadit.CreatedAt.UnixMilli()
+		startedAt := int64(0)
+		if !spreadit.StartedAt.IsZero() {
+			startedAt = spreadit.StartedAt.UnixMilli()
+		}
+		recipients := make([]*Player, 0, len(entries))
+		for _, entry := range entries {
+			snap := entry.snapshot
+			payload := map[string]interface{}{
+				"room": map[string]interface{}{
+					"id":        room.ID,
+					"name":      room.Name,
+					"started":   room.Started,
+					"turn":      room.Turn,
+					"players":   playersView,
+					"allReady":  allReady,
+					"private":   room.Private,
+					"paused":    room.Paused,
+					"creatorId": string(room.CreatorID),
+					"gameType":  room.GameType,
+				},
+				"you": map[string]interface{}{
+					"id":                string(snap.ID),
+					"name":              snap.Name,
+					"ready":             snap.Ready,
+					"endGame":           snap.EndGame,
+					"money":             0,
+					"cashValue":         0,
+					"inventory":         map[string]int{},
+					"inventoryAvgCost":  map[string]int{},
+					"currentPlanet":     "",
+					"destinationPlanet": "",
+					"fuel":              0,
+				},
+				"spreadit": map[string]interface{}{
+					"rows":           spreadit.Rows,
+					"cols":           spreadit.Cols,
+					"createdAt":      createdAt,
+					"startedAt":      startedAt,
+					"elapsedSeconds": elapsedSeconds,
+				},
+				"visiblePlanet": map[string]interface{}{},
+			}
+			payloadByPlayer[snap.ID] = payload
+			if entry.player != nil && entry.player.conn != nil {
+				recipients = append(recipients, entry.player)
+			}
+		}
+		room.mu.Unlock()
+		if only != nil {
+			if payload, ok := payloadByPlayer[only.ID]; ok && only.conn != nil {
+				only.writeMu.Lock()
+				only.conn.WriteJSON(WSOut{Type: "roomState", Payload: payload})
+				only.writeMu.Unlock()
+			}
+			return
+		}
+		for _, pp := range recipients {
+			payload := payloadByPlayer[pp.ID]
+			pp.writeMu.Lock()
+			pp.conn.WriteJSON(WSOut{Type: "roomState", Payload: payload})
+			pp.writeMu.Unlock()
+		}
+		return
+	}
+
 	playersBase := []map[string]interface{}{}
 	for _, pp := range room.Players {
 		displayMoney := pp.Money
@@ -3584,6 +3771,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 					"turnEndsAt": room.TurnEndsAt.UnixMilli(),
 					"allReady":   allReady,
 					"planets":    knownOrder,
+					"gameType":   room.GameType,
 					"planetPositions": func() map[string]map[string]float64 {
 						if len(positionsView) == 0 {
 							return nil
@@ -3742,6 +3930,7 @@ func (gs *GameServer) sendRoomState(room *Room, only *Player) {
 				"paused":     room.Paused,
 				"creatorId":  string(room.CreatorID),
 				"allReady":   allReady,
+				"gameType":   room.GameType,
 				"planets":    knownOrder,
 				"planetPositions": func() map[string]map[string]float64 {
 					if len(positionsView) == 0 {
