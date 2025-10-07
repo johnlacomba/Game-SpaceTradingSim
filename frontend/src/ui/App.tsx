@@ -169,6 +169,8 @@ type LobbyState = { rooms: LobbyRoom[] }
 
 type WSOut = { type: string; payload?: any }
 
+type GameMode = 'spaceTrader' | 'spreadit'
+
 function useWS(url: string | null) {
   // WebSocket and connection management refs/state
   const wsRef = useRef<WebSocket | null>(null)
@@ -1046,6 +1048,8 @@ export function App() {
   const [newRoomName, setNewRoomName] = useState('')
   const [singleplayerMode, setSingleplayerMode] = useState(false)
   const [lobbyNotice, setLobbyNotice] = useState<string | null>(null)
+  const [gameMode, setGameMode] = useState<GameMode>('spaceTrader')
+  const [showGameModeModal, setShowGameModeModal] = useState(false)
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
@@ -1054,6 +1058,22 @@ export function App() {
   const { ready, messages, send, error, connectionState, reconnect, isReconnecting } = useWS(url)
   const { user, loading: authLoading, signOut, getAccessToken } = useAuth()
   const currentUserId = useMemo(() => user?.sub || user?.username || '', [user?.sub, user?.username])
+
+  const handleGameModeChange = (mode: GameMode) => {
+    setGameMode(mode)
+    if (mode === 'spreadit') {
+      setShowGameModeModal(true)
+    }
+  }
+
+  const acknowledgeSpreaditModal = () => {
+    setShowGameModeModal(false)
+  }
+
+  const revertToSpaceTrader = () => {
+    setShowGameModeModal(false)
+    setGameMode('spaceTrader')
+  }
   const nameTouchedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
   
@@ -2028,6 +2048,7 @@ export function App() {
     if (singleplayerMode) {
       payload.singleplayer = true
     }
+    payload.mode = gameMode
     const previous = allowRoomStateRef.current
     allowRoomStateRef.current = true
     const ok = send('createRoom', Object.keys(payload).length ? payload : undefined)
@@ -2036,7 +2057,7 @@ export function App() {
     } else {
       allowRoomStateRef.current = previous
     }
-  }, [newRoomName, singleplayerMode, send])
+  }, [gameMode, newRoomName, singleplayerMode, send])
   const joinRoom = useCallback((roomId: string) => {
     exitingRoomRef.current = null
     const previous = allowRoomStateRef.current
@@ -3294,6 +3315,102 @@ export function App() {
           opacity: 0.2
         }} />
 
+        {showGameModeModal && (
+          <div style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(8, 12, 24, 0.82)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: isMobile ? 20 : 40,
+            zIndex: 20
+          }}>
+            <div style={{
+              background: 'linear-gradient(160deg, rgba(30, 41, 59, 0.95), rgba(17, 24, 39, 0.98))',
+              border: '1px solid rgba(148, 163, 184, 0.35)',
+              borderRadius: 20,
+              padding: isMobile ? 24 : 32,
+              maxWidth: 440,
+              width: '100%',
+              color: 'white',
+              boxShadow: '0 25px 60px -20px rgba(0, 0, 0, 0.65)'
+            }}>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                marginBottom: 16
+              }}>
+                <span style={{ fontSize: isMobile ? '2rem' : '2.3rem' }}>🛠️</span>
+                <h3 style={{
+                  margin: 0,
+                  fontSize: isMobile ? '1.3rem' : '1.5rem',
+                  fontWeight: 600
+                }}>
+                  Spreadit is still in the shipyard
+                </h3>
+              </div>
+              <p style={{
+                margin: '0 0 16px 0',
+                fontSize: isMobile ? '0.95rem' : '1rem',
+                lineHeight: 1.55,
+                color: 'rgba(226, 232, 240, 0.85)'
+              }}>
+                Spreadit is our upcoming social trading mode and is currently under heavy construction. Systems may be unstable and features will change frequently while we finish the build.
+              </p>
+              <p style={{
+                margin: 0,
+                fontSize: isMobile ? '0.9rem' : '0.95rem',
+                color: 'rgba(248, 250, 252, 0.75)'
+              }}>
+                You can preview it now, or stay with the fully operational Space Trader experience.
+              </p>
+              <div style={{
+                display: 'flex',
+                flexDirection: isMobile ? 'column' : 'row',
+                gap: 12,
+                marginTop: 24
+              }}>
+                <button
+                  onClick={revertToSpaceTrader}
+                  style={{
+                    flex: 1,
+                    padding: isMobile ? '12px 16px' : '12px 18px',
+                    borderRadius: 999,
+                    border: '1px solid rgba(148, 163, 184, 0.45)',
+                    background: 'transparent',
+                    color: 'rgba(226, 232, 240, 0.9)',
+                    fontWeight: 600,
+                    fontSize: isMobile ? '0.95rem' : '0.9rem',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Stay on Space Trader
+                </button>
+                <button
+                  onClick={acknowledgeSpreaditModal}
+                  style={{
+                    flex: 1,
+                    padding: isMobile ? '12px 16px' : '12px 18px',
+                    borderRadius: 999,
+                    border: 'none',
+                    background: 'linear-gradient(135deg, #fbbf24 0%, #f97316 100%)',
+                    color: '#0f172a',
+                    fontWeight: 700,
+                    fontSize: isMobile ? '0.95rem' : '0.9rem',
+                    cursor: 'pointer',
+                    boxShadow: '0 15px 30px -20px rgba(251, 191, 36, 0.8)'
+                  }}
+                >
+                  Preview Spreadit
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Main content */}
         <div style={{
           position: 'relative',
@@ -3381,7 +3498,7 @@ export function App() {
                 marginBottom: 16,
                 opacity: 0.8
               }}>
-                🚀
+                {gameMode === 'spaceTrader' ? '🚀' : '🛰️'}
               </div>
               <h3 style={{
                 fontSize: isMobile ? '1.3rem' : '1.5rem',
@@ -3391,13 +3508,92 @@ export function App() {
               }}>
                 Start New Mission
               </h3>
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                marginBottom: 20,
+                textAlign: 'left'
+              }}>
+                <label
+                  htmlFor="game-mode"
+                  style={{
+                    fontSize: isMobile ? '0.85rem' : '0.9rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.6,
+                    color: 'rgba(255, 255, 255, 0.65)',
+                    fontWeight: 600
+                  }}
+                >
+                  Game Mode
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <select
+                    id="game-mode"
+                    value={gameMode}
+                    onChange={e => handleGameModeChange(e.target.value as GameMode)}
+                    style={{
+                      width: '100%',
+                      padding: isMobile ? '14px 16px' : '12px 14px',
+                      fontSize: isMobile ? '1rem' : '0.95rem',
+                      borderRadius: 10,
+                      border: '1px solid rgba(255, 255, 255, 0.15)',
+                      background: 'rgba(15, 23, 42, 0.7)',
+                      color: 'white',
+                      outline: 'none',
+                      cursor: 'pointer',
+                      WebkitAppearance: 'none',
+                      MozAppearance: 'none'
+                    }}
+                    onFocus={e => {
+                      e.currentTarget.style.borderColor = 'rgba(167, 139, 250, 0.6)'
+                      e.currentTarget.style.boxShadow = '0 0 0 3px rgba(167, 139, 250, 0.2)'
+                    }}
+                    onBlur={e => {
+                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)'
+                      e.currentTarget.style.boxShadow = 'none'
+                    }}
+                  >
+                    <option value="spaceTrader">Space Trader</option>
+                    <option value="spreadit">Spreadit (preview)</option>
+                  </select>
+                  <span style={{
+                    position: 'absolute',
+                    right: 14,
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    pointerEvents: 'none',
+                    color: 'rgba(255, 255, 255, 0.6)',
+                    fontSize: isMobile ? '1.2rem' : '1rem'
+                  }}>
+                    ▾
+                  </span>
+                </div>
+                {gameMode === 'spreadit' && (
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    color: 'rgba(251, 191, 36, 0.85)',
+                    fontSize: isMobile ? '0.85rem' : '0.85rem',
+                    lineHeight: 1.45
+                  }}>
+                    <span style={{ fontSize: isMobile ? '1.1rem' : '1rem' }}>⚠️</span>
+                    <span>
+                      Spreadit is in active development. Expect limited features and rapid changes.
+                    </span>
+                  </div>
+                )}
+              </div>
               <p style={{
                 color: 'rgba(255, 255, 255, 0.6)',
                 fontSize: isMobile ? '0.9rem' : '1rem',
                 margin: '0 0 24px 0',
                 lineHeight: 1.5
               }}>
-                Launch a new trading expedition and invite other commanders to join your crew.
+                {gameMode === 'spaceTrader'
+                  ? 'Launch a new trading expedition and invite other commanders to join your crew.'
+                  : 'Test-drive Spreadit, our experimental social trading mode. We appreciate your patience while we finish building it.'}
               </p>
               <div style={{
                 display: 'flex',

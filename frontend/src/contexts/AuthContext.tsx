@@ -10,7 +10,6 @@ import {
   fetchAuthSession,
   fetchUserAttributes
 } from 'aws-amplify/auth';
-import { handleSignIn } from 'aws-amplify/auth';
 import awsConfig from '../aws-config.js';
 
 // Check if we're in development mode
