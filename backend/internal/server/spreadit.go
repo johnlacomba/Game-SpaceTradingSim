@@ -153,6 +153,27 @@ func (s *SpreaditState) stepTowards(fromIdx, targetIdx int) int {
 	return s.index(nr, nc)
 }
 
+func (s *SpreaditState) chebyshevDistance(fromIdx, targetIdx int) int {
+	if fromIdx < 0 || targetIdx < 0 {
+		return 0
+	}
+	fr, fc := s.coord(fromIdx)
+	tr, tc := s.coord(targetIdx)
+	dr := absInt(fr - tr)
+	dc := absInt(fc - tc)
+	if dr > dc {
+		return dr
+	}
+	return dc
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
+}
+
 func (s *SpreaditState) randomAvailableCoreTile() (int, bool) {
 	preferred := []int{}
 	fallback := []int{}
@@ -400,24 +421,81 @@ func (gs *GameServer) advanceSpreadit(room *Room) bool {
 			playerState.Resources++
 			continue
 		}
+		currentDist := spreadit.chebyshevDistance(idx, playerState.CoreIndex)
 		dest := spreadit.stepTowards(idx, playerState.CoreIndex)
 		if dest == idx {
 			continue
 		}
-		destTile := &spreadit.Tiles[dest]
-		if destTile.Wall {
+		validateDest := func(candidate int) (bool, bool) {
+			if candidate < 0 || candidate >= len(spreadit.Tiles) {
+				return false, false
+			}
+			t := &spreadit.Tiles[candidate]
+			if t.Wall {
+				return false, false
+			}
+			isCore := t.CoreOf == owner
+			if t.HasResource && !isCore {
+				return false, false
+			}
+			if occupied[candidate] && !isCore {
+				return false, false
+			}
+			return true, isCore
+		}
+		chosen := -1
+		isCoreDestination := false
+		if ok, isCore := validateDest(dest); ok {
+			chosen = dest
+			isCoreDestination = isCore
+		} else {
+			fr, fc := spreadit.coord(idx)
+			tr, tc := spreadit.coord(playerState.CoreIndex)
+			desiredDr := 0
+			if tr > fr {
+				desiredDr = 1
+			} else if tr < fr {
+				desiredDr = -1
+			}
+			desiredDc := 0
+			if tc > fc {
+				desiredDc = 1
+			} else if tc < fc {
+				desiredDc = -1
+			}
+			bestDist := currentDist
+			bestPenalty := 1 << 30
+			bestInline := 1 << 30
+			for _, candidate := range spreadit.neighbors(idx) {
+				if candidate == idx {
+					continue
+				}
+				if ok, candIsCore := validateDest(candidate); ok {
+					dist := spreadit.chebyshevDistance(candidate, playerState.CoreIndex)
+					if dist >= currentDist {
+						continue
+					}
+					cr, cc := spreadit.coord(candidate)
+					dr := cr - fr
+					dc := cc - fc
+					penalty := absInt(dr-desiredDr)*2 + absInt(dc-desiredDc)
+					inline := absInt(cr-tr) + absInt(cc-tc)
+					if dist < bestDist || (dist == bestDist && penalty < bestPenalty) || (dist == bestDist && penalty == bestPenalty && inline < bestInline) {
+						bestDist = dist
+						bestPenalty = penalty
+						bestInline = inline
+						chosen = candidate
+						isCoreDestination = candIsCore
+					}
+				}
+			}
+		}
+		if chosen == -1 {
 			continue
 		}
-		isCoreDestination := destTile.CoreOf == owner
-		if destTile.HasResource && !isCoreDestination {
-			continue
-		}
-		if occupied[dest] && !isCoreDestination {
-			continue
-		}
-		moves = append(moves, resourceMove{from: idx, to: dest, player: owner})
+		moves = append(moves, resourceMove{from: idx, to: chosen, player: owner})
 		if !isCoreDestination {
-			occupied[dest] = true
+			occupied[chosen] = true
 		}
 	}
 
