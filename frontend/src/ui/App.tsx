@@ -154,6 +154,20 @@ type SpreaditRoomState = {
   players?: SpreaditPlayerInfo[]
 }
 
+type SpreaditResourceAnimation = {
+  id: string
+  fromIdx: number
+  toIdx: number
+  fromRow: number
+  fromCol: number
+  toRow: number
+  toCol: number
+  ownerId?: string
+  color?: string
+  startAt: number
+  duration: number
+}
+
 type RoomState = {
   room: {
     id: string
@@ -224,6 +238,7 @@ type WSOut = { type: string; payload?: any }
 type GameMode = 'spaceTrader' | 'spreadit'
 
 const SPREADIT_WALL_DESTROY_COST = 20
+const SPREADIT_RESOURCE_ANIMATION_DURATION_MS = 900
 
 function useWS(url: string | null) {
   // WebSocket and connection management refs/state
@@ -1113,6 +1128,33 @@ export function App() {
   const [singleplayerSaves, setSingleplayerSaves] = useState<SingleplayerSaveSummary[]>([])
   const [spreaditTab, setSpreaditTab] = useState<'map' | 'players'>('map')
   const spreaditRoomInitRef = useRef<string | null>(null)
+  const [spreaditResourceAnimations, setSpreaditResourceAnimations] = useState<SpreaditResourceAnimation[]>([])
+  const [spreaditAnimationTime, setSpreaditAnimationTime] = useState<number>(() => (typeof performance !== 'undefined' ? performance.now() : Date.now()))
+  const spreaditPrevTilesRef = useRef<{ tick: number; tiles: SpreaditTileState[] }>({ tick: -1, tiles: [] })
+  const spreaditAnimationSnapshot = useMemo(() => {
+    if (spreaditResourceAnimations.length === 0) {
+      return {
+        active: [] as Array<SpreaditResourceAnimation & { progress: number }>
+      }
+    }
+    const now = spreaditAnimationTime
+    const active: Array<SpreaditResourceAnimation & { progress: number }> = []
+    for (const anim of spreaditResourceAnimations) {
+      const duration = anim.duration > 0 ? anim.duration : SPREADIT_RESOURCE_ANIMATION_DURATION_MS
+      let progress = duration === 0 ? 1 : (now - anim.startAt) / duration
+      if (!Number.isFinite(progress)) {
+        progress = 1
+      }
+      if (progress >= 1) {
+        continue
+      }
+      if (progress < 0) {
+        progress = 0
+      }
+      active.push({ ...anim, progress })
+    }
+    return { active }
+  }, [spreaditResourceAnimations, spreaditAnimationTime])
   const pendingRestoreRef = useRef<{ summary: SingleplayerSaveSummary; sent: boolean } | null>(null)
   const restoreTargetRoomRef = useRef<string | null>(null)
   const exitingRoomRef = useRef<string | null>(null)
@@ -1977,6 +2019,8 @@ export function App() {
   useEffect(() => {
     if (stage !== 'room' || room?.room?.gameType !== 'spreadit') {
       spreaditRoomInitRef.current = null
+      spreaditPrevTilesRef.current = { tick: -1, tiles: [] }
+      setSpreaditResourceAnimations([])
       setSpreaditTab('map')
       return
     }
@@ -1986,6 +2030,162 @@ export function App() {
       setSpreaditTab('map')
     }
   }, [room?.room?.gameType, room?.room?.id, stage])
+
+  useEffect(() => {
+    if (spreaditResourceAnimations.length === 0) {
+      return
+    }
+    let mounted = true
+    let rafId = 0
+    const step = () => {
+      if (!mounted) {
+        return
+      }
+      const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+      setSpreaditAnimationTime(now)
+      const hasActive = spreaditResourceAnimations.some(anim => {
+        const duration = anim.duration > 0 ? anim.duration : SPREADIT_RESOURCE_ANIMATION_DURATION_MS
+        return now < anim.startAt + duration
+      })
+      if (hasActive) {
+        rafId = requestAnimationFrame(step)
+      }
+    }
+    rafId = requestAnimationFrame(step)
+    return () => {
+      mounted = false
+      if (rafId) {
+        cancelAnimationFrame(rafId)
+      }
+    }
+  }, [spreaditResourceAnimations])
+
+  useEffect(() => {
+    if (stage !== 'room' || room?.room?.gameType !== 'spreadit') {
+      return
+    }
+    const state = room?.spreadit
+    if (!state) {
+      spreaditPrevTilesRef.current = { tick: -1, tiles: [] }
+      setSpreaditResourceAnimations([])
+      return
+    }
+    const tick = typeof state.tick === 'number' ? state.tick : 0
+    const rows = typeof state.rows === 'number' && state.rows > 0 ? state.rows : 12
+    const cols = typeof state.cols === 'number' && state.cols > 0 ? state.cols : 20
+    const tiles = Array.isArray(state.tiles) ? (state.tiles as SpreaditTileState[]) : []
+    const prevSnapshot = spreaditPrevTilesRef.current
+    const cloneTiles = () => tiles.map(tile => (tile ? { ...tile } : {} as SpreaditTileState))
+
+    if (!prevSnapshot || prevSnapshot.tick < 0 || prevSnapshot.tiles.length !== tiles.length) {
+      spreaditPrevTilesRef.current = { tick, tiles: cloneTiles() }
+      setSpreaditResourceAnimations([])
+      return
+    }
+
+    if (tick <= prevSnapshot.tick) {
+      spreaditPrevTilesRef.current = { tick, tiles: cloneTiles() }
+      return
+    }
+
+    const playersList = Array.isArray(state.players) ? (state.players as SpreaditPlayerInfo[]) : []
+    const playerColorLookup: Record<string, string | undefined> = {}
+    for (const player of playersList) {
+      if (player && typeof player.id === 'string') {
+        const color = typeof player.color === 'string' ? player.color : undefined
+        playerColorLookup[player.id] = color
+      }
+    }
+
+    type ResourceCandidate = { idx: number; owner?: string; row: number; col: number }
+    const sources: ResourceCandidate[] = []
+    const destinations: ResourceCandidate[] = []
+    const limit = Math.min(prevSnapshot.tiles.length, tiles.length)
+    for (let idx = 0; idx < limit; idx++) {
+      const prevTile = prevSnapshot.tiles[idx] || ({} as SpreaditTileState)
+      const nextTile = tiles[idx] || ({} as SpreaditTileState)
+      const prevHas = Boolean(prevTile.hasResource)
+      const nextHas = Boolean(nextTile.hasResource)
+      if (prevHas && !nextHas) {
+        sources.push({
+          idx,
+          owner: typeof prevTile.owner === 'string' ? prevTile.owner : undefined,
+          row: Math.floor(idx / cols),
+          col: idx % cols
+        })
+      } else if (!prevHas && nextHas) {
+        const destinationOwner = typeof nextTile.owner === 'string'
+          ? nextTile.owner
+          : (typeof nextTile.coreOf === 'string' ? nextTile.coreOf : undefined)
+        destinations.push({
+          idx,
+          owner: destinationOwner,
+          row: Math.floor(idx / cols),
+          col: idx % cols
+        })
+      }
+    }
+
+    const usedSources = new Set<number>()
+    const matches: Array<{ source: ResourceCandidate; dest: ResourceCandidate }> = []
+    for (const dest of destinations) {
+      let bestSource: ResourceCandidate | null = null
+      let bestScore = Number.POSITIVE_INFINITY
+      for (const source of sources) {
+        if (usedSources.has(source.idx)) continue
+        const rowDelta = Math.abs(dest.row - source.row)
+        const colDelta = Math.abs(dest.col - source.col)
+        if (rowDelta > 1 || colDelta > 1) continue
+        let score = Math.max(rowDelta, colDelta)
+        if (source.owner && dest.owner && source.owner === dest.owner) {
+          score -= 0.3
+        } else if (source.owner && dest.owner && source.owner !== dest.owner) {
+          score += 0.3
+        }
+        if (!dest.owner && source.owner) {
+          score += 0.15
+        }
+        if (score < bestScore) {
+          bestScore = score
+          bestSource = source
+        }
+      }
+      if (bestSource) {
+        usedSources.add(bestSource.idx)
+        matches.push({ source: bestSource, dest })
+      }
+    }
+
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    if (matches.length > 0) {
+      const animations: SpreaditResourceAnimation[] = matches.map(({ source, dest }, index) => {
+        const ownerId = source.owner || dest.owner
+        const color = ownerId ? playerColorLookup[ownerId] : undefined
+        return {
+          id: `spreadit-move-${tick}-${source.idx}-${dest.idx}-${index}`,
+          fromIdx: source.idx,
+          toIdx: dest.idx,
+          fromRow: source.row,
+          fromCol: source.col,
+          toRow: dest.row,
+          toCol: dest.col,
+          ownerId,
+          color,
+          startAt: nowMs,
+          duration: SPREADIT_RESOURCE_ANIMATION_DURATION_MS
+        }
+      })
+      setSpreaditResourceAnimations(animations)
+      setSpreaditAnimationTime(nowMs)
+    } else {
+      if (spreaditResourceAnimations.length > 0) {
+        setSpreaditResourceAnimations([])
+      }
+      setSpreaditAnimationTime(nowMs)
+    }
+
+    spreaditPrevTilesRef.current = { tick, tiles: cloneTiles() }
+  }, [room?.spreadit, stage, room?.room?.gameType, spreaditResourceAnimations.length])
 
   useEffect(() => {
     const list = room?.you?.knownPlanets
@@ -4163,6 +4363,13 @@ export function App() {
   const yourSpreaditColor = typeof youSpreadit?.color === 'string' ? youSpreadit.color : undefined
     const youId = r.you.id
     const gridCells = Array.from({ length: gridRows * gridCols }, (_, index) => index)
+    const totalTiles = gridRows * gridCols
+    const resourceAnimationsForGrid = spreaditAnimationSnapshot.active.filter(anim =>
+      anim.fromIdx >= 0 && anim.fromIdx < totalTiles && anim.toIdx >= 0 && anim.toIdx < totalTiles
+    )
+    const activeResourceDestinationSet = new Set<number>(resourceAnimationsForGrid.map(anim => anim.toIdx))
+    const tileWidthPercent = gridCols > 0 ? 100 / gridCols : 0
+    const tileHeightPercent = gridRows > 0 ? 100 / gridRows : 0
 
     return (
       <div style={{
@@ -4363,6 +4570,7 @@ export function App() {
                     const resourceSpawner = Boolean(tile.resourceSpawner)
                     const isYourTile = ownerId !== '' && ownerId === youId
                     const coreHighlight = coreOwnerId !== ''
+                    const resourceAnimating = activeResourceDestinationSet.has(index)
                     const isWall = Boolean(tile.wall)
                     const canAttemptDestroyWall = !preLaunch && isWall
                     const hasWallResources = yourSpreaditResources >= SPREADIT_WALL_DESTROY_COST
@@ -4480,7 +4688,7 @@ export function App() {
                             }}
                           />
                         )}
-                        {hasResource && (
+                        {hasResource && !resourceAnimating && (
                           <div
                             style={{
                               position: 'absolute',
@@ -4514,6 +4722,50 @@ export function App() {
                     )
                   })}
                 </div>
+                {resourceAnimationsForGrid.length > 0 && (
+                  <div style={{
+                    position: 'absolute',
+                    inset: 0,
+                    pointerEvents: 'none',
+                    zIndex: 3
+                  }}>
+                    {resourceAnimationsForGrid.map(anim => {
+                      const progress = anim.progress
+                      const rowDelta = anim.toRow - anim.fromRow
+                      const colDelta = anim.toCol - anim.fromCol
+                      const currentRow = anim.fromRow + rowDelta * progress
+                      const currentCol = anim.fromCol + colDelta * progress
+                      const centerX = ((currentCol + 0.5) / gridCols) * 100
+                      const centerY = ((currentRow + 0.5) / gridRows) * 100
+                      const bubbleColor = typeof anim.color === 'string' ? anim.color : '#fbbf24'
+                      const highlight = bubbleColor.startsWith('#') && bubbleColor.length === 7 ? `${bubbleColor}B0` : bubbleColor
+                      const widthStyle = tileWidthPercent > 0 ? `calc(${tileWidthPercent}% * 0.62)` : '22px'
+                      const heightStyle = tileHeightPercent > 0 ? `calc(${tileHeightPercent}% * 0.62)` : '22px'
+                      const scale = 0.92 + 0.12 * Math.sin(progress * Math.PI)
+                      return (
+                        <div
+                          key={anim.id}
+                          style={{
+                            position: 'absolute',
+                            left: `${centerX}%`,
+                            top: `${centerY}%`,
+                            width: widthStyle,
+                            height: heightStyle,
+                            transform: `translate(-50%, -50%) scale(${scale.toFixed(3)})`,
+                            transformOrigin: 'center',
+                            borderRadius: '50%',
+                            background: 'radial-gradient(circle at 35% 30%, #fef08a, #fbbf24 45%, #f97316 100%)',
+                            border: `2px solid ${bubbleColor}`,
+                            boxShadow: `0 0 14px ${highlight}`,
+                            opacity: 0.88,
+                            filter: 'saturate(1.2)',
+                            transition: 'none'
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
                 {!preLaunch && spreaditPlayerInfoList.length > 0 && (
                   <div style={{
                     position: 'absolute',
